@@ -4,13 +4,16 @@
 #  https://medium.com/@tszumowski/delightful-designs-airflows-configuration-parser-1ef1a6b3d03c
 
 
-import os
 import configparser
-import logging
 import json
+import logging
+import os
+from collections.abc import Callable, Iterable
 from fnmatch import fnmatchcase
-from typing import Optional, List, Dict, Any, Callable, TypeVar, Set, Tuple, Iterable
+from typing import Any, TypeVar
+
 from xdg import XDG_CONFIG_DIRS, XDG_CONFIG_HOME
+
 from .._util import StructuredLogMessage as _
 
 _T = TypeVar("_T")
@@ -29,25 +32,25 @@ class Section:
         self._parent = parent
         self._section = section
 
-    def get(self, key: str, default: Optional[str] = None) -> str:
+    def get(self, key: str, default: str | None = None) -> str:
         return self._parent.get(self._section, key, default)
 
     def __getitem__(self, key: str) -> str:
         return self.get(key)
 
-    def get_int(self, key: str, default: Optional[int] = None) -> int:
+    def get_int(self, key: str, default: int | None = None) -> int:
         return self._parent.get_int(self._section, key, default)
 
-    def get_float(self, key: str, default: Optional[float] = None) -> float:
+    def get_float(self, key: str, default: float | None = None) -> float:
         return self._parent.get_float(self._section, key, default)
 
-    def get_bool(self, key: str, default: Optional[bool] = None) -> bool:
+    def get_bool(self, key: str, default: bool | None = None) -> bool:
         return self._parent.get_bool(self._section, key, default)
 
-    def get_dict(self, key: str, default: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    def get_dict(self, key: str, default: dict[str, Any] | None = None) -> dict[str, Any]:
         return self._parent.get_dict(self._section, key, default)
 
-    def get_list(self, key: str, default: Optional[List[Any]] = None) -> List[Any]:
+    def get_list(self, key: str, default: list[Any] | None = None) -> list[Any]:
         return self._parent.get_list(self._section, key, default)
 
 
@@ -75,20 +78,20 @@ class Loader:
     _defaults: configparser.ConfigParser
     _options: configparser.ConfigParser
     _overrides: configparser.ConfigParser
-    _used: Set[Tuple[str, str]]
-    _used_env: Set[str]
+    _used: set[tuple[str, str]]
+    _used_env: set[str]
 
-    cfg_filename: Optional[str] = None
+    cfg_filename: str | None = None
 
     def __init__(
         self,
         logger: logging.Logger,
-        filenames: Optional[List[str]] = None,
-        overrides: Optional[Dict[str, Dict[str, str]]] = None,
+        filenames: list[str] | None = None,
+        overrides: dict[str, dict[str, str]] | None = None,
     ):
         self._logger = logger
         self._used = set()
-        self._used_env = set(["MINIWDL_CFG"])
+        self._used_env = {"MINIWDL_CFG"}
 
         self._defaults = configparser.ConfigParser()
         self._options = configparser.ConfigParser()
@@ -123,13 +126,12 @@ class Loader:
         if overrides:
             self.override(overrides)
 
-    def override(self, options: Dict[str, Dict[str, Any]]) -> None:
-        options2: Dict[str, Dict[str, Any]] = {}
-        for section in options:
-            if options[section]:
+    def override(self, options: dict[str, dict[str, Any]]) -> None:
+        options2: dict[str, dict[str, Any]] = {}
+        for section, section_options in options.items():
+            if section_options:
                 options2[section] = {}
-                for key in options[section]:
-                    v = options[section][key]
+                for key, v in section_options.items():
                     if isinstance(v, (list, dict, bool)) or v is None:
                         options2[section][key] = json.dumps(v)
                     else:
@@ -138,18 +140,17 @@ class Loader:
             self._logger.debug(_("applying configuration overrides", **options2))
             self._overrides.read_dict(options2)
 
-    def plugin_defaults(self, options: Dict[str, Dict[str, Any]]) -> None:
+    def plugin_defaults(self, options: dict[str, dict[str, Any]]) -> None:
         """
         Last-priority default settings; typically added by plugins (whose options won't be
         represented in default.cfg).
         (DEPRECATED)
         """
-        options2: Dict[str, Dict[str, Any]] = {}
-        for section in options:
-            for key in options[section]:
+        options2: dict[str, dict[str, Any]] = {}
+        for section, section_options in options.items():
+            for key, v in section_options.items():
                 if not self._defaults.has_option(section, key):
                     options2section = options2.setdefault(section, {})
-                    v = options[section][key]
                     if isinstance(v, (list, dict, bool)) or v is None:
                         options2section[key] = json.dumps(v)
                     else:
@@ -166,7 +167,7 @@ class Loader:
             self._logger.debug(_("applying plugin configuration defaults", **options2))
             self._defaults.read_dict(options2)
 
-    def get(self, section: str, key: str, default: Optional[str] = None) -> str:
+    def get(self, section: str, key: str, default: str | None = None) -> str:
         section = str(section).lower()
         key = str(key).lower()
         ans = None
@@ -224,7 +225,7 @@ class Loader:
         key: str,
         ty: str,
         parse: Callable[[str], _T],
-        default: Optional[_T] = None,
+        default: _T | None = None,
     ) -> _T:
         try:
             ans = self.get(section, key)
@@ -246,31 +247,31 @@ class Loader:
             )
             raise ValueError(f"configuration option [{section}] {key} should be {ty}")
 
-    def get_int(self, section: str, key: str, default: Optional[int] = None) -> int:
+    def get_int(self, section: str, key: str, default: int | None = None) -> int:
         return self._parse(section, key, "int", int, default)
 
-    def get_float(self, section: str, key: str, default: Optional[float] = None) -> float:
+    def get_float(self, section: str, key: str, default: float | None = None) -> float:
         return self._parse(section, key, "float", float, default)
 
-    def get_bool(self, section: str, key: str, default: Optional[bool] = None) -> bool:
+    def get_bool(self, section: str, key: str, default: bool | None = None) -> bool:
         return self._parse(section, key, "bool", _parse_bool, default)
 
     def get_dict(
-        self, section: str, key: str, default: Optional[Dict[str, Any]] = None
-    ) -> Dict[str, Any]:
+        self, section: str, key: str, default: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         return self._parse(section, key, "JSON dict", _parse_dict, default)
 
-    def get_list(self, section: str, key: str, default: Optional[List[Any]] = None) -> List[Any]:
+    def get_list(self, section: str, key: str, default: list[Any] | None = None) -> list[Any]:
         return self._parse(section, key, "JSON list", _parse_list, default)
 
     def get_all(self, defaults=True):
         options = set()
         for section in self._overrides.sections():
-            options |= set((section, key) for key in self._overrides.options(section))
+            options |= {(section, key) for key in self._overrides.options(section)}
         for section in self._options.sections():
-            options |= set((section, key) for key in self._options.options(section))
+            options |= {(section, key) for key in self._options.options(section)}
         for section in self._defaults.sections():
-            options |= set((section, key) for key in self._defaults.options(section))
+            options |= {(section, key) for key in self._defaults.options(section)}
 
         all = {}
         for section, key in options:
@@ -280,7 +281,7 @@ class Loader:
                 default_value = self._defaults.get(section, key)
                 default_value = _expand_env_var(_strip(default_value))
             if defaults or value != default_value:
-                all[section] = all.get(section, dict())
+                all[section] = all.get(section, {})
                 all[section][key] = value
 
         return all
@@ -298,19 +299,19 @@ class Loader:
         """
         options = set()
         for section in self._overrides.sections():
-            options |= set((section, key) for key in self._overrides.options(section))
+            options |= {(section, key) for key in self._overrides.options(section)}
         for section in self._options.sections():
-            options |= set((section, key) for key in self._options.options(section))
+            options |= {(section, key) for key in self._options.options(section)}
         known_options = set()
         for section in self._defaults.sections():
-            known_options |= set((section, key) for key in self._defaults.options(section))
+            known_options |= {(section, key) for key in self._defaults.options(section)}
         unused = options - self._used - known_options
         if unused:
             self._logger.warning(
                 _("unused configuration", options=[f"{section}:{key}" for (section, key) in unused])
             )
 
-        evs = set(k for k in os.environ if k.upper().startswith("MINIWDL_"))
+        evs = {k for k in os.environ if k.upper().startswith("MINIWDL_")}
         ev_unused = evs - self._used_env
         if ev_unused:
             self._logger.warning(_("unused environment", variables=list(ev_unused)))
@@ -352,13 +353,13 @@ def _parse_bool(v: str) -> bool:
     assert False
 
 
-def _parse_dict(v: str) -> Dict[str, Any]:
+def _parse_dict(v: str) -> dict[str, Any]:
     ans = json.loads(v)
     assert isinstance(ans, dict)
     return ans
 
 
-def _parse_list(v: str) -> List[Any]:
+def _parse_list(v: str) -> list[Any]:
     if not v.startswith("["):
         return [v]
     ans = json.loads(v)
@@ -366,7 +367,7 @@ def _parse_list(v: str) -> List[Any]:
     return ans
 
 
-def default_plugins() -> "Dict[str,List[importlib_metadata.EntryPoint]]":  # type: ignore # noqa: F821
+def default_plugins() -> "dict[str,list[importlib_metadata.EntryPoint]]":  # type: ignore # noqa: F821
     from importlib import metadata as importlib_metadata  # delayed heavy import
 
     return {
@@ -428,7 +429,7 @@ def default_plugins() -> "Dict[str,List[importlib_metadata.EntryPoint]]":  # typ
     }
 
 
-def load_all_plugins(cfg: Loader, group: str) -> Iterable[Tuple[bool, Any]]:
+def load_all_plugins(cfg: Loader, group: str) -> Iterable[tuple[bool, Any]]:
     from importlib import metadata as importlib_metadata  # delayed heavy import
 
     defaults = default_plugins()
@@ -445,7 +446,7 @@ def load_all_plugins(cfg: Loader, group: str) -> Iterable[Tuple[bool, Any]]:
         yield (enabled, plugin)
 
 
-def load_plugins(cfg: Loader, group: str) -> Iterable[Tuple[str, Callable[..., Any]]]:
+def load_plugins(cfg: Loader, group: str) -> Iterable[tuple[str, Callable[..., Any]]]:
     yield from (
         (plugin.name, plugin.load()) for enabled, plugin in load_all_plugins(cfg, group) if enabled
     )

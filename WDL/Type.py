@@ -40,9 +40,9 @@ also enables coercion of ``T`` to ``Array[T]+`` (an array of length 1).
 """
 
 import copy
-import typing
 from abc import ABC
-from typing import Optional, Tuple, Dict, Iterable, Set, List, TYPE_CHECKING
+from collections.abc import Iterable
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .Error import SourcePosition
@@ -63,7 +63,7 @@ class Base(ABC):
 
     # pos is set on Type objects instantiated by the WDL syntax parser (mainly in Decl). Other Type
     # objects are instantiated in other ways (e.g. Value describing itself), so will not have pos.
-    pos: "Optional[SourcePosition]" = None
+    pos: "SourcePosition | None" = None
 
     def coerces(self, rhs: "Base", check_quant: bool = True) -> bool:
         """
@@ -114,14 +114,14 @@ class Base(ABC):
         """
         return []
 
-    def copy(self, optional: Optional[bool] = None) -> "Base":
+    def copy(self, optional: bool | None = None) -> "Base":
         """
-        copy(self, optional : Optional[bool] = None) -> WDL.Type.Base
+        copy(self, optional : bool | None = None) -> WDL.Type.Base
 
         Create a copy of the type, possibly with a different setting of the
         ``optional`` quantifier.
         """
-        ans: "Base" = copy.copy(self)
+        ans: Base = copy.copy(self)
         if optional is not None:
             ans._optional = optional
         return ans
@@ -129,7 +129,7 @@ class Base(ABC):
     def __str__(self) -> str:
         return type(self).__name__ + ("?" if self.optional else "")
 
-    def __eq__(self, rhs: typing.Any) -> bool:
+    def __eq__(self, rhs: object) -> bool:
         return isinstance(rhs, Base) and str(self) == str(rhs)
 
     def equatable(self, rhs: "Base", *, compound: bool = False) -> bool:
@@ -325,7 +325,7 @@ class Array(Base):
             return self._check_optional(rhs, check_quant)
         super().check(rhs, check_quant)
 
-    def copy(self, optional: Optional[bool] = None, nonempty: Optional[bool] = None) -> Base:
+    def copy(self, optional: bool | None = None, nonempty: bool | None = None) -> Base:
         ans = super().copy(optional)
         if nonempty is not None:
             setattr(ans, "_nonempty", nonempty)
@@ -341,14 +341,14 @@ class Map(Base):
     Map type, parameterized by the (key,value) item type.
     """
 
-    item_type: Tuple[Base, Base]
+    item_type: tuple[Base, Base]
     """
-    :type: Tuple[WDL.Type.Base,WDL.Type.Base]
+    :type: tuple[WDL.Type.Base,WDL.Type.Base]
 
     The key and value types may be ``Any`` when not known statically, such as in a literal empty map ``{}``.
     """
 
-    literal_keys: Optional[Set[str]]
+    literal_keys: set[str] | None
     ""
     # Special use: Map[String,_] literal stores the key names here for potential use in
     # struct coercions where we need them. (Normally the Map type would record the common
@@ -356,9 +356,9 @@ class Map(Base):
 
     def __init__(
         self,
-        item_type: Tuple[Base, Base],
+        item_type: tuple[Base, Base],
         optional: bool = False,
-        literal_keys: Optional[Set[str]] = None,
+        literal_keys: set[str] | None = None,
     ) -> None:
         self._optional = optional
         if item_type is None:
@@ -481,9 +481,9 @@ class StructInstance(Base):
     same struct type can go by different names.
     """
 
-    members: Optional[Dict[str, Base]]
+    members: dict[str, Base] | None
     """
-    :type: Dict[str,WDL.Type.Base]
+    :type: dict[str,WDL.Type.Base]
 
     Names and types of the struct members, from the struct type definition
     (available after typechecking)
@@ -539,7 +539,7 @@ class StructInstance(Base):
         return isinstance(rhs, StructInstance) and self.type_id == rhs.type_id
 
 
-def _struct_type_id(members: Dict[str, Base]) -> str:
+def _struct_type_id(members: dict[str, Base]) -> str:
     # generates a content hash of the struct type definition, used to recognize
     # equivalent struct types going by different aliases
     ans = []
@@ -561,9 +561,9 @@ class Object(Base):
     # a StructInstance with known member types. We hide this from docs to avoid confusion with
     # general (pre-WDL1.0) Object support, since it's only to support struct initialization.
 
-    members: Dict[str, Base]
+    members: dict[str, Base]
 
-    def __init__(self, members: Dict[str, Base]) -> None:
+    def __init__(self, members: dict[str, Base]) -> None:
         self.members = members
 
     def __str__(self) -> str:
@@ -597,7 +597,7 @@ class Object(Base):
 
 
 def _check_struct_members(
-    self_members: Dict[str, Base], rhs: StructInstance, check_quant: bool
+    self_members: dict[str, Base], rhs: StructInstance, check_quant: bool
 ) -> None:
     # shared routine for checking Map or Object type coercion, with useful error messages
     rhs_members = rhs.members
@@ -605,7 +605,7 @@ def _check_struct_members(
     rhs_keys = set(rhs_members.keys())
     self_keys = set(self_members.keys())
 
-    missing_keys = list(k for k in rhs_keys - self_keys if not rhs_members[k].optional)
+    missing_keys = [k for k in rhs_keys - self_keys if not rhs_members[k].optional]
     if missing_keys:
         raise TypeError(
             f"missing non-optional member(s) in struct '{rhs.type_name}': "
@@ -623,7 +623,7 @@ def _check_struct_members(
             )
 
 
-def unify(types: List[Base], check_quant: bool = True, force_string: bool = False) -> Base:
+def unify(types: list[Base], check_quant: bool = True, force_string: bool = False) -> Base:
     """
     Given a list of types, compute a type to which they're all coercible, or :class:`WDL.Type.Any`
     if no more-specific inference is possible.

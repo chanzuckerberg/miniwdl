@@ -4,20 +4,21 @@ Routines for packaging a WDL source file, with all imported source files, into a
 *New in v1.5.0*
 """
 
-import io
-import os
-import json
+import contextlib
 import glob
+import io
+import json
+import logging
+import os
 import pathlib
 import shutil
-import logging
 import tarfile
 import tempfile
-import contextlib
 import zipfile
-from typing import List, Dict, Optional, Any, Iterator, NamedTuple, Tuple, Set
+from collections.abc import Iterator
+from typing import Any, NamedTuple
 
-from . import Tree, Error
+from . import Error, Tree
 from ._util import path_really_within
 
 
@@ -25,10 +26,10 @@ def build(
     top_doc: Tree.Document,
     archive: str,
     logger: logging.Logger,
-    inputs: Optional[Dict[str, Any]] = None,
-    meta: Optional[Dict[str, Any]] = None,
+    inputs: dict[str, Any] | None = None,
+    meta: dict[str, Any] | None = None,
     archive_format: str = "zip",
-    additional_files: Optional[List[str]] = None,
+    additional_files: list[str] | None = None,
 ):
     """
     Generate zip archive of the WDL document, all its imports, optional default inputs, and a
@@ -44,7 +45,7 @@ def build(
 
         # add MANIFEST.json; schema roughly following Amazon Genomics CLI's:
         #  https://aws.github.io/amazon-genomics-cli/docs/concepts/workflows/#multi-file-workflows
-        manifest: Dict[str, Any] = {"mainWorkflowURL": os.path.basename(top_doc.pos.abspath)}
+        manifest: dict[str, Any] = {"mainWorkflowURL": os.path.basename(top_doc.pos.abspath)}
         if meta:
             manifest["meta"] = meta
         if inputs:
@@ -80,7 +81,7 @@ def build_source_dir(
 
 def _build_source_dir(
     cleanup: contextlib.ExitStack, top_doc: Tree.Document, logger: logging.Logger
-) -> Tuple[str, Dict[str, str], Dict[str, Tree.Document]]:
+) -> tuple[str, dict[str, str], dict[str, Tree.Document]]:
     """
     Stage rewritten WDL source files and return the path mapping used to do it.
 
@@ -103,7 +104,7 @@ def _build_source_dir(
 
     # derive archive paths
     zip_paths = build_zip_paths(main_dir, wdls, logger)
-    assert sorted(list(zip_paths.keys())) == sorted(list(wdls.keys()))
+    assert sorted(zip_paths.keys()) == sorted(wdls.keys())
     assert zip_paths[top_doc.pos.abspath] == os.path.basename(top_doc.pos.abspath)
 
     # write source files into temp directory (rewriting imports as needed)
@@ -120,13 +121,13 @@ def _build_source_dir(
 
 
 def build_zip_paths(
-    main_dir: str, wdls: Dict[str, Tree.Document], logger: logging.Logger
-) -> Dict[str, str]:
+    main_dir: str, wdls: dict[str, Tree.Document], logger: logging.Logger
+) -> dict[str, str]:
     # compute the path inside the archive at which to store each document
 
     ans = {}
     outside_warn = False
-    for abspath in wdls.keys():
+    for abspath in wdls:
         if abspath.startswith(main_dir):
             ans[abspath] = os.path.relpath(abspath, main_dir)
         else:
@@ -150,8 +151,8 @@ def build_zip_paths(
 
 
 def rewrite_imports(
-    doc: Tree.Document, zip_paths: Dict[str, str], logger: logging.Logger
-) -> List[str]:
+    doc: Tree.Document, zip_paths: dict[str, str], logger: logging.Logger
+) -> list[str]:
     # rewrite doc source_lines, changing import statements to refer to relative path in zip
     source_lines = doc.source_lines.copy()
 
@@ -184,9 +185,9 @@ def rewrite_imports(
 
 def add_additional_files(
     zip_dir: str,
-    additional_files: List[str],
-    zip_paths: Dict[str, str],
-    wdls: Dict[str, Tree.Document],
+    additional_files: list[str],
+    zip_paths: dict[str, str],
+    wdls: dict[str, Tree.Document],
     logger: logging.Logger,
 ) -> None:
     """
@@ -205,7 +206,7 @@ def add_additional_files(
     if not source_dirs:
         raise Error.InputError("Additional files require local WDL source files")
 
-    copied: Dict[str, str] = {}
+    copied: dict[str, str] = {}
     for pattern in additional_files:
         # Leave non-glob paths literal so we can report "not found" rather than "matched nothing".
         matches = glob.glob(pattern, recursive=True) if glob.has_magic(pattern) else [pattern]
@@ -234,8 +235,8 @@ def add_additional_files(
 
 
 def _additional_source_dirs(
-    zip_paths: Dict[str, str], wdls: Dict[str, Tree.Document]
-) -> List[Tuple[str, str]]:
+    zip_paths: dict[str, str], wdls: dict[str, Tree.Document]
+) -> list[tuple[str, str]]:
     """
     Pair each local WDL source directory with its corresponding archive directory.
 
@@ -249,7 +250,7 @@ def _additional_source_dirs(
     * ``/proj/main.wdl`` -> ``""`` (top-level source directory maps to the archive root)
     * ``/shared/lib/t.wdl`` -> ``__outside_wdl/lib`` (outside import keeps its rewritten prefix)
     """
-    ans: Dict[str, str] = {}
+    ans: dict[str, str] = {}
     for abspath, zip_path in zip_paths.items():
         if abspath in wdls:
             source_dir = wdls[abspath].source_dir.rstrip("/")
@@ -268,8 +269,8 @@ def _additional_source_dirs(
 
 
 def _additional_files_from_path(
-    path: str, source_dirs: List[Tuple[str, str]]
-) -> Iterator[Tuple[str, str]]:
+    path: str, source_dirs: list[tuple[str, str]]
+) -> Iterator[tuple[str, str]]:
     """
     Expand one matched additional path into concrete file/archive-path pairs.
 
@@ -286,7 +287,7 @@ def _additional_files_from_path(
     path = os.path.abspath(path)
     _additional_dest(path, source_dirs)  # validate the requested path, including symlink target
     if os.path.isdir(path):
-        visited_dirs: Set[str] = set()
+        visited_dirs: set[str] = set()
         for dirpath, dirnames, filenames in os.walk(path, followlinks=True):
             # Re-check every walked directory because os.walk follows symlinks when asked.
             _additional_dest(dirpath, source_dirs)
@@ -314,7 +315,7 @@ def _additional_files_from_path(
         yield path, _additional_dest(path, source_dirs)
 
 
-def _additional_dest(path: str, source_dirs: List[Tuple[str, str]]) -> str:
+def _additional_dest(path: str, source_dirs: list[tuple[str, str]]) -> str:
     """
     Compute the archive path for one additional file or directory after safety checks.
 
@@ -365,21 +366,23 @@ def create_reproducible_archive(zip_dir: str, output_path: str, format: str):
     return output_path
 
 
-def _write_no_mtime_zip(zip_archive: str, src_dest_list: List[Tuple[pathlib.Path, pathlib.Path]]):
+def _write_no_mtime_zip(zip_archive: str, src_dest_list: list[tuple[pathlib.Path, pathlib.Path]]):
     with zipfile.ZipFile(zip_archive, "w") as archive:
         for src, dest in src_dest_list:
             # This always sets the mod time at 1980-1-1
             dest_info = zipfile.ZipInfo(str(dest))
-            with archive.open(dest_info, "w") as archive_file:
-                with open(src, "rb") as in_file:
-                    while True:
-                        block = in_file.read(io.DEFAULT_BUFFER_SIZE)
-                        if not block:
-                            break
-                        archive_file.write(block)
+            with (
+                archive.open(dest_info, "w") as archive_file,
+                open(src, "rb") as in_file,
+            ):
+                while True:
+                    block = in_file.read(io.DEFAULT_BUFFER_SIZE)
+                    if not block:
+                        break
+                    archive_file.write(block)
 
 
-def _write_no_mtime_tar(tar_archive: str, src_dest_list: List[Tuple[pathlib.Path, pathlib.Path]]):
+def _write_no_mtime_tar(tar_archive: str, src_dest_list: list[tuple[pathlib.Path, pathlib.Path]]):
     with tarfile.TarFile(tar_archive, "w") as archive:
         for src, dest in src_dest_list:
             dest_info = tarfile.TarInfo(str(dest))  # Mtime by default at 0
@@ -388,9 +391,12 @@ def _write_no_mtime_tar(tar_archive: str, src_dest_list: List[Tuple[pathlib.Path
                 archive.addfile(dest_info, in_file)
 
 
-UnpackedZip = NamedTuple(
-    "UnpackedZip", [("dir", str), ("main_wdl", str), ("input_file", Optional[str])]
-)
+class UnpackedZip(NamedTuple):
+    dir: str
+    main_wdl: str
+    input_file: str | None
+
+
 """
 Contextual value of `WDL.Zip.unpack()`: absolute paths of source directory, main WDL, and default
 input JSON file (if any). The source directory prefixes the latter paths.
@@ -398,7 +404,7 @@ input JSON file (if any). The source directory prefixes the latter paths.
 
 
 @contextlib.contextmanager
-def unpack(archive_fn: str, tempdir_parent: Optional[str] = None) -> Iterator[UnpackedZip]:
+def unpack(archive_fn: str, tempdir_parent: str | None = None) -> Iterator[UnpackedZip]:
     """
     Open a context with the WDL source archive unpacked into a temp directory, yielding
     `UnpackedZip`. The temp directory will be deleted on context exit.

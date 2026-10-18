@@ -2,17 +2,17 @@
 Internal runtime File/Directory, input/download, and output-linking helpers.
 """
 
+import logging
 import math
 import os
 import shutil
-import logging
-from typing import Dict, NamedTuple, Optional, Set, Tuple, Union
+from typing import NamedTuple
 
 import regex
 
-from .. import Env, Error, Expr, Type, Value, Tree
-from .._util import link_force, path_really_within, symlink_force
+from .. import Env, Error, Expr, Tree, Type, Value
 from .._util import StructuredLogMessage as _
+from .._util import link_force, path_really_within, symlink_force
 from . import config
 from .cache import CallCache, CallCacheAddPaths
 from .download import able as downloadable
@@ -28,9 +28,9 @@ class SourceRelativePathResolved(NamedTuple):
     ``absent_path`` is the absolute missing path to record with ``absent=True``.
     """
 
-    value: Optional[str]
-    source_path: Optional[str] = None
-    absent_path: Optional[str] = None
+    value: str | None
+    source_path: str | None = None
+    absent_path: str | None = None
 
 
 class SourceRelativePathsResolved(NamedTuple):
@@ -39,7 +39,7 @@ class SourceRelativePathsResolved(NamedTuple):
     """
 
     value: Value.Base
-    source_paths: Set[str]
+    source_paths: set[str]
     cache_add_paths: CallCacheAddPaths
 
 
@@ -47,7 +47,7 @@ def resolve_source_relative_path(
     cfg: config.Loader,
     source_directory: str,
     desc: str,
-    v: Union[Value.File, Value.Directory],
+    v: Value.File | Value.Directory,
 ) -> SourceRelativePathResolved:
     """
     Resolve one File/Directory path and report any cache_add_path it implies.
@@ -134,7 +134,7 @@ def resolve_source_relative_paths(
     can perform allowlist or container-mount side effects after validation succeeds, and a
     CallCacheAddPaths with both present and optional-absent cache_add_paths for cache coherence.
     """
-    source_paths: Set[str] = set()
+    source_paths: set[str] = set()
     cache_add_paths = CallCacheAddPaths()
     value = value.coerce(desired_type)
 
@@ -142,7 +142,7 @@ def resolve_source_relative_paths(
     # distinct symlinks to the same underlying file therefore count as distinct cache dependencies
     # and won't dedupe to one entry; that's an acceptable edge case since file content digests still
     # match and coherence only relies on each recorded path's existence/mtime.
-    def rewrite_path(v: Union[Value.File, Value.Directory]) -> Optional[str]:
+    def rewrite_path(v: Value.File | Value.Directory) -> str | None:
         result = resolve_source_relative_path(cfg, source_directory, desc, v)
         if result.absent_path:
             cache_add_paths.add(result.absent_path, absent=True)
@@ -166,7 +166,7 @@ def resolve_source_relative_paths(
         raise Error.InputError(f"File/Directory path not found in {desc}{path_detail}") from None
 
 
-def _fspaths(env: Env.Bindings[Value.Base]) -> Set[str]:
+def _fspaths(env: Env.Bindings[Value.Base]) -> set[str]:
     """
     Get the unique paths of all File & Directory values in the environment. Directory paths will
     have a trailing '/'.
@@ -189,11 +189,11 @@ def _fspaths(env: Env.Bindings[Value.Base]) -> Set[str]:
 
 def _resolve_workflow_path(
     cfg: config.Loader,
-    allowlist: Set[str],
+    allowlist: set[str],
     desc: str,
-    v: Union[Value.File, Value.Directory],
+    v: Value.File | Value.Directory,
     null_if_missing: bool = False,
-) -> Optional[str]:
+) -> str | None:
     """
     Check a workflow-level File/Directory path and return the host path needed for I/O.
 
@@ -239,10 +239,10 @@ def _resolve_workflow_path(
 
 def _resolve_allowlisted_directory_child(
     cfg: config.Loader,
-    allowlist: Set[str],
+    allowlist: set[str],
     fspath: str,
     isdir: bool,
-) -> Tuple[bool, Optional[str]]:
+) -> tuple[bool, str | None]:
     """
     Resolve a File/Directory path nested beneath an allowlisted input Directory.
 
@@ -346,7 +346,7 @@ def link_outputs(
                 v.value = link
         # recurse into compound values
         elif isinstance(v, Value.Array) and v.value:
-            d = int(math.ceil(math.log10(len(v.value))))  # how many digits needed
+            d = math.ceil(math.log10(len(v.value)))  # how many digits needed
             for i in range(len(v.value)):
                 v.value[i] = map_paths(v.value[i], os.path.join(dn, str(i).rjust(d, "0")))
         elif isinstance(v, Value.Map) and v.value:
@@ -361,7 +361,7 @@ def link_outputs(
                 )
                 == 0
             )
-            d = int(math.ceil(math.log10(len(v.value))))
+            d = math.ceil(math.log10(len(v.value)))
             for i, b in enumerate(v.value):
                 v.value[i] = (
                     b[0],
@@ -409,9 +409,9 @@ def link_outputs_relative(
     link_outputs with [file_io] use_relative_output_paths = true. We organize the links to reflect
     the generated files' paths relative to their task working directory.
     """
-    link_destinations: Dict[str, str] = dict()
+    link_destinations: dict[str, str] = {}
 
-    def map_path_relative(v: Union[Value.File, Value.Directory]) -> str:
+    def map_path_relative(v: Value.File | Value.Directory) -> str:
         target = (
             v.value
             if os.path.exists(v.value)
@@ -463,9 +463,9 @@ def link_outputs_relative(
 def _warn_output_basename_collisions(
     logger: logging.Logger, outputs: Env.Bindings[Value.Base]
 ) -> None:
-    targets_by_basename: Dict[str, Set[str]] = {}
+    targets_by_basename: dict[str, set[str]] = {}
 
-    def walker(v: Union[Value.File, Value.Directory]) -> str:
+    def walker(v: Value.File | Value.Directory) -> str:
         target = v.value
         if os.path.exists(target):
             target = os.path.realpath(target)
@@ -487,7 +487,7 @@ def _warn_output_basename_collisions(
 
 
 def _warn_struct_extra(
-    logger: logging.Logger, decl_name: str, v: Value.Base, warned_keys: Optional[Set[str]] = None
+    logger: logging.Logger, decl_name: str, v: Value.Base, warned_keys: set[str] | None = None
 ) -> None:
     """
     Log notices about extraneous keys found in struct initialization from JSON/Map/Object.
@@ -495,7 +495,7 @@ def _warn_struct_extra(
     if warned_keys is None:
         warned_keys = set()
     if isinstance(v, Value.Struct) and v.extra:
-        extra_keys = set(k for k in v.extra if not k.startswith("#"))
+        extra_keys = {k for k in v.extra if not k.startswith("#")}
         if extra_keys - warned_keys:
             logger.notice(
                 _(

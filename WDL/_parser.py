@@ -1,19 +1,21 @@
 import inspect
 import threading
-import regex
-from typing import Dict, List, Optional, Set, Tuple, Any, Union
+from typing import Any
+
 import lark
-from .Error import SourcePosition
-from . import Error, Tree, Type, Expr, _grammar
+import regex
+
+from . import Error, Expr, Tree, Type, _grammar
 from ._util import WDLVersion, wdl_version_geq
+from .Error import SourcePosition
 
 # memoize Lark parsers constructed for version & start symbol
-_lark_cache: Dict[Tuple[str, str], lark.Lark] = {}
-_lark_comments_buffer: List[lark.Token] = []
+_lark_cache: dict[tuple[str, str], lark.Lark] = {}
+_lark_comments_buffer: list[lark.Token] = []
 _lark_lock = threading.Lock()
 
 
-def parse(grammar: str, txt: str, start: str) -> Tuple[lark.Tree, List[lark.Token]]:
+def parse(grammar: str, txt: str, start: str) -> tuple[lark.Tree, list[lark.Token]]:
     with _lark_lock:
         assert not _lark_comments_buffer
         try:
@@ -87,7 +89,7 @@ class _ExprTransformer(_SourcePositionTransformerMixin, lark.Transformer):
         return Expr.Float(self._sp(meta), to_float(items[0]))
 
     def string(self, meta, items) -> Expr.Base:
-        parts: List[Union[str, Expr.Placeholder]] = []
+        parts: list[str | Expr.Placeholder] = []
         for item in items:
             if isinstance(item, Expr.Placeholder):
                 parts.append(item)
@@ -214,19 +216,19 @@ for op in [
 class _DocTransformer(_ExprTransformer):
     # pylint: disable=no-self-use,unused-argument
 
-    _keywords: Set[str]
+    _keywords: set[str]
     _source_text: str
-    _comments: List[lark.Token]
-    _version: Optional[str]
-    _declared_version: Optional[str]
+    _comments: list[lark.Token]
+    _version: str | None
+    _declared_version: str | None
 
     def __init__(
         self,
         source_text: str,
-        keywords: Set[str],
-        comments: List[lark.Token],
+        keywords: set[str],
+        comments: list[lark.Token],
         version: str,
-        declared_version: Optional[str],
+        declared_version: str | None,
         *args,
         **kwargs,
     ):
@@ -241,7 +243,7 @@ class _DocTransformer(_ExprTransformer):
         if name in self._keywords and not (allow_task and name == "task"):
             assert self._version is not None
             raise Error.SyntaxError(
-                pos, "unexpected keyword {}".format(name), self._version, self._declared_version
+                pos, f"unexpected keyword {name}", self._version, self._declared_version
             )
 
     def object_kv(self, meta, items):
@@ -274,13 +276,13 @@ class _DocTransformer(_ExprTransformer):
         return ans
 
     def optional(self, meta, items):
-        return set(["optional"])
+        return {"optional"}
 
     def nonempty(self, meta, items):
-        return set(["nonempty"])
+        return {"nonempty"}
 
     def optional_nonempty(self, meta, items):
-        return set(["optional", "nonempty"])
+        return {"optional", "nonempty"}
 
     def type(self, meta, items):
         quantifiers = set()
@@ -292,7 +294,7 @@ class _DocTransformer(_ExprTransformer):
         if items[0].value == "Array":
             if not param or param2:
                 raise Error.InvalidType(self._sp(meta), "Array must have one type parameter")
-            if quantifiers - set(["optional", "nonempty"]):
+            if quantifiers - {"optional", "nonempty"}:
                 raise Error.ValidationError(self._sp(meta), "invalid type quantifier(s) for Array")
             ans = Type.Array(param, "optional" in quantifiers, "nonempty" in quantifiers)
             ans.pos = self._sp(meta)
@@ -379,7 +381,7 @@ class _DocTransformer(_ExprTransformer):
         return (items[0].value, items[1])
 
     def meta_object(self, meta, items):
-        d = dict()
+        d = {}
         for k, v in items:
             if k in d:
                 raise Error.MultipleDefinitions(self._sp(meta), "duplicate keys in meta object")
@@ -392,7 +394,7 @@ class _DocTransformer(_ExprTransformer):
     def meta_section(self, meta, items):
         kind = items[0].value
         assert kind in ["meta", "parameter_meta"]
-        d = dict()
+        d = {}
         d[kind] = items[1]
         return d
 
@@ -400,9 +402,9 @@ class _DocTransformer(_ExprTransformer):
         return (items[0].value, items[1])
 
     def runtime_section(self, meta, items):
-        d = dict()
+        d = {}
         for k, v in items:
-            # TODO: restore duplicate check, cf. https://github.com/gatk-workflows/five-dollar-genome-analysis-pipeline/blob/89f11befc13abae97ab8fb1b457731f390c8728d/tasks_pipelines/qc.wdl#L288  # noqa
+            # TODO: restore duplicate check, cf. https://github.com/gatk-workflows/five-dollar-genome-analysis-pipeline/blob/89f11befc13abae97ab8fb1b457731f390c8728d/tasks_pipelines/qc.wdl#L288
             # if k in d:
             #    raise Error.MultipleDefinitions(self._sp(meta), "duplicate keys in runtime section")
             d[k] = v
@@ -413,7 +415,7 @@ class _DocTransformer(_ExprTransformer):
         }
 
     def requirements_section(self, meta, items):
-        d = dict()
+        d = {}
         assert all(isinstance(item, tuple) and len(item) == 2 for item in items)
         for k, v in items:
             if k in d:
@@ -468,7 +470,7 @@ class _DocTransformer(_ExprTransformer):
     def tasks(self, meta, items):
         return items
 
-    def namespaced_ident(self, meta, items) -> List[str]:
+    def namespaced_ident(self, meta, items) -> list[str]:
         assert items
         return [item.value for item in items]
 
@@ -481,7 +483,7 @@ class _DocTransformer(_ExprTransformer):
         return "input:"
 
     def call_inputs(self, meta, items):
-        d = dict()
+        d = {}
         if items:
             input_colon = False
             if isinstance(items[0], str) and items[0] == "input:":
@@ -511,12 +513,12 @@ class _DocTransformer(_ExprTransformer):
             i += 1
         assert i == len(items) or isinstance(items[i], dict)
         return Tree.Call(
-            self._sp(meta), items[0], None, items[i] if i < len(items) else dict(), after=after
+            self._sp(meta), items[0], None, items[i] if i < len(items) else {}, after=after
         )
 
     def call_as(self, meta, items):
         self._check_keyword(self._sp(meta), items[1].value)
-        after = list()
+        after = []
         i = 2
         while i < len(items):
             if isinstance(items[i], lark.Token):
@@ -529,7 +531,7 @@ class _DocTransformer(_ExprTransformer):
             self._sp(meta),
             items[0],
             items[1].value,
-            items[i] if i < len(items) else dict(),
+            items[i] if i < len(items) else {},
             after=after,
         )
 
@@ -551,7 +553,7 @@ class _DocTransformer(_ExprTransformer):
             i += 1
         assert i == len(items) or isinstance(items[i], dict)
         return Tree.CallTry(
-            self._sp(meta), items[0], None, items[i] if i < len(items) else dict(), after=after
+            self._sp(meta), items[0], None, items[i] if i < len(items) else {}, after=after
         )
 
     def call_try_as(self, meta, items):
@@ -563,7 +565,7 @@ class _DocTransformer(_ExprTransformer):
                 self._declared_version,
             )
         self._check_keyword(self._sp(meta), items[1].value)
-        after = list()
+        after = []
         i = 2
         while i < len(items):
             if isinstance(items[i], lark.Token):
@@ -576,7 +578,7 @@ class _DocTransformer(_ExprTransformer):
             self._sp(meta),
             items[0],
             items[1].value,
-            items[i] if i < len(items) else dict(),
+            items[i] if i < len(items) else {},
             after=after,
         )
 
@@ -656,8 +658,8 @@ class _DocTransformer(_ExprTransformer):
             inputs,
             elements,
             outputs,
-            parameter_meta or dict(),
-            meta_section or dict(),
+            parameter_meta or {},
+            meta_section or {},
             output_idents,
             output_idents_pos,
         )
@@ -783,7 +785,7 @@ for _klass in [_ExprTransformer, _DocTransformer]:
             setattr(_klass, name, lark.v_args(meta=True)(method))
 
 
-def parse_expr(txt: str, version: Optional[str] = None) -> Expr.Base:
+def parse_expr(txt: str, version: str | None = None) -> Expr.Base:
     version = version or "1.0"
     try:
         xformer = _ExprTransformer()
@@ -818,7 +820,7 @@ def _parse_doctransformer(
     terminal: str,
     txt: str,
     version: str,
-    declared_version: Optional[str] = None,
+    declared_version: str | None = None,
     uri: str = "",
     abspath: str = "",
 ) -> Any:
@@ -868,16 +870,16 @@ def _parse_doctransformer(
         raise exn2 from None
 
 
-def parse_tasks(txt: str, version: Optional[str] = None) -> List[Tree.Task]:
+def parse_tasks(txt: str, version: str | None = None) -> list[Tree.Task]:
     return _parse_doctransformer("tasks", txt, version or "draft-2")
 
 
-def parse_bound_decl(txt: str, version: Optional[str] = None) -> Tree.Decl:
+def parse_bound_decl(txt: str, version: str | None = None) -> Tree.Decl:
     return _parse_doctransformer("bound_decl", txt, version or "draft-2")
 
 
 def parse_document(
-    txt: str, version: Optional[str] = None, uri: str = "", abspath: str = ""
+    txt: str, version: str | None = None, uri: str = "", abspath: str = ""
 ) -> Tree.Document:
     npos = SourcePosition(uri=uri, abspath=abspath, line=0, column=0, end_line=0, end_column=0)
     if not txt.strip():

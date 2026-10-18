@@ -4,28 +4,30 @@ inputs. When cached outputs are found for reuse, opens advisory locks (flocks) o
 referenced therein, and updates their access timestamps (atime).
 """
 
-import json
-import os
-import logging
-import hashlib
 import base64
-from pathlib import Path
-from typing import Dict, Optional, Union, Any, Iterable, Iterator, Set
+import hashlib
+import json
+import logging
+import os
+from collections.abc import Iterable, Iterator
 from contextlib import AbstractContextManager, suppress
-from urllib.parse import urlparse, urlunparse
 from fnmatch import fnmatchcase
+from pathlib import Path
 from threading import Lock
+from typing import Any
+from urllib.parse import urlparse, urlunparse
 
-from . import config
-
-from .. import Env, Value, Type
+from .. import Env, Type, Value
+from .._util import (
+    FlockHolder,
+    bump_atime,
+    rmtree_atomic,
+    write_atomic,
+)
 from .._util import (
     StructuredLogMessage as _,
-    FlockHolder,
-    write_atomic,
-    rmtree_atomic,
-    bump_atime,
 )
+from . import config
 
 CALL_CACHE_VERSION = 2
 
@@ -49,13 +51,13 @@ class CallCacheAddPaths:
     Directory paths use miniwdl's existing trailing-slash convention in both sets.
     """
 
-    add_paths: Set[str]
-    absent_paths: Set[str]
+    add_paths: set[str]
+    absent_paths: set[str]
 
     def __init__(
         self,
-        add_paths: Optional[Iterable[str]] = None,
-        absent_paths: Optional[Iterable[str]] = None,
+        add_paths: Iterable[str] | None = None,
+        absent_paths: Iterable[str] | None = None,
     ) -> None:
         self.add_paths = set(add_paths or [])
         self.absent_paths = set(absent_paths or [])
@@ -107,9 +109,9 @@ class CallCache(AbstractContextManager):
     # URIs->files cached only for the lifetime of this CallCache instance. These are downloaded in
     # the course of the current workflow run, but not eligible for persistent caching in future
     # runs; we just want to remember them for potential reuse later in the current run.
-    _workflow_downloads: Dict[str, str]
-    _workflow_directory_downloads: Dict[str, str]
-    _entry_add_paths: Dict[str, CallCacheAddPaths]
+    _workflow_downloads: dict[str, str]
+    _workflow_directory_downloads: dict[str, str]
+    _entry_add_paths: dict[str, CallCacheAddPaths]
     _lock: Lock
 
     def __init__(self, cfg: config.Loader, logger: logging.Logger):
@@ -148,7 +150,7 @@ class CallCache(AbstractContextManager):
 
     def get(
         self, key: str, inputs: Env.Bindings[Value.Base], output_types: Env.Bindings[Type.Base]
-    ) -> Optional[Env.Bindings[Value.Base]]:
+    ) -> Env.Bindings[Value.Base] | None:
         """
         Resolve cache key to call outputs, if available, or None. When matching outputs are found, check to ensure the
         modification time on any output or input files is older than the modification time for the cache file.
@@ -214,7 +216,7 @@ class CallCache(AbstractContextManager):
         self,
         key: str,
         outputs: Env.Bindings[Value.Base],
-        run_dir: Optional[str] = None,
+        run_dir: str | None = None,
         *,
         inputs: Env.Bindings[Value.Base],
         add_paths: CallCacheAddPaths,
@@ -251,7 +253,7 @@ class CallCache(AbstractContextManager):
     # specialized caching logic for file downloads (not sensitive to the downloader task details,
     # and looked up folder structure based on URI instead of opaque digests)
 
-    def download_path(self, uri: str, directory: bool = False) -> Optional[str]:
+    def download_path(self, uri: str, directory: bool = False) -> str | None:
         """
         Based on the input download uri, compute the local file path at which the cached copy
         should exist (or None if the uri is not cacheable)
@@ -295,8 +297,8 @@ class CallCache(AbstractContextManager):
         return None
 
     def get_download(
-        self, uri: str, directory: bool = False, logger: Optional[logging.Logger] = None
-    ) -> Optional[str]:
+        self, uri: str, directory: bool = False, logger: logging.Logger | None = None
+    ) -> str | None:
         """
         Return filename of the cached download of uri, if available. If so then opens a shared
         flock on the local file/directory, which will remain for the life of the CallCache object.
@@ -338,7 +340,7 @@ class CallCache(AbstractContextManager):
         uri: str,
         filename: str,
         directory: bool = False,
-        logger: Optional[logging.Logger] = None,
+        logger: logging.Logger | None = None,
     ) -> str:
         """
         Move the downloaded file to the cache location & return the new path; or if the uri isn't
@@ -388,7 +390,7 @@ class CallCache(AbstractContextManager):
         self.memo_download(uri, p, directory=directory)
         return p
 
-    def download_cacheable(self, uri: str, directory: bool = False) -> Optional[str]:
+    def download_cacheable(self, uri: str, directory: bool = False) -> str | None:
         if not self._cfg["download_cache"].get_bool("put"):
             return None
         return self.download_path(uri, directory=directory)
@@ -413,7 +415,7 @@ class CallCache(AbstractContextManager):
         exclusive: bool = False,
         wait: bool = False,
         directory: bool = False,
-        holder: Optional[FlockHolder] = None,
+        holder: FlockHolder | None = None,
     ) -> None:
         flockname = filename
         if directory:
@@ -443,7 +445,7 @@ def _check_files_coherence(
 
     cache_file_mtime = _effective_mtime(cache_file)
 
-    def check_one(v: Union[Value.File, Value.Directory]):
+    def check_one(v: Value.File | Value.Directory):
         assert isinstance(v, (Value.File, Value.Directory))
         if not downloadable(cfg, v.value):
             try:
@@ -545,7 +547,7 @@ def _check_add_paths_coherence(
 
 
 _backends_lock = Lock()
-_backends: Dict[str, Any] = {}
+_backends: dict[str, Any] = {}
 
 
 def new(cfg: config.Loader, logger: logging.Logger) -> CallCache:
@@ -553,7 +555,6 @@ def new(cfg: config.Loader, logger: logging.Logger) -> CallCache:
     Instantiate a CallCache, either the built-in implementation or a plugin-defined subclass per
     the configuration.
     """
-    global _backends
     with _backends_lock:
         if not _backends:
             for plugin_name, plugin_cls in config.load_plugins(cfg, "cache_backend"):

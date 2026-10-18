@@ -12,12 +12,15 @@ given a suitable ``WDL.Env.Bindings[Value.Base]``.
 .. inheritance-diagram:: WDL.Expr
 """
 
-from abc import ABC, abstractmethod
-from typing import List, Optional, Dict, Tuple, Union, Iterable, Set, TYPE_CHECKING
 import codecs
+from abc import ABC, abstractmethod
+from collections.abc import Iterable
+from typing import TYPE_CHECKING
+
 import regex
-from .Error import SourcePosition, SourceNode
-from . import Type, Value, Env, Error, StdLib, Any
+
+from . import Any, Env, Error, StdLib, Type, Value
+from .Error import SourceNode, SourcePosition
 
 if TYPE_CHECKING:
     from . import Tree
@@ -26,10 +29,10 @@ if TYPE_CHECKING:
 class Base(SourceNode, ABC):
     """Superclass of all expression AST nodes"""
 
-    _type: Optional[Type.Base] = None
+    _type: Type.Base | None = None
     _check_quant: bool = True
-    _stdlib: "Optional[StdLib.Base]" = None
-    _struct_types: Optional[Env.Bindings[Dict[str, Type.Base]]] = None
+    _stdlib: "StdLib.Base | None" = None
+    _struct_types: Env.Bindings[dict[str, Type.Base]] | None = None
 
     @property
     def type(self) -> Type.Base:
@@ -55,7 +58,7 @@ class Base(SourceNode, ABC):
         type_env: Env.Bindings[Type.Base],
         stdlib: StdLib.Base,
         check_quant: bool = True,
-        struct_types: Optional[Env.Bindings[Dict[str, Type.Base]]] = None,
+        struct_types: Env.Bindings[dict[str, Type.Base]] | None = None,
     ) -> "Base":
         """infer_type(self, type_env : Env.Bindings[Type.Base], stdlib : StdLib.Base) -> WDL.Expr.Base
 
@@ -77,13 +80,7 @@ class Base(SourceNode, ABC):
         with Error.multi_context() as errors:
             for child in self.children:
                 assert isinstance(child, Base)
-                errors.try1(
-                    (
-                        lambda child: (
-                            lambda: child.infer_type(type_env, stdlib, check_quant, struct_types)
-                        )
-                    )(child)
-                )
+                errors.try1(child.infer_type, type_env, stdlib, check_quant, struct_types)
         # invoke derived-class logic. we pass check_quant, stdlib, and struct_types hackily through
         # instance variables since only some subclasses use them.
         self._check_quant = check_quant
@@ -136,7 +133,7 @@ class Base(SourceNode, ABC):
             raise Error.EvalError(self, str(exn)) from exn
 
     @property
-    def literal(self) -> Optional[Value.Base]:
+    def literal(self) -> Value.Base | None:
         """
         If the expression is a literal constant, return its value; otherwise return None. The
         result can be an instance of ``WDL.Value.Null`` which is distinct from None.
@@ -260,9 +257,9 @@ class Null(Base):
 class Placeholder(Base):
     """Holds an expression interpolated within a string or command"""
 
-    options: Dict[str, str]
+    options: dict[str, str]
     """
-    :type: Dict[str,str]
+    :type: dict[str,str]
 
     Placeholder options (sep, true, false, default)"""
 
@@ -273,7 +270,7 @@ class Placeholder(Base):
     Expression to be evaluated and substituted
     """
 
-    def __init__(self, pos: SourcePosition, options: Dict[str, str], expr: Base) -> None:
+    def __init__(self, pos: SourcePosition, options: dict[str, str], expr: Base) -> None:
         super().__init__(pos)
         self.options = options
         self.expr = expr
@@ -292,7 +289,7 @@ class Placeholder(Base):
     def __str__(self):
         options = []
         for option in self.options:
-            options.append('{}="{}"'.format(option, self.options[option]))
+            options.append(f'{option}="{self.options[option]}"')
         options.append(str(self.expr))
         return "~{{{}}}".format(" ".join(options))
 
@@ -306,8 +303,8 @@ class Placeholder(Base):
                 raise Error.IncompatibleOperand(
                     self, "provide `sep'arator string to interpolate array items"
                 )
-            # if sum(1 for t in [Type.Int, Type.Float, Type.Boolean, Type.String, Type.File] if isinstance(self.expr.type.item_type, t)) == 0:  # noqa
-            #    raise Error.StaticTypeMismatch(self, Type.Array(Type.Any()), self.expr.type, "cannot use array of complex types for command placeholder")  # noqa
+            # if sum(1 for t in [Type.Int, Type.Float, Type.Boolean, Type.String, Type.File] if isinstance(self.expr.type.item_type, t)) == 0:
+            #    raise Error.StaticTypeMismatch(self, Type.Array(Type.Any()), self.expr.type, "cannot use array of complex types for command placeholder")
         elif "sep" in self.options:
             raise Error.StaticTypeMismatch(
                 self,
@@ -364,9 +361,9 @@ class Placeholder(Base):
 class String(Base):
     """String literal, possibly interleaved with expression placeholders for interpolation"""
 
-    parts: List[Union[str, Placeholder]]
+    parts: list[str | Placeholder]
     """
-    :type: List[Union[str,WDL.Expr.Placeholder]]
+    :type: list[str | WDL.Expr.Placeholder]
 
     The parts list begins and ends with the original delimiters (quote marks, braces, or triple
     angle brackets). Between these is a sequence of literal strings and/or interleaved placeholder
@@ -375,7 +372,7 @@ class String(Base):
     """
 
     def __init__(
-        self, pos: SourcePosition, parts: List[Union[str, Placeholder]], command: bool = False
+        self, pos: SourcePosition, parts: list[str | Placeholder], command: bool = False
     ) -> None:
         super().__init__(pos)
         self.parts = parts
@@ -419,7 +416,7 @@ class String(Base):
         return Value.String("".join(parts)[1:-1])
 
     @property
-    def literal(self) -> Optional[Value.Base]:
+    def literal(self) -> Value.Base | None:
         if next((p for p in self.parts if not isinstance(p, str)), None):
             return None
         return self._eval(Env.Bindings(), None)  # type: ignore
@@ -443,7 +440,7 @@ class String(Base):
             raise Error._BadCharacterEncoding(pos)
 
     @staticmethod
-    def _dedent(parts: List[Any]) -> List[Any]:
+    def _dedent(parts: list[Any]) -> list[Any]:
         """"""
         # Helper for dedenting task commands and multi-line strings: given a list of parts (strs or
         # placeholders [anything but str]), remove common leading whitespace from non-blank lines,
@@ -493,7 +490,7 @@ class TaskCommand(String):
     beginning & ending delimiters.
     """
 
-    def __init__(self, pos: SourcePosition, parts: List[Union[str, Placeholder]]) -> None:
+    def __init__(self, pos: SourcePosition, parts: list[str | Placeholder]) -> None:
         super().__init__(pos, parts, command=True)
 
     def _eval(
@@ -523,7 +520,7 @@ class MultiLineString(String):
         """"""
         # From each str part, remove escaped newlines and any whitespace following them. Escaped
         # newlines are preceded by an odd number of backslashes.
-        parts: List[Union[str, Placeholder]] = []
+        parts: list[str | Placeholder] = []
         for part in self.parts:
             if isinstance(part, str):
                 part_lines = part.split("\n")
@@ -567,15 +564,15 @@ class Array(Base):
     Array literal
     """
 
-    items: List[Base]
+    items: list[Base]
     """
-    :type: List[WDL.Expr.Base]
+    :type: list[WDL.Expr.Base]
 
     Expression for each item in the array literal
     """
 
-    def __init__(self, pos: SourcePosition, items: List[Base]) -> None:
-        super(Array, self).__init__(pos)
+    def __init__(self, pos: SourcePosition, items: list[Base]) -> None:
+        super().__init__(pos)
         self.items = items
 
     def __str__(self):
@@ -586,8 +583,7 @@ class Array(Base):
 
     @property
     def children(self) -> Iterable[SourceNode]:
-        for it in self.items:
-            yield it
+        yield from self.items
 
     def _infer_type(self, type_env: Env.Bindings[Type.Base]) -> Type.Base:
         if not self.items:
@@ -595,7 +591,7 @@ class Array(Base):
         if any((isinstance(item.type, Type.Any) and not item.type.optional) for item in self.items):
             # an item is read_json() or something like that
             return Type.Array(Type.Any(), nonempty=True)
-        if all((isinstance(item.type, Type.Any) for item in self.items)):
+        if all(isinstance(item.type, Type.Any) for item in self.items):
             # all items are literally None...
             return Type.Array(Type.Any(null=True), nonempty=True)
         item_type = Type.unify(
@@ -621,7 +617,7 @@ class Array(Base):
         )
 
     @property
-    def literal(self) -> Optional[Value.Base]:
+    def literal(self) -> Value.Base | None:
         assert isinstance(self.type, Type.Array)
         ans = []
         for item in self.items:
@@ -657,7 +653,7 @@ class Pair(Base):
         self.right = right
 
     def __str__(self):
-        return "({}, {})".format(str(self.left), str(self.right))
+        return f"({self.left!s}, {self.right!s})"
 
     @property
     def children(self) -> Iterable[SourceNode]:
@@ -675,7 +671,7 @@ class Pair(Base):
         return Value.Pair(self.left.type, self.right.type, (lv, rv))
 
     @property
-    def literal(self) -> Optional[Value.Base]:
+    def literal(self) -> Value.Base | None:
         assert isinstance(self.type, Type.Pair)
         lv = self.left.literal
         rv = self.right.literal
@@ -689,21 +685,21 @@ class Map(Base):
     Map literal
     """
 
-    items: List[Tuple[Base, Base]]
+    items: list[tuple[Base, Base]]
     """
-    :type: List[Tuple[WDL.Expr.Base,WDL.Expr.Base]]
+    :type: list[tuple[WDL.Expr.Base,WDL.Expr.Base]]
 
     Expressions for the map literal keys and values
     """
 
-    def __init__(self, pos: SourcePosition, items: List[Tuple[Base, Base]]) -> None:
+    def __init__(self, pos: SourcePosition, items: list[tuple[Base, Base]]) -> None:
         super().__init__(pos)
         self.items = items
 
     def __str__(self):
         items = []
         for item in self.items:
-            items.append("{}: {}".format(str(item[0]), str(item[1])))
+            items.append(f"{item[0]!s}: {item[1]!s}")
         return "{{{}}}".format(", ".join(items))
 
     @property
@@ -723,7 +719,7 @@ class Map(Base):
         )
         if isinstance(vty, Type.Any):
             raise Error.IndeterminateType(self, "unable to unify map value types")
-        literal_keys: Optional[Set[str]] = None
+        literal_keys: set[str] | None = None
         if kty == Type.String():
             # If the keys are string constants, record them in the Type object
             # for potential later use in struct coercion. (Normally the Type
@@ -756,7 +752,7 @@ class Map(Base):
         return Value.Map(self.type.item_type, eitems)
 
     @property
-    def literal(self) -> Optional[Value.Base]:
+    def literal(self) -> Value.Base | None:
         assert isinstance(self.type, Type.Map)
         items = []
         for k, v in self.items:
@@ -774,17 +770,17 @@ class Struct(Base):
     Struct literal
     """
 
-    members: Dict[str, Base]
+    members: dict[str, Base]
     """
-    :type: Dict[str,WDL.Expr.Base]
+    :type: dict[str,WDL.Expr.Base]
 
     The struct literal is modelled initially as a bag of keys and values, which
     can be coerced to a specific struct type during typechecking.
     """
 
-    struct_type_name: Optional[str]
+    struct_type_name: str | None
     """
-    :type: Optional[str]
+    :type: str | None
 
     In WDL 1.1+ each struct literal may specify the intended struct type name.
     """
@@ -792,8 +788,8 @@ class Struct(Base):
     def __init__(
         self,
         pos: SourcePosition,
-        members: List[Tuple[str, Base]],
-        struct_type_name: Optional[str] = None,
+        members: list[tuple[str, Base]],
+        struct_type_name: str | None = None,
     ):
         super().__init__(pos)
         self.members = {}
@@ -807,7 +803,7 @@ class Struct(Base):
     def __str__(self):
         members = []
         for member in self.members:
-            members.append('"{}": {}'.format(member, str(self.members[member])))
+            members.append(f'"{member}": {self.members[member]!s}')
         # Returns a Map literal instead of a struct literal as these are version dependant
         return "{{{}}}".format(", ".join(members))
 
@@ -862,7 +858,7 @@ class Struct(Base):
         return Value.Struct(self.type, ans)  # type: ignore
 
     @property
-    def literal(self) -> Optional[Value.Base]:
+    def literal(self) -> Value.Base | None:
         ans = {}
         for k, v in self.members.items():
             vl = v.literal
@@ -909,9 +905,7 @@ class IfThenElse(Base):
         self.alternative = alternative
 
     def __str__(self):
-        return "if {} then {} else {}".format(
-            str(self.condition), str(self.consequent), str(self.alternative)
-        )
+        return f"if {self.condition!s} then {self.consequent!s} else {self.alternative!s}"
 
     @property
     def children(self) -> Iterable[SourceNode]:
@@ -964,7 +958,7 @@ class Ident(Base):
     Name, possibly including a dot-separated namespace
     """
 
-    referee: "Union[None, Tree.Decl, Tree.Call, Tree.Scatter, Tree.Gather]"
+    referee: "None | Tree.Decl | Tree.Call | Tree.Scatter | Tree.Gather"
     """
     After typechecking within a task or workflow, stores the AST node to which the identifier
     refers: a ``WDL.Tree.Decl`` for value references; a ``WDL.Tree.Call`` for call outputs; a
@@ -1073,9 +1067,9 @@ class Get(Base):
 
     The expression whose value is accessed
     """
-    member: Optional[str]
+    member: str | None
     """
-    :type: Optional[str]
+    :type: str | None
 
     If the expression is accessing a pair/struct member, then ``expr.type`` is
     ``WDL.Type.Pair`` or ``WDL.Type.StructInstance`` and this field gives the
@@ -1085,7 +1079,7 @@ class Get(Base):
     ``None``.
     """
 
-    def __init__(self, pos: SourcePosition, expr: Base, member: Optional[str]) -> None:
+    def __init__(self, pos: SourcePosition, expr: Base, member: str | None) -> None:
         super().__init__(pos)
         assert isinstance(expr, Base)
         assert isinstance(member, (str, type(None)))
@@ -1094,7 +1088,7 @@ class Get(Base):
 
     def __str__(self):
         if self.member is not None:
-            return "{}.{}".format(str(self.expr), self.member)
+            return f"{self.expr!s}.{self.member}"
         return str(self.expr)
 
     @property
@@ -1210,10 +1204,10 @@ def _add_parentheses(arguments, parent_operator):
 
     for i, argument in enumerate(arguments):
         if isinstance(argument, IfThenElse) and (parent_operator in precedence and i == 0):
-            arguments_out.append("({})".format(str(argument)))
+            arguments_out.append(f"({argument!s})")
         elif isinstance(argument, Apply):
             if precedence.get(parent_operator, 100) > precedence.get(argument.function_name, 100):
-                arguments_out.append("({})".format(str(argument)))
+                arguments_out.append(f"({argument!s})")
             else:
                 arguments_out.append(str(argument))
         else:
@@ -1228,14 +1222,14 @@ class Apply(Base):
     """Name of the function applied
 
     :type: str"""
-    arguments: List[Base]
+    arguments: list[Base]
     """
-    :type: List[WDL.Expr.Base]
+    :type: list[WDL.Expr.Base]
 
     Expressions for each function argument
     """
 
-    def __init__(self, pos: SourcePosition, function: str, arguments: List[Base]) -> None:
+    def __init__(self, pos: SourcePosition, function: str, arguments: list[Base]) -> None:
         super().__init__(pos)
         self.function_name = function
         self.arguments = arguments
@@ -1260,18 +1254,17 @@ class Apply(Base):
             "_lor": "||",
         }
         if self.function_name in infix:
-            return "{} {} {}".format(arguments[0], infix[self.function_name], arguments[1])
+            return f"{arguments[0]} {infix[self.function_name]} {arguments[1]}"
         elif self.function_name == "_at":
-            return "{}[{}]".format(arguments[0], arguments[1])
+            return f"{arguments[0]}[{arguments[1]}]"
         elif self.function_name == "_negate":
-            return "!{}".format(arguments[0])
+            return f"!{arguments[0]}"
         else:
             return "{}({})".format(self.function_name, ",".join(arguments))
 
     @property
     def children(self) -> Iterable[SourceNode]:
-        for arg in self.arguments:
-            yield arg
+        yield from self.arguments
 
     def _infer_type(self, type_env: Env.Bindings[Type.Base]) -> Type.Base:
         f = getattr(self._stdlib, self.function_name, None)

@@ -2,36 +2,30 @@
 Abstract interface for task container runtime
 """
 
-import os
 import logging
+import math
+import os
 import shutil
 import threading
-import typing
-import math
-from typing import (
-    Callable,
-    Iterable,
-    Any,
-    Dict,
-    Optional,
-    ContextManager,
-    Set,
-    Tuple,
-    TYPE_CHECKING,
-)
 from abc import ABC, abstractmethod
-from contextlib import suppress
-from .. import Error, Value, Type, Expr
+from collections.abc import Callable, Iterable
+from contextlib import AbstractContextManager, suppress
+from typing import (
+    TYPE_CHECKING,
+    Any,
+)
+
+from .. import Error, Expr, Type, Value
+from .._util import StructuredLogMessage as _
 from .._util import (
+    TailLogger,
     TerminationSignalFlag,
+    parse_byte_size,
     path_really_within,
     rmtree_atomic,
-    TailLogger,
-    parse_byte_size,
 )
-from .._util import StructuredLogMessage as _
-from . import config, _statusbar
-from .error import OutputError, Terminated, CommandFailed
+from . import _statusbar, config
+from .error import CommandFailed, OutputError, Terminated
 
 if TYPE_CHECKING:
     from .. import Tree
@@ -53,7 +47,7 @@ class TaskContainer(ABC):
         raise NotImplementedError()
 
     @classmethod
-    def detect_resource_limits(cls, cfg: config.Loader, logger: logging.Logger) -> Dict[str, int]:
+    def detect_resource_limits(cls, cfg: config.Loader, logger: logging.Logger) -> dict[str, int]:
         """
         Detect the maximum resources ("cpu" and "mem_bytes") that the underlying container backend
         will be able to provision for any one task.
@@ -82,21 +76,21 @@ class TaskContainer(ABC):
     ``{container_dir}/work/``.
     """
 
-    input_path_map: Dict[str, str]
+    input_path_map: dict[str, str]
     """
-    :type: Dict[str,str]
+    :type: dict[str,str]
 
     A mapping of host input file/directory paths to in-container mounted paths, maintained by
     ``add_paths``. Directory paths are distinguished by trailing slashes on both keys and values;
     the slashes often should be trimmed for use elsewhere.
     """
 
-    input_path_map_rev: Dict[str, str]
+    input_path_map_rev: dict[str, str]
     """
     Inverse of ``input_path_map`` (also maintained by ``add_paths``)
     """
 
-    last_exit_code: Optional[int]
+    last_exit_code: int | None
     """
     Exit code from the most recent task command attempt, once known.
     """
@@ -110,14 +104,14 @@ class TaskContainer(ABC):
     count, to ensure their uniqueness.
     """
 
-    runtime_values: Dict[str, Any]
+    runtime_values: dict[str, Any]
     """
     Evaluted task runtime{} section, to be populated by process_runtime(). Typically the
     TaskContainer backend needs to honor cpu, memory_limit, memory_reservation, docker, env.
     Retry logic (maxRetries, preemptible) is handled externally.
     """
 
-    task_runtime_info_struct: Optional[Value.Struct]
+    task_runtime_info_struct: Value.Struct | None
     """
     WDL 1.2 task-scoped runtime info struct (task.*), to be populated before command evaluation.
     The core task runner invokes build_task_runtime_info_struct() to initialize it from task
@@ -125,14 +119,14 @@ class TaskContainer(ABC):
     The core task runner replaces it with checked copies when attempt/return_code become known.
     """
 
-    stderr_callback: Optional[Callable[[str], None]]
+    stderr_callback: Callable[[str], None] | None
     """
     A function called line-by-line for the task's standard error stream, iff verbose logging is
     enabled. If provided by a plugin then it overrides the default standard error logging, which
     writes each line to the 'stderr' child of the task logger.
     """
 
-    failure_info: Optional[Dict[str, Any]]
+    failure_info: dict[str, Any] | None
     """
     Upon run failure, the implementation may provide additional structured information about what
     went wrong (beyond the exit code and log messages).
@@ -168,7 +162,7 @@ class TaskContainer(ABC):
         assert not self._running
 
         # partition the files by host directory
-        host_paths_by_dir: Dict[str, Set[str]] = {}
+        host_paths_by_dir: dict[str, set[str]] = {}
         for host_path in host_paths:
             host_path_strip = host_path.rstrip("/")
             if host_path not in self.input_path_map and host_path_strip not in self.input_path_map:
@@ -214,7 +208,7 @@ class TaskContainer(ABC):
             else:
                 shutil.copy(host_path, host_copy_path)
 
-    def process_runtime(self, logger: logging.Logger, runtime_eval: Dict[str, Value.Base]) -> None:
+    def process_runtime(self, logger: logging.Logger, runtime_eval: dict[str, Value.Base]) -> None:
         """
         Given the evaluated WDL expressions from the task runtime{} section, populate
         self.runtime_values with validated/postprocessed values that will be needed to configure
@@ -309,7 +303,9 @@ class TaskContainer(ABC):
             elif isinstance(rcv, Value.Array):
                 try:
                     ans["returnCodes"] = [v.coerce(Type.Int()).value for v in rcv.value]
-                except Exception:
+                except Exception:  # noqa: S110
+                    # coercion failure isn't actionable here; the invalid setting is
+                    # reported by the "returnCodes" check immediately below
                     pass
             if "returnCodes" not in ans:
                 raise Error.RuntimeError("invalid setting of runtime.returnCodes")
@@ -391,7 +387,7 @@ class TaskContainer(ABC):
 
     def update_task_runtime_info_struct(
         self,
-        task: Optional["Tree.Task"] = None,
+        task: "Tree.Task | None" = None,
         *,
         output_section: bool = False,
         **updates: Value.Base,
@@ -515,7 +511,7 @@ class TaskContainer(ABC):
         self.try_counter += 1
         os.makedirs(self.host_work_dir())
 
-    def host_path(self, container_path: str, inputs_only: bool = False) -> Optional[str]:
+    def host_path(self, container_path: str, inputs_only: bool = False) -> str | None:
         """
         Map the in-container path of an output File/Directory to a host path under ``host_dir``.
         Directory paths should be given a trailing "/". Return None if the path does not exist.
@@ -587,7 +583,7 @@ class TaskContainer(ABC):
             raise OutputError("unusable output directory: " + container_path)
         return ans
 
-    def _input_host_path(self, container_path: str) -> Tuple[bool, Optional[str]]:
+    def _input_host_path(self, container_path: str) -> tuple[bool, str | None]:
         """
         Map an in-container path to its host input path, if it is an input or input Directory child.
 
@@ -675,7 +671,9 @@ class TaskContainer(ABC):
             with open(host_path, "x") as _:
                 pass
 
-    def poll_stderr_context(self, logger: logging.Logger) -> ContextManager[Callable[[], None]]:
+    def poll_stderr_context(
+        self, logger: logging.Logger
+    ) -> AbstractContextManager[Callable[[], None]]:
         """
         Implementation helper: open a context yielding a function to poll stderr.txt and log each
         each line (to either logger or self.stderr_callback if set). _run() implementation should
@@ -688,7 +686,7 @@ class TaskContainer(ABC):
             callback=self.stderr_callback,
         )
 
-    def task_running_context(self) -> ContextManager[None]:
+    def task_running_context(self) -> AbstractContextManager[None]:
         """
         Implementation helper: open a context which counts the task, and its CPU and memory
         reservations, in the CLI status bar's "running" ticker. _run() implementation should open
@@ -701,7 +699,7 @@ class TaskContainer(ABC):
         )
 
 
-_backends: Dict[str, typing.Type[TaskContainer]] = dict()
+_backends: dict[str, type[TaskContainer]] = {}
 _backends_lock: threading.Lock = threading.Lock()
 
 
@@ -710,7 +708,6 @@ def new(cfg: config.Loader, logger: logging.Logger, run_id: str, host_dir: str) 
     Instantiate a TaskContainer from the configured backend, including any necessary global
     initialization.
     """
-    global _backends
     with _backends_lock:
         if not _backends:
             for plugin_name, plugin_cls in config.load_plugins(cfg, "container_backend"):

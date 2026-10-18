@@ -2,58 +2,52 @@
 Local task runner
 """
 
+import json
 import logging
 import os
-import json
-import traceback
 import threading
-import regex
-from typing import (
-    Tuple,
-    List,
-    Dict,
-    Optional,
-    Callable,
-    Any,
-    Union,
-    TYPE_CHECKING,
-    Generator,
-    Iterable,
-)
-from contextlib import ExitStack, suppress
+import traceback
 from collections import Counter
+from collections.abc import Callable, Generator, Iterable
+from contextlib import ExitStack, suppress
+from typing import (
+    TYPE_CHECKING,
+    Any,
+)
 
-from .. import Error, Type, Env, Value, StdLib, Tree, Expr, _util
+import regex
+
+from .. import Env, Error, Expr, StdLib, Tree, Type, Value, _util
 from .._util import (
-    WDLVersion,
-    write_atomic,
-    write_values_json,
-    provision_run_dir,
-    TerminationSignalFlag,
-    chmod_R_plus,
     LoggingFileHandler,
+    TerminationSignalFlag,
+    WDLVersion,
+    chmod_R_plus,
     compose_coroutines,
     path_really_within,
     pathsize,
+    provision_run_dir,
     rmtree_atomic,
     wdl_version_geq,
+    write_atomic,
+    write_values_json,
 )
 from .._util import StructuredLogMessage as _
-from . import config, _statusbar
-from .cache import CallCache, CallCacheAddPaths, call_cache_key, new as new_call_cache
+from . import _statusbar, config
 from ._io_helpers import (
     _add_downloadable_defaults,
-    _warn_struct_extra,
-    _warn_output_basename_collisions,
-    link_outputs,
-)
-from ._io_helpers import (
     _fspaths,
+    _warn_output_basename_collisions,
+    _warn_struct_extra,
+    link_outputs,
     resolve_source_relative_path,
 )
-from .download import able as downloadable, run_cached as download
 from ._stdlib import TaskInputStdLib, TaskOutputStdLib
-from .error import OutputError, Interrupted, Terminated, RunFailed, error_json
+from .cache import CallCache, CallCacheAddPaths, call_cache_key
+from .cache import new as new_call_cache
+from .download import able as downloadable
+from .download import run_cached as download
+from .error import Interrupted, OutputError, RunFailed, Terminated, error_json
 
 if TYPE_CHECKING:  # otherwise-delayed heavy imports
     from .task_container import TaskContainer
@@ -67,20 +61,20 @@ class _TaskDeclPathMissing(Exception):
         self.error = error
 
 
-TaskPluginCoroutine = Generator[Dict[str, Any], Dict[str, Any], None]
+TaskPluginCoroutine = Generator[dict[str, Any], dict[str, Any], None]
 
 
 def run_local_task(  # type: ignore[return]
     cfg: config.Loader,
     task: Tree.Task,
     inputs: Env.Bindings[Value.Base],
-    run_id: Optional[str] = None,
-    run_dir: Optional[str] = None,
-    logger_prefix: Optional[List[str]] = None,
-    _run_id_stack: Optional[List[str]] = None,
-    _cache: Optional[CallCache] = None,
-    _plugins: Optional[List[Callable[..., Any]]] = None,
-) -> Tuple[str, Env.Bindings[Value.Base]]:
+    run_id: str | None = None,
+    run_dir: str | None = None,
+    logger_prefix: list[str] | None = None,
+    _run_id_stack: list[str] | None = None,
+    _cache: CallCache | None = None,
+    _plugins: list[Callable[..., Any]] | None = None,
+) -> tuple[str, Env.Bindings[Value.Base]]:
     """
     Run a task locally.
 
@@ -359,7 +353,7 @@ def _eval_task_inputs(
     _warn_input_basename_collisions(logger, container)
 
     # copy posix_inputs with all File & Directory values mapped to their in-container paths
-    def map_paths(fn: Union[Value.File, Value.Directory]) -> str:
+    def map_paths(fn: Value.File | Value.Directory) -> str:
         p = fn.value.rstrip("/")
         if isinstance(fn, Value.Directory):
             p += "/"
@@ -395,19 +389,17 @@ def _eval_task_inputs(
     )
     for decl in decls_to_eval:
         assert isinstance(decl, Tree.Decl)
-        v = _eval_task_decl(
-            logger,
-            decl,
-            container_env,
-            stdlib,
-            lambda value: _postprocess_task_decl_paths(
+
+        def postprocess_decl(value: Value.Base, decl: Tree.Decl = decl) -> Value.Base:
+            return _postprocess_task_decl_paths(
                 decl,
                 value,
                 lambda w: _resolve_task_decl_path_into_container(
                     task, decl.name, w, container, cache_add_paths
                 ),
-            ),
-        )
+            )
+
+        v = _eval_task_decl(logger, decl, container_env, stdlib, postprocess_decl)
         vj = json.dumps(v.json)
         logger.info(_("eval", name=decl.name, value=(v.json if len(vj) < 4096 else "(((large)))")))
         container_env = container_env.bind(decl.name, v)
@@ -418,7 +410,7 @@ def _eval_task_inputs(
 def _download_task_input_files(
     cfg: config.Loader,
     logger: logging.Logger,
-    logger_prefix: List[str],
+    logger_prefix: list[str],
     run_dir: str,
     inputs: Env.Bindings[Value.Base],
     cache: CallCache,
@@ -433,7 +425,7 @@ def _download_task_input_files(
     download_bytes = 0
     cached_hits = 0
 
-    def rewriter(v: Union[Value.Directory, Value.File]) -> str:
+    def rewriter(v: Value.Directory | Value.File) -> str:
         nonlocal downloads, download_bytes, cached_hits
         directory = isinstance(v, Value.Directory)
         uri = v.value
@@ -471,7 +463,7 @@ def _download_task_input_files(
     return ans
 
 
-def _task_decl_eval_order(decls: Iterable[Tree.Decl]) -> List[Tree.Decl]:
+def _task_decl_eval_order(decls: Iterable[Tree.Decl]) -> list[Tree.Decl]:
     """
     Topologically sort task declarations for evaluation.
     """
@@ -500,7 +492,7 @@ def _eval_task_decl(
         return postprocess_paths(value)
     except Error.RuntimeError as exn:
         setattr(exn, "job_id", decl.workflow_node_id)
-        raise exn
+        raise
     except Exception as exn:
         exn2 = Error.EvalError(decl, str(exn))
         setattr(exn2, "job_id", decl.workflow_node_id)
@@ -510,15 +502,15 @@ def _eval_task_decl(
 def _postprocess_task_decl_paths(
     decl: Tree.Decl,
     value: Value.Base,
-    resolve_path: Callable[[Union[Value.File, Value.Directory]], str],
+    resolve_path: Callable[[Value.File | Value.Directory], str],
 ) -> Value.Base:
     """
     Replace non-existent File/Directory paths with None (Value.Null), then coerce to the
     declaration type (which may raise if the declaration is non-optional).
     """
-    first_missing_error: Optional[Error.RuntimeError] = None
+    first_missing_error: Error.RuntimeError | None = None
 
-    def rewrite_missing_path(v: Union[Value.File, Value.Directory]) -> Optional[str]:
+    def rewrite_missing_path(v: Value.File | Value.Directory) -> str | None:
         nonlocal first_missing_error
         try:
             return resolve_path(v)
@@ -538,14 +530,14 @@ def _postprocess_task_decl_paths(
         raise err
 
 
-def _task_decl_path_value(v: Union[Value.File, Value.Directory]) -> str:
+def _task_decl_path_value(v: Value.File | Value.Directory) -> str:
     return v.value.rstrip("/") + ("/" if isinstance(v, Value.Directory) else "")
 
 
 def _resolve_task_decl_path_into_container(
     task: Tree.Task,
     decl_name: str,
-    v: Union[Value.File, Value.Directory],
+    v: Value.File | Value.Directory,
     container: "TaskContainer",
     cache_add_paths: CallCacheAddPaths,
 ) -> str:
@@ -592,8 +584,8 @@ def _resolve_task_decl_path_into_container(
 
 
 def _task_decl_input_directory_child_path(
-    decl_name: str, v: Union[Value.File, Value.Directory], container: "TaskContainer"
-) -> Optional[str]:
+    decl_name: str, v: Value.File | Value.Directory, container: "TaskContainer"
+) -> str | None:
     """
     Check a task File/Directory path formulated by path logic from another input Directory.
 
@@ -624,7 +616,7 @@ def _task_decl_input_directory_child_path(
 
 def _warn_input_basename_collisions(logger: logging.Logger, container: "TaskContainer") -> None:
     basenames = Counter(
-        [os.path.basename((p[:-1] if p.endswith("/") else p)) for p in container.input_path_map_rev]
+        [os.path.basename(p.removesuffix("/")) for p in container.input_path_map_rev]
     )
     collisions = [nm for nm, n in basenames.items() if n > 1]
     if collisions:
@@ -667,7 +659,7 @@ def _eval_task_runtime(
         task.effective_wdl_version, WDLVersion.V1_2
     ):
         runtime_values["maxRetries"] = runtime_values.pop("max_retries")
-    logger.debug(_("runtime values", **dict((key, str(v)) for key, v in runtime_values.items())))
+    logger.debug(_("runtime values", **{key: str(v) for key, v in runtime_values.items()}))
 
     # have container implementation validate & postprocess into container.runtime_values
     container.process_runtime(logger, runtime_values)
@@ -711,7 +703,7 @@ def _eval_task_runtime(
         container.runtime_values["env"].update(env_vars_override)
 
     # process decls with "env" decorator
-    env_decls: Dict[str, Value.Base] = {}
+    env_decls: dict[str, Value.Base] = {}
     for decl in (task.inputs or []) + task.postinputs:
         if decl.decor.get("env", False) is True:
             v = env[decl.name]
@@ -722,11 +714,11 @@ def _eval_task_runtime(
             env_decls[decl.name] = v
     container.runtime_values["env"].update(env_decls)
 
-    unused_keys = list(
+    unused_keys = [
         key
         for key in runtime_values
         if key not in ("memory", "docker", "container") and key not in container.runtime_values
-    )
+    ]
     if unused_keys:
         logger.warning(_("ignored runtime settings", keys=unused_keys))
 
@@ -949,25 +941,24 @@ def _eval_task_outputs(
     # evaluate output declarations in dependency order
     for decl in _task_decl_eval_order(task.outputs):
         assert decl.expr
+
+        def postprocess_output_decl(value: Value.Base, decl: Tree.Decl = decl) -> Value.Base:
+            return _postprocess_task_output_decl_paths(logger, decl, value, container)
+
+        def output_host_path(v: Value.File | Value.Directory, decl: Tree.Decl = decl) -> str | None:
+            return _task_output_host_path(logger, decl.name, v, container)
+
         # evaluate and check existence of in-container File/Directory output paths (tolerating
         # non-existence for optional outputs); bind to env for subsequent decls
-        v = _eval_task_decl(
-            logger,
-            decl,
-            env,
-            stdlib,
-            lambda value: _postprocess_task_output_decl_paths(logger, decl, value, container),
-        )
+        v = _eval_task_decl(logger, decl, env, stdlib, postprocess_output_decl)
         env = env.bind(decl.name, v)
 
         # rewrite in-container File/Directory paths to host paths, bind in outputs env
         try:
-            v = Value.rewrite_paths(
-                v, lambda w: _task_output_host_path(logger, decl.name, w, container)
-            )
+            v = Value.rewrite_paths(v, output_host_path)
         except Error.RuntimeError as exn:
             setattr(exn, "job_id", decl.workflow_node_id)
-            raise exn
+            raise
         outputs = outputs.bind(decl.name, v)
 
     return outputs
@@ -995,7 +986,7 @@ def _postprocess_task_output_decl_paths(
 
 def _resolve_task_output_decl_path(
     output_name: str,
-    v: Union[Value.File, Value.Directory],
+    v: Value.File | Value.Directory,
     container: "TaskContainer",
 ) -> str:
     ans = _task_output_missing_path(output_name, v, container)
@@ -1011,9 +1002,9 @@ def _resolve_task_output_decl_path(
 
 def _task_output_missing_path(
     output_name: str,
-    v: Union[Value.File, Value.Directory],
+    v: Value.File | Value.Directory,
     container: "TaskContainer",
-) -> Optional[str]:
+) -> str | None:
     """
     Return None for a task output File/Directory path missing from the container.
 
@@ -1040,9 +1031,9 @@ def _task_output_missing_path(
 def _task_output_host_path(
     logger: logging.Logger,
     output_name: str,
-    v: Union[Value.File, Value.Directory],
+    v: Value.File | Value.Directory,
     container: "TaskContainer",
-) -> Optional[str]:
+) -> str | None:
     """
     Rewrite an existing task output File/Directory path from container path to host path.
     """
@@ -1052,8 +1043,7 @@ def _task_output_host_path(
     host_path = container.host_path(container_path)
     assert host_path is not None
     if isinstance(v, Value.Directory):
-        if host_path.endswith("/"):
-            host_path = host_path[:-1]
+        host_path = host_path.removesuffix("/")
         _check_directory(host_path, output_name)
         logger.debug(_("output dir", container=container_path, host=host_path))
     else:
@@ -1085,7 +1075,7 @@ def _check_directory(host_path: str, output_name: str) -> None:
 def _delete_work(
     cfg: config.Loader,
     logger: logging.Logger,
-    container: "Optional[TaskContainer]",
+    container: "TaskContainer | None",
     success: bool,
 ) -> None:
     opt = cfg["file_io"]["delete_work"].strip().lower()

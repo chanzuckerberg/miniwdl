@@ -1,5 +1,6 @@
 # pylint: disable=assignment-from-no-return
-from typing import Any, List, Optional
+from typing import Any
+
 from . import Error, Expr, Tree, Type
 
 
@@ -36,7 +37,7 @@ class Base:
         self.auto_descend = auto_descend
         self.descend_imports = descend_imports
 
-    def __call__(self, obj: Error.SourceNode, descend: Optional[bool] = None) -> Any:
+    def __call__(self, obj: Error.SourceNode, descend: bool | None = None) -> Any:
         ans = None
         if isinstance(obj, Tree.Document):
             ans = self.document(obj)
@@ -112,9 +113,9 @@ class Multi(Base):
     works with ``auto_descend=True`` walkers.
     """
 
-    _walkers: List[Base]
+    _walkers: list[Base]
 
-    def __init__(self, walkers: List[Base], descend_imports: bool = True) -> None:
+    def __init__(self, walkers: list[Base], descend_imports: bool = True) -> None:
         for w in walkers:
             assert w.auto_descend
         self._walkers = walkers
@@ -177,7 +178,9 @@ class SetParents(Base):
     On each Expr, the containing Expr, Decl, Call, Scatter, Conditional, Task.
     """
 
-    _parent_stack: List[Error.SourceNode] = []
+    def __init__(self) -> None:
+        super().__init__()
+        self._parent_stack: list[Error.SourceNode] = []
 
     def document(self, obj: Tree.Document) -> None:
         super().document(obj)
