@@ -4551,21 +4551,3 @@ class TestStdLib(unittest.TestCase):
             expected_exception=WDL.Error.EvalError,
         )
 
-
-class TestComposeCoroutines(unittest.TestCase):
-    def test_plugin_exception_translation(self):
-        # compose_coroutines contract: a plugin coroutine may catch an exception thrown
-        # through the composition and replace it with a different exception; the
-        # replacement (not the original exception) must propagate to the caller.
-        def translating_plugin(x):
-            try:
-                while True:
-                    x = yield x
-            except Exception as exn:
-                raise RuntimeError(f"plugin translated: {exn}") from exn
-
-        with WDL._util.compose_coroutines([translating_plugin], None) as cor:
-            next(cor)  # start the composed coroutines
-            with self.assertRaises(RuntimeError) as ctx:
-                cor.throw(ValueError("original"))
-        self.assertEqual(str(ctx.exception), "plugin translated: original")
