@@ -11,8 +11,7 @@ documents. Simply ``import WDL`` once miniwdl has been installed.
 import os  # noqa: I001 (import block order is load-bearing; see note at the . import below)
 from collections.abc import Awaitable, Callable
 
-# typing names deliberately re-exported in the package namespace for downstream users
-from typing import Any, Dict, List, Optional, Union  # noqa: UP035, F401
+from typing import Any
 
 # NOTE: submodule import order is load-bearing for this package's circular imports
 # (importing _parser early triggers Tree to fully initialize before _parser's own

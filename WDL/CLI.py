@@ -602,8 +602,8 @@ def fill_run_subparser(subparsers):
     return run_parser
 
 
-# The [] defaults below are never mutated (inputs are only read); they're part of this public
-# API's signature and defaults introspection, so they're kept instead of None sentinels.
+# The [] defaults below are never mutated, and the signature is established public
+# API, so they're kept instead of None sentinels.
 def runner(
     uri,
     task=None,

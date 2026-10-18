@@ -5,8 +5,7 @@ flexible input loading features; and avoids conflicting with the runtime's threa
 handlers. Alternatively, it's possible to call ``WDL.runtime.run()`` directly if needed.
 """
 
-# typing names deliberately re-exported in the package namespace for downstream users
-from typing import Any, Dict, Tuple, Union  # noqa: UP035, F401
+from typing import Any
 
 from .. import Env, Tree, Value
 from . import (

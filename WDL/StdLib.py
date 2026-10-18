@@ -397,9 +397,7 @@ class StaticFunction(EagerFunction):
 
 
 def _notimpl(*args, **kwargs) -> None:
-    # exec raises NotImplementedError from the caller's frame, so stdlib functions backed by
-    # this placeholder report as unavailable in the context that tried to use them
-    exec("raise NotImplementedError('function not available in this context')")  # noqa: S102
+    raise NotImplementedError("function not available in this context")
 
 
 class TaskOutputs(Base):

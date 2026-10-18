@@ -846,12 +846,13 @@ def compose_coroutines(
                 try:
                     x = yield x
                 except Exception as exn:
+                    cur_exn = exn
                     for cor in cors:
                         try:
-                            cor.throw(exn)
+                            cor.throw(cur_exn)
                         except Exception as exn2:
-                            exn = exn2
-                    raise
+                            cur_exn = exn2
+                    raise cur_exn
                 # pass value through coroutines
                 cor_exn = None
                 for cor in cors:
