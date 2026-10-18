@@ -277,15 +277,21 @@ class Task(SourceNode):
     runtime: dict[str, Expr.Base]
     """:type: dict[str,WDL.Expr.Base]
 
-    ``runtime{}`` section, with keys and corresponding expressions to be evaluated"""
-    # Original task section keyword, either "runtime" or "requirements"
+    ``requirements{}`` section (``runtime{}`` before WDL 1.2), with keys and corresponding
+    expressions to be evaluated"""
     runtime_section_name: str | None
+    """:type: str | None
+
+    Original keyword of the requirements/runtime section, either ``"requirements"`` or
+    ``"runtime"`` (None if absent)"""
     runtime_section_pos: SourcePosition | None
-    # Source position of the runtime/requirements section, if present
+    """:type: WDL.SourcePosition | None
+
+    Source position of the requirements/runtime section, if present"""
     requirements: dict[str, Expr.Base]
     """:type: dict[str,WDL.Expr.Base]
 
-    ``requirements{}`` section (for WDL 1.2+ tasks; refers to same dict as ``runtime``)"""
+    Alias of ``runtime`` (refers to the same dict)"""
     meta: dict[str, Any]
     """:type: dict[str,Any]
 

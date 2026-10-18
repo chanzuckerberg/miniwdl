@@ -41,7 +41,7 @@ def trace_identifiers(obj):
 
 `trace_identifiers` recursively descends through the WDL document to find all Array identifier expressions. It begins with the workflow and tasks in the top-level `Document` object, if any. The `Document` object may also include imports and struct type definitions, which we won't use here.
 
-For the workflow, we descend into its body and its `input{}` and `output{}` sections, if any. For each task, we descend into all its value declarations, the command template, and any expressions in the runtime section. 
+For the workflow, we descend into its body and its `input{}` and `output{}` sections, if any. For each task, we descend into all its value declarations, the command template, and any expressions in the `requirements` section (exposed as `obj.runtime`, after its pre-WDL 1.2 name).
 
 ```python3
     elif isinstance(obj, WDL.WorkflowSection):

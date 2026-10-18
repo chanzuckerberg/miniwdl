@@ -18,7 +18,7 @@ If you're new to WDL, you may want to review the open-source [learn-wdl course](
   - Please [file any other issues](https://github.com/chanzuckerberg/miniwdl/issues) that arise!
 
 - Q: The `miniwdl run` command won't run my WDL workflow
-  - Each task runs in the Docker container image given in its `runtime`/`requirements` section, or a [configurable default image](runner_reference.md#task-requirements-attributes) if none is specified.
+  - Each task runs in the Docker container image given in its `requirements` section (`runtime` before WDL 1.2), or a [configurable default image](runner_reference.md#task-requirements-attributes) if none is specified.
   - Verify that the image exists and supplies the tools used in the task command.
 
 - Q: What is the quickest way to verify that miniwdl is properly installed?
@@ -84,4 +84,4 @@ If you're new to WDL, you may want to review the open-source [learn-wdl course](
 * [chanzuckerberg/miniwdl GitHub](https://github.com/chanzuckerberg/miniwdl/) where issues & contributions are welcome
 * [openwdl/wdl GitHub](https://github.com/openwdl/wdl) for WDL spec & proposals
 * [OpenWDL Slack #miniwdl](https://openwdl.slack.com/archives/C02JCRJU79T) for discussions
-* [CZI Science Tech](https://tech.chanzuckerberg.com/scitech/) sponsors this project
+* [CZI Science](https://chanzuckerberg.com/science/) sponsors this project

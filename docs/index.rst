@@ -77,6 +77,6 @@ Links
   contributions
 * `OpenWDL GitHub repo <https://github.com/openwdl/wdl>`_ for the WDL specification and proposals
 * `OpenWDL Slack #miniwdl <https://openwdl.slack.com/archives/C02JCRJU79T>`_ for discussion
-* `CZI Science Tech <https://tech.chanzuckerberg.com/scitech/>`_ sponsors this project
+* `CZI Science <https://chanzuckerberg.com/science/>`_ sponsors this project
 
 Indices: :ref:`genindex` · :ref:`modindex` · :ref:`search`

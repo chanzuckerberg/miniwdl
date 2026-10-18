@@ -150,4 +150,4 @@ The miniwdl runner schedules WDL tasks in parallel up to the CPUs & memory avail
 * [chanzuckerberg/miniwdl GitHub](https://github.com/chanzuckerberg/miniwdl/) where issues & contributions are welcome
 * [openwdl/wdl GitHub](https://github.com/openwdl/wdl) for WDL spec & proposals
 * [OpenWDL Slack #miniwdl](https://openwdl.slack.com/archives/C02JCRJU79T) for discussions
-* [CZI Science Tech](https://tech.chanzuckerberg.com/scitech/) sponsors this project
+* [CZI Science](https://chanzuckerberg.com/science/) sponsors this project

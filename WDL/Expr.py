@@ -2,7 +2,7 @@
 WDL expressions composing literal values, arithmetic, comparison, conditionals,
 string interpolation, arrays & maps, and function applications. These appear on
 the right-hand side of value declarations and in task command substitutions,
-task runtime sections, and workflow scatter and conditional sections.
+task requirements/runtime sections, and workflow scatter and conditional sections.
 
 The abstract syntax tree (AST) for any expression is represented by an instance
 of a Python class deriving from ``WDL.Expr.Base``. Any such node may have other

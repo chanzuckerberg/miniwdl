@@ -35,7 +35,7 @@ The miniwdl source repository includes several [example scripts](https://github.
 
 ## Task requirements attributes
 
-The default local scheduler observes these task `requirements {}` attributes (formerly `runtime {}` prior to WDL 1.2):
+The default local scheduler observes these task `requirements {}` attributes (in the `runtime {}` section before WDL 1.2):
 
 * `docker`/`container` (String): Docker image tag used to instantiate the container; if omitted, a default image is specified in the miniwdl configuration option `[task_runtime] defaults` (currently `ubuntu:22.04`)
 * `cpu` (Int): container reserves, and is throttled to, this many CPUs
@@ -152,7 +152,7 @@ Review [`default.cfg`](https://github.com/chanzuckerberg/miniwdl/blob/main/WDL/r
 
 ## Using NVIDIA GPU
 
-While `miniwdl` itself ignores GPU directives in a task's `requirements`/`runtime` section, most scenarios with a local NVIDIA GPU will work with these steps:
+While `miniwdl` itself ignores GPU directives in a task's `requirements` section, most scenarios with a local NVIDIA GPU will work with these steps:
 
 1. Install the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)
 2. Edit `/etc/docker/daemon.json` to add the top-level key `"default-runtime":"nvidia"`
@@ -162,7 +162,7 @@ Limitations:
 
 * The host then uses the NVIDIA runtime for all containers, which could (but doesn't usually) cause a conflict for certain Docker images.
 * The GPU isn't considered for task scheduling, so intensive workloads may need GPU task parallelism constrained by *either*:
-  * Reserving most of the host's `cpu` or `memory` in each GPU-using task's `requirements`/`runtime`.
+  * Reserving most of the host's `cpu` or `memory` in each GPU-using task's `requirements`.
   * Setting the configuration `[scheduler] task_concurrency = 1` (affecting all tasks, GPU-using or not).
 
 ## WDL interoperability
@@ -172,7 +172,7 @@ The runner supports versions 1.2, 1.1, 1.0, and draft-2 of the [WDL specificatio
 * `Object` type is unsupported except for initializing WDL 1.0+ `struct` types, which should be used instead.
   * The `read_object()` and `read_objects()` library functions are available *only* for initializing structs and `Map[String,String]`
 * A task may only *output* files created within/beneath its container's initial working directory, not e.g. under `/tmp` ([#214](https://github.com/chanzuckerberg/miniwdl/issues/214))
-* The following task `requirements`/`runtime` values are ignored: `disks`, `fpga`, `gpu` (but see the [GPU section](#using-nvidia-gpu) above)
+* The following task `requirements` are ignored: `disks`, `fpga`, `gpu` (but see the [GPU section](#using-nvidia-gpu) above)
 * WDL 1.2 task/workflow `hints` sections are parsed but ignored, including `allow_nested_inputs`
 
 Please [file an issue](https://github.com/chanzuckerberg/miniwdl/issues?q=is%3Aopen+is%3Aissue+label%3Ainterop) for any other incompatibilities observed.
