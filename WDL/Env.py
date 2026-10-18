@@ -2,7 +2,8 @@
 Environments, for identifier resolution during WDL typechecking and evaluation.
 """
 
-from typing import Optional, TypeVar, Generic, Any, Callable, Set, Iterator
+from collections.abc import Callable, Iterator
+from typing import Any, Generic, TypeVar
 
 T = TypeVar("T")
 S = TypeVar("S")
@@ -45,7 +46,7 @@ class Binding(Generic[T]):
 
 
 class Bindings(Generic[T]):
-    """WDL.Env.Bindings(binding: Optional[WDL.Env.Binding[T]] = None, next: Optional[WDL.Env.Bindings[T]] = None)
+    """WDL.Env.Bindings(binding: WDL.Env.Binding[T] | None = None, next: WDL.Env.Bindings[T] | None = None)
 
     An environment consisting of an immutable linked-list of :class:`WDL.Env.Binding` objects.
     ``WDL.Env.Bindings()`` is the empty environment. ``Bindings[T]`` is iterable for the individual
@@ -58,14 +59,14 @@ class Bindings(Generic[T]):
 
     """
 
-    _binding: Optional[Binding[T]]
-    _next: "Optional[Bindings[T]]"
-    _namespaces: Optional[Set[str]] = None
+    _binding: Binding[T] | None
+    _next: "Bindings[T] | None"
+    _namespaces: set[str] | None = None
 
     def __init__(
         self,
-        binding: Optional[Binding[T]] = None,
-        next: "Optional[Bindings[T]]" = None,
+        binding: Binding[T] | None = None,
+        next: "Bindings[T] | None" = None,
     ) -> None:
         assert binding or not next
         self._binding = binding
@@ -76,7 +77,7 @@ class Bindings(Generic[T]):
 
     def __iter__(self) -> Iterator[Binding[T]]:
         mask = set()
-        pos: Optional[Bindings[T]] = self
+        pos: Bindings[T] | None = self
         while pos is not None:
             if isinstance(pos._binding, Binding) and pos._binding.name not in mask:
                 mask.add(pos._binding.name)
@@ -113,7 +114,7 @@ class Bindings(Generic[T]):
         """
         return self.resolve_binding(name).value
 
-    def get(self, name: str, default: Optional[T] = None) -> Optional[T]:
+    def get(self, name: str, default: T | None = None) -> T | None:
         """
         Look up a bound value by name, returning the default value or ``None`` if there's no such
         binding.
@@ -141,7 +142,7 @@ class Bindings(Generic[T]):
             return self.has_binding(name)
         return False
 
-    def map(self, f: Callable[[Binding[T]], Optional[Binding[S]]]) -> "Bindings[S]":
+    def map(self, f: Callable[[Binding[T]], Binding[S] | None]) -> "Bindings[S]":
         """
         Copy the environment with each binding transformed by the given function. If the function
         returns ``None`` then the binding is excluded.
@@ -170,8 +171,8 @@ class Bindings(Generic[T]):
         return self.filter(flt)
 
     @property
-    def namespaces(self) -> Set[str]:
-        """:type: Set[str]
+    def namespaces(self) -> set[str]:
+        """:type: set[str]
 
         Return the environment's namespaces, all the distinct dot-separated prefixes of the binding
         names. Each element ends with a dot.
@@ -202,7 +203,7 @@ class Bindings(Generic[T]):
         if not namespace.endswith("."):
             namespace += "."
 
-        def enter(b: Binding[T]) -> Optional[Binding[T]]:
+        def enter(b: Binding[T]) -> Binding[T] | None:
             if b.name.startswith(namespace):
                 return Binding(b.name[len(namespace) :], b.value, b.info)
             return None

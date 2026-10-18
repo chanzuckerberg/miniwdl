@@ -1,15 +1,18 @@
 # pylint: disable=protected-access,exec-used
-from dataclasses import dataclass, replace
+import json
 import math
 import os
 import posixpath
-import json
 import tempfile
-from typing import List, Tuple, Dict, Callable, IO, Optional, Union, Any
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from contextlib import suppress
+from dataclasses import dataclass, replace
+from typing import IO, Any
+
 import regex
-from . import Type, Value, Expr, Env, Error
+
+from . import Env, Error, Expr, Type, Value
 from ._util import (
     WDLVersion,
     byte_size_units,
@@ -33,7 +36,7 @@ class EvalContext:
     value should use replace(), preserving any other values already layered into the context.
     """
 
-    placeholder_regex: Optional[regex.Pattern] = None
+    placeholder_regex: regex.Pattern | None = None
 
     def replace(self, **overrides: Any) -> "EvalContext":
         """
@@ -61,7 +64,7 @@ class Base:
     eval_context: EvalContext
 
     def __init__(
-        self, wdl_version: str, write_dir: str = "", *, eval_context: Optional[EvalContext] = None
+        self, wdl_version: str, write_dir: str = "", *, eval_context: EvalContext | None = None
     ):
         self.wdl_version = wdl_version
         self._write_dir = write_dir if write_dir else tempfile.gettempdir()
@@ -91,7 +94,7 @@ class Base:
 
         # static stdlib functions
         def static(
-            argument_types: List[Type.Base], return_type: Type.Base, name: Optional[str] = None
+            argument_types: list[Type.Base], return_type: Type.Base, name: str | None = None
         ):
             """
             helper/decorator to create a static function from type signature and a lambda
@@ -149,7 +152,7 @@ class Base:
         static([Type.File()], Type.Int(), "read_int")(self._read(lambda s: Value.Int(int(s))))
         static([Type.File()], Type.Boolean(), "read_boolean")(self._read(_parse_boolean))
         static([Type.File()], Type.String(), "read_string")(
-            self._read(lambda s: Value.String(s[:-1] if s.endswith("\n") else s))
+            self._read(lambda s: Value.String(s.removesuffix("\n")))
         )
         static([Type.File()], Type.Float(), "read_float")(
             self._read(lambda s: Value.Float(float(s)))
@@ -258,7 +261,7 @@ class Base:
         """
         value = value.coerce(desired_type)
 
-        def rewrite_path(v: Union[Value.File, Value.Directory]) -> str:
+        def rewrite_path(v: Value.File | Value.Directory) -> str:
             filename = v.value
             if isinstance(v, Value.Directory):
                 filename = filename.rstrip("/") + "/"
@@ -334,7 +337,7 @@ class EagerFunction(Function):
     # argument and return values.
 
     @abstractmethod
-    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+    def _call_eager(self, expr: "Expr.Apply", arguments: list[Value.Base]) -> Value.Base:
         pass
 
     def __call__(
@@ -348,12 +351,12 @@ class StaticFunction(EagerFunction):
     # In this case the boilerplate can handle the coercions.
 
     name: str
-    argument_types: List[Type.Base]
+    argument_types: list[Type.Base]
     return_type: Type.Base
     F: Callable
 
     def __init__(
-        self, name: str, argument_types: List[Type.Base], return_type: Type.Base, F: Callable
+        self, name: str, argument_types: list[Type.Base], return_type: Type.Base, F: Callable
     ) -> None:
         self.name = name
         self.argument_types = argument_types
@@ -377,11 +380,11 @@ class StaticFunction(EagerFunction):
                     expr.arguments[i],
                     self.argument_types[i],
                     expr.arguments[i].type,
-                    "for {} argument #{}".format(self.name, i + 1),
+                    f"for {self.name} argument #{i + 1}",
                 ) from None
         return self.return_type
 
-    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+    def _call_eager(self, expr: "Expr.Apply", arguments: list[Value.Base]) -> Value.Base:
         argument_values = [arg.coerce(ty) for arg, ty in zip(arguments, self.argument_types)]
         try:
             ans: Value.Base = self.F(*argument_values)
@@ -394,7 +397,9 @@ class StaticFunction(EagerFunction):
 
 
 def _notimpl(*args, **kwargs) -> None:
-    exec("raise NotImplementedError('function not available in this context')")
+    # exec raises NotImplementedError from the caller's frame, so stdlib functions backed by
+    # this placeholder report as unavailable in the context that tried to use them
+    exec("raise NotImplementedError('function not available in this context')")  # noqa: S102
 
 
 class TaskOutputs(Base):
@@ -426,12 +431,9 @@ def basename(*args) -> Value.String:
 
 
 def _parse_lines(s: str) -> Value.Array:
-    ans: List[Value.Base] = []
+    ans: list[Value.Base] = []
     if s:
-        ans = [
-            Value.String(line.rstrip("\r"))
-            for line in (s[:-1] if s.endswith("\n") else s).split("\n")
-        ]
+        ans = [Value.String(line.rstrip("\r")) for line in (s.removesuffix("\n")).split("\n")]
     return Value.Array(Type.String(), ans)
 
 
@@ -445,7 +447,7 @@ def _parse_boolean(s: str) -> Value.Boolean:
 
 
 def _parse_tsv(s: str) -> Value.Array:
-    ans: List[Value.Base] = [
+    ans: list[Value.Base] = [
         Value.Array(Type.String(), [Value.String(field) for field in line.value.split("\t")])
         for line in _parse_lines(s).value
     ]
@@ -456,9 +458,9 @@ def _parse_tsv_objects(
     s: str,
     *,
     header: bool = True,
-    keys: Optional[List[Value.Base]] = None,
+    keys: list[Value.Base] | None = None,
     function_name: str = "read_objects",
-    filename: Optional[str] = None,
+    filename: str | None = None,
 ) -> Value.Array:
     strmat = _parse_tsv(s)
     if keys is None:
@@ -490,7 +492,7 @@ def _parse_tsv_objects(
                 + (f": {filename}" if filename else "")
             )
         literal_keys.add(key.value)
-    maps: List[Value.Base] = []
+    maps: list[Value.Base] = []
     for row in rows:
         if len(row.value) != len(keys):
             raise Error.InputError(f"{function_name}(): file's tab-separated lines are ragged")
@@ -615,13 +617,13 @@ class _WriteTsv(EagerFunction):
                 ) from None
 
     @staticmethod
-    def _tsv_line(row: List[Value.Base]) -> Value.String:
+    def _tsv_line(row: list[Value.Base]) -> Value.String:
         return Value.String("\t".join([part.coerce(Type.String()).value for part in row]))
 
     @classmethod
     def _serialize_tsv(cls, v: Value.Base, outfile: IO[bytes]) -> None:
         assert isinstance(v, Value.Array)
-        lines: List[Value.Base] = []
+        lines: list[Value.Base] = []
         for parts in v.value:
             assert isinstance(parts, Value.Array)
             lines.append(cls._tsv_line(parts.value))
@@ -632,12 +634,12 @@ class _WriteTsv(EagerFunction):
         cls,
         expr: "Expr.Apply",
         v: Value.Base,
-        header: List[Value.Base],
+        header: list[Value.Base],
         outfile: IO[bytes],
         function_name: str = "write_tsv",
     ) -> None:
         assert isinstance(v, Value.Array)
-        lines: List[Value.Base] = [cls._tsv_line(header)]
+        lines: list[Value.Base] = [cls._tsv_line(header)]
         for parts in v.value:
             assert isinstance(parts, Value.Array)
             if len(parts.value) != len(header):
@@ -655,16 +657,16 @@ class _WriteTsv(EagerFunction):
         outfile: IO[bytes],
         *,
         header: bool = False,
-        keys: Optional[List[Value.Base]] = None,
+        keys: list[Value.Base] | None = None,
         function_name: str = "write_tsv",
     ) -> None:
         assert isinstance(v, Value.Array)
         item_type = v.type.item_type
         assert isinstance(item_type, Type.StructInstance) and item_type.members is not None
         member_names = list(item_type.members.keys())
-        lines: List[Value.Base] = []
+        lines: list[Value.Base] = []
         if header:
-            header_values: List[Value.Base] = (
+            header_values: list[Value.Base] = (
                 keys if keys is not None else [Value.String(key) for key in member_names]
             )
             if len(header_values) != len(member_names):
@@ -677,7 +679,7 @@ class _WriteTsv(EagerFunction):
             lines.append(cls._tsv_line([struct.value[key] for key in member_names]))
         _serialize_lines(Value.Array(Type.String(), lines), outfile)
 
-    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+    def _call_eager(self, expr: "Expr.Apply", arguments: list[Value.Base]) -> Value.Base:
         assert isinstance(arguments[0], Value.Array)
         arg0_type = expr.arguments[0].type
         assert isinstance(arg0_type, Type.Array)
@@ -708,7 +710,7 @@ class _WriteTsv(EagerFunction):
 
 def _serialize_map(map: Value.Base, outfile: IO[bytes]) -> None:
     assert isinstance(map, Value.Map)
-    lines: List[Value.Base] = []
+    lines: list[Value.Base] = []
     for k, v in map.value:
         ks = k.coerce(Type.String()).value
         vs = v.coerce(Type.String()).value
@@ -756,7 +758,7 @@ class _At(EagerFunction):
             return Type.Any()
         raise Error.NotAnArray(lhs)
 
-    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+    def _call_eager(self, expr: "Expr.Apply", arguments: list[Value.Base]) -> Value.Base:
         assert len(expr.arguments) == 2 and len(arguments) == 2
         lhs = arguments[0]
         rhs = arguments[1]
@@ -861,7 +863,7 @@ class _ArithmeticOperator(EagerFunction):
             ) from None
         return rt
 
-    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+    def _call_eager(self, expr: "Expr.Apply", arguments: list[Value.Base]) -> Value.Base:
         ans_type = self.infer_type(expr)
         ans = self.op(arguments[0].coerce(ans_type).value, arguments[1].coerce(ans_type).value)
         if isinstance(ans_type, Type.Int):
@@ -877,7 +879,7 @@ class _DivisionOperator(_ArithmeticOperator):
     def __init__(self) -> None:
         super().__init__("/", lambda l, r: l // r)
 
-    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+    def _call_eager(self, expr: "Expr.Apply", arguments: list[Value.Base]) -> Value.Base:
         ans_type = self.infer_type(expr)
         lhs = arguments[0].coerce(ans_type).value
         rhs = arguments[1].coerce(ans_type).value
@@ -896,7 +898,7 @@ class _ExponentiationOperator(_ArithmeticOperator):
     def __init__(self) -> None:
         super().__init__("**", lambda l, r: l**r)
 
-    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+    def _call_eager(self, expr: "Expr.Apply", arguments: list[Value.Base]) -> Value.Base:
         ans_type = self.infer_type(expr)
         lhs = arguments[0].coerce(ans_type).value
         rhs = arguments[1].coerce(ans_type).value
@@ -929,13 +931,11 @@ class _AddOperator(_ArithmeticOperator):
         if not t2.coerces(Type.String(), check_quant=expr._check_quant):
             raise Error.IncompatibleOperand(
                 expr,
-                "Cannot add/concatenate {} and {}".format(
-                    str(expr.arguments[0].type), str(expr.arguments[1].type)
-                ),
+                f"Cannot add/concatenate {expr.arguments[0].type!s} and {expr.arguments[1].type!s}",
             )
         return Type.String()
 
-    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+    def _call_eager(self, expr: "Expr.Apply", arguments: list[Value.Base]) -> Value.Base:
         ans_type = self.infer_type(expr)
         if not isinstance(ans_type, Type.String):
             return super()._call_eager(expr, arguments)
@@ -963,7 +963,7 @@ class _InterpolationAddOperator(_AddOperator):
             else super().infer_type(expr)
         )
 
-    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+    def _call_eager(self, expr: "Expr.Apply", arguments: list[Value.Base]) -> Value.Base:
         if sum(1 for arg in arguments if isinstance(arg, Value.Null)):
             return Value.Null()
         return super()._call_eager(expr, arguments)
@@ -986,13 +986,11 @@ class _EqualityOperator(EagerFunction):
         if not expr.arguments[0].type.equatable(expr.arguments[1].type):
             raise Error.IncompatibleOperand(
                 expr,
-                "Cannot test equality of {} and {}".format(
-                    str(expr.arguments[0].type), str(expr.arguments[1].type)
-                ),
+                f"Cannot test equality of {expr.arguments[0].type!s} and {expr.arguments[1].type!s}",
             )
         return Type.Boolean()
 
-    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+    def _call_eager(self, expr: "Expr.Apply", arguments: list[Value.Base]) -> Value.Base:
         assert len(arguments) == 2
         left, right = arguments
         left_type, right_type = expr.arguments[0].type, expr.arguments[1].type
@@ -1023,13 +1021,11 @@ class _ComparisonOperator(EagerFunction):
         ):
             raise Error.IncompatibleOperand(
                 expr,
-                "Cannot compare {} and {}".format(
-                    str(expr.arguments[0].type), str(expr.arguments[1].type)
-                ),
+                f"Cannot compare {expr.arguments[0].type!s} and {expr.arguments[1].type!s}",
             )
         return Type.Boolean()
 
-    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+    def _call_eager(self, expr: "Expr.Apply", arguments: list[Value.Base]) -> Value.Base:
         assert len(arguments) == 2
         return Value.Boolean(self.op(arguments[0].value, arguments[1].value))
 
@@ -1083,9 +1079,8 @@ class _Size(EagerFunction):
         """
         if _Size._type_contains_paths(ty):
             return value
-        if isinstance(ty, Type.Array):
-            if ty.item_type.coerces(Type.File(optional=True)):
-                return value.coerce(Type.Array(Type.File(optional=True), nonempty=ty.nonempty))
+        if isinstance(ty, Type.Array) and ty.item_type.coerces(Type.File(optional=True)):
+            return value.coerce(Type.Array(Type.File(optional=True), nonempty=ty.nonempty))
         return value.coerce(Type.File(optional=True))
 
     def infer_type(self, expr: "Expr.Apply") -> Type.Base:
@@ -1108,14 +1103,14 @@ class _Size(EagerFunction):
             raise Error.WrongArity(expr, 2)
         return Type.Float()
 
-    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+    def _call_eager(self, expr: "Expr.Apply", arguments: list[Value.Base]) -> Value.Base:
         # this default implementation attempts pathsize() on the argument(s)
         unit = arguments[1].coerce(Type.String()) if len(arguments) > 1 else None
 
         ans = []
         paths_argument = self._coerce_paths_argument(arguments[0], expr.arguments[0].type)
 
-        def collect(file: Union[Value.File, Value.Directory]) -> str:
+        def collect(file: Value.File | Value.Directory) -> str:
             assert isinstance(file, (Value.File, Value.Directory))
             # pathsize() defines Directory sizing for size(): recursively sum regular files under
             # the directory, excluding symlink entries encountered inside it.
@@ -1167,7 +1162,7 @@ class _ReadTsv(EagerFunction):
             expr.arguments[2].typecheck(Type.Array(Type.String()))
         return Type.Array(Type.Map((Type.String(), Type.String())))
 
-    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+    def _call_eager(self, expr: "Expr.Apply", arguments: list[Value.Base]) -> Value.Base:
         file = arguments[0].coerce(Type.File())
         assert isinstance(file, Value.File)
         with open(self.stdlib._devirtualize_filename(file.value), "r") as infile:
@@ -1240,7 +1235,7 @@ class _SelectFirst(EagerFunction):
         expr.arguments[1].typecheck(return_type)
         return return_type
 
-    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+    def _call_eager(self, expr: "Expr.Apply", arguments: list[Value.Base]) -> Value.Base:
         return_type = self.infer_type(expr)
         arr = arguments[0].coerce(Type.Array(Type.Any()))
         assert isinstance(arr, Value.Array)
@@ -1268,7 +1263,7 @@ class _SelectAll(EagerFunction):
             raise Error.IndeterminateType(expr.arguments[0], "can't infer item type of empty array")
         return Type.Array(arg0ty.item_type.copy(optional=False))
 
-    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+    def _call_eager(self, expr: "Expr.Apply", arguments: list[Value.Base]) -> Value.Base:
         return_type = self.infer_type(expr)
         assert isinstance(return_type, Type.Array)
         arr = arguments[0].coerce(Type.Array(Type.Any()))
@@ -1300,8 +1295,8 @@ class _ZipOrCross(EagerFunction):
         )
 
     def _coerce_args(
-        self, expr: "Expr.Apply", arguments: List[Value.Base]
-    ) -> Tuple[Type.Array, Value.Array, Value.Array]:
+        self, expr: "Expr.Apply", arguments: list[Value.Base]
+    ) -> tuple[Type.Array, Value.Array, Value.Array]:
         ty = self.infer_type(expr)
         assert isinstance(ty, Type.Array) and isinstance(ty.item_type, Type.Pair)
         lhs = arguments[0].coerce(Type.Array(ty.item_type.left_type))
@@ -1311,7 +1306,7 @@ class _ZipOrCross(EagerFunction):
 
 
 class _Zip(_ZipOrCross):
-    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Array:
+    def _call_eager(self, expr: "Expr.Apply", arguments: list[Value.Base]) -> Value.Array:
         ty, lhs, rhs = self._coerce_args(expr, arguments)
         assert isinstance(ty, Type.Array) and isinstance(ty.item_type, Type.Pair)
         if len(lhs.value) != len(rhs.value):
@@ -1328,7 +1323,7 @@ class _Zip(_ZipOrCross):
 
 
 class _Cross(_ZipOrCross):
-    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Array:
+    def _call_eager(self, expr: "Expr.Apply", arguments: list[Value.Base]) -> Value.Array:
         ty, lhs, rhs = self._coerce_args(expr, arguments)
         assert isinstance(ty, Type.Array) and isinstance(ty.item_type, Type.Pair)
         return Value.Array(
@@ -1361,7 +1356,7 @@ class _Unzip(EagerFunction):
             Type.Array(arg0ty.item_type.right_type, nonempty=arg0ty.nonempty),
         )
 
-    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Pair:
+    def _call_eager(self, expr: "Expr.Apply", arguments: list[Value.Base]) -> Value.Pair:
         pty = self.infer_type(expr)
         assert isinstance(pty, Type.Pair)
         lty = pty.left_type
@@ -1400,7 +1395,7 @@ class _Flatten(EagerFunction):
             )
         return Type.Array(arg0ty.item_type.item_type)
 
-    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+    def _call_eager(self, expr: "Expr.Apply", arguments: list[Value.Base]) -> Value.Base:
         ty = self.infer_type(expr)
         assert isinstance(ty, Type.Array)
         ans = []
@@ -1429,13 +1424,13 @@ class _Transpose(EagerFunction):
             )
         return Type.Array(Type.Array(arg0ty.item_type.item_type))
 
-    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+    def _call_eager(self, expr: "Expr.Apply", arguments: list[Value.Base]) -> Value.Base:
         ty = self.infer_type(expr)
         assert isinstance(ty, Type.Array) and isinstance(ty.item_type, Type.Array)
         mat = arguments[0].coerce(ty)
         assert isinstance(mat, Value.Array)
         n = None
-        ans: List[Value.Base] = []
+        ans: list[Value.Base] = []
         for row in mat.value:
             assert isinstance(row, Value.Array)
             if n is None:
@@ -1467,7 +1462,7 @@ class _Range(EagerFunction):
                 nonempty = True
         return Type.Array(Type.Int(), nonempty=nonempty)
 
-    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+    def _call_eager(self, expr: "Expr.Apply", arguments: list[Value.Base]) -> Value.Base:
         arg0 = arguments[0].coerce(Type.Int())
         assert isinstance(arg0, Value.Int)
         if arg0.value < 0:
@@ -1489,7 +1484,7 @@ class _Prefix(EagerFunction):
             Type.String(), nonempty=(isinstance(arg1ty, Type.Array) and arg1ty.nonempty)
         )
 
-    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+    def _call_eager(self, expr: "Expr.Apply", arguments: list[Value.Base]) -> Value.Base:
         pfx = arguments[0].coerce(Type.String()).value
         return Value.Array(
             Type.String(),
@@ -1512,7 +1507,7 @@ class _Suffix(EagerFunction):
             Type.String(), nonempty=(isinstance(arg1ty, Type.Array) and arg1ty.nonempty)
         )
 
-    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+    def _call_eager(self, expr: "Expr.Apply", arguments: list[Value.Base]) -> Value.Base:
         sfx = arguments[0].coerce(Type.String()).value
         return Value.Array(
             Type.String(),
@@ -1551,7 +1546,7 @@ class _JoinPaths(EagerFunction):
                     ) from None
         return Type.String()
 
-    def _absolute_path(self, parts: List[str]) -> str:
+    def _absolute_path(self, parts: list[str]) -> str:
         assert parts
         ans = posixpath.normpath(posixpath.join(*parts))
         if not ans.startswith("/"):
@@ -1560,7 +1555,7 @@ class _JoinPaths(EagerFunction):
             )
         return ans
 
-    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+    def _call_eager(self, expr: "Expr.Apply", arguments: list[Value.Base]) -> Value.Base:
         if len(arguments) == 1:
             paths = arguments[0].coerce(Type.Array(Type.String(), nonempty=True))
             assert isinstance(paths, Value.Array)
@@ -1606,11 +1601,11 @@ class _Quote(EagerFunction):
         nonempty = isinstance(arg0ty, Type.Array) and arg0ty.nonempty
         return Type.Array(Type.String(), nonempty=nonempty)
 
-    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+    def _call_eager(self, expr: "Expr.Apply", arguments: list[Value.Base]) -> Value.Base:
         return Value.Array(
             Type.String(),
             [
-                Value.String("{0}{1}{0}".format(self.quote, s.coerce(Type.String()).value))
+                Value.String(f"{self.quote}{s.coerce(Type.String()).value}{self.quote}")
                 for s in arguments[0].value
             ],
         )
@@ -1645,9 +1640,7 @@ class _Keys(EagerFunction):
                     expr.arguments[0],
                     Type.Map((Type.Any(), Type.Any())),
                     arg0ty,
-                    "keys() does not accept Struct or Object in WDL version {}".format(
-                        self.wdl_version
-                    ),
+                    f"keys() does not accept Struct or Object in WDL version {self.wdl_version}",
                 )
             if expr._check_quant and arg0ty.optional:
                 raise Error.StaticTypeMismatch(expr.arguments[0], Type.StructInstance(""), arg0ty)
@@ -1670,7 +1663,7 @@ class _Keys(EagerFunction):
                 "keys() requires Map, Struct, or Object",
             )
 
-    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+    def _call_eager(self, expr: "Expr.Apply", arguments: list[Value.Base]) -> Value.Base:
         arg = arguments[0]
 
         if isinstance(arg, Value.Map):
@@ -1718,7 +1711,7 @@ class _Values(EagerFunction):
         # For Map[P, Y], return Array[Y]
         return Type.Array(arg0ty.item_type[1].copy())
 
-    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+    def _call_eager(self, expr: "Expr.Apply", arguments: list[Value.Base]) -> Value.Base:
         assert isinstance(arguments[0], Value.Map)
         mapty = arguments[0].type
         assert isinstance(mapty, Type.Map)
@@ -1777,7 +1770,7 @@ class _Length(EagerFunction):
                 "length() requires Array, Map, Object, or String",
             )
 
-    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+    def _call_eager(self, expr: "Expr.Apply", arguments: list[Value.Base]) -> Value.Base:
         arg = arguments[0]
 
         if isinstance(arg, (Value.Array, Value.Map, Value.String)):
@@ -1803,7 +1796,7 @@ class _AsPairs(EagerFunction):
             )
         return Type.Array(Type.Pair(arg0ty.item_type[0], arg0ty.item_type[1]))
 
-    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+    def _call_eager(self, expr: "Expr.Apply", arguments: list[Value.Base]) -> Value.Base:
         assert isinstance(arguments[0], Value.Map)
         mapty = arguments[0].type
         assert isinstance(mapty, Type.Map)
@@ -1830,20 +1823,20 @@ class _CollectByKey(EagerFunction):
             )
         return Type.Map((arg0ty.item_type.left_type, Type.Array(arg0ty.item_type.right_type)))
 
-    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+    def _call_eager(self, expr: "Expr.Apply", arguments: list[Value.Base]) -> Value.Base:
         assert isinstance(arguments[0], Value.Array)
         arg0ty = arguments[0].type
         assert isinstance(arg0ty, Type.Array)
         pairty = arg0ty.item_type
         assert isinstance(pairty, Type.Pair)
 
-        items: List[Tuple[Value.Base, List[Value.Base]]] = []
-        buckets: Dict[str, List[int]] = {}
+        items: list[tuple[Value.Base, list[Value.Base]]] = []
+        buckets: dict[str, list[int]] = {}
         for p in arguments[0].value:
             assert isinstance(p, Value.Pair)
             ek = p.value[0].coerce(pairty.left_type)
             ev = p.value[1].coerce(pairty.right_type)
-            bucket_key = f"{str(ek.type)}::{json.dumps(ek.json, sort_keys=True)}"
+            bucket_key = f"{ek.type!s}::{json.dumps(ek.json, sort_keys=True)}"
             found = False
             for i in buckets.get(bucket_key, []):
                 prior_k, prior_vs = items[i]
@@ -1872,7 +1865,7 @@ class _AsMap(_CollectByKey):
         assert isinstance(arrayty, Type.Array)
         return Type.Map((collectedty.item_type[0], arrayty.item_type))
 
-    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+    def _call_eager(self, expr: "Expr.Apply", arguments: list[Value.Base]) -> Value.Base:
         collected = super()._call_eager(expr, arguments)
         assert isinstance(collected, Value.Map)
         collectedty = collected.type
@@ -1936,7 +1929,7 @@ class _Contains(EagerFunction):
 
         return Type.Boolean()
 
-    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+    def _call_eager(self, expr: "Expr.Apply", arguments: list[Value.Base]) -> Value.Base:
         arr = arguments[0]
         assert isinstance(arr, Value.Array)
         elem = arguments[1]
@@ -1968,7 +1961,7 @@ class _Chunk(EagerFunction):
 
         return Type.Array(Type.Array(arr_ty.item_type, nonempty=True))
 
-    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+    def _call_eager(self, expr: "Expr.Apply", arguments: list[Value.Base]) -> Value.Base:
         ty = self.infer_type(expr)
         assert isinstance(ty, Type.Array) and isinstance(ty.item_type, Type.Array)
         n = arguments[1].coerce(Type.Int()).value
@@ -1977,7 +1970,7 @@ class _Chunk(EagerFunction):
 
         arr = arguments[0].coerce(Type.Array(ty.item_type.item_type))
         assert isinstance(arr, Value.Array)
-        chunks: List[Value.Base] = [
+        chunks: list[Value.Base] = [
             Value.Array(ty.item_type.item_type, arr.value[i : i + n])
             for i in range(0, len(arr.value), n)
         ]
@@ -2102,7 +2095,7 @@ class _ContainsKey(EagerFunction):
                 "for contains_key() nested key path",
             )
 
-    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+    def _call_eager(self, expr: "Expr.Apply", arguments: list[Value.Base]) -> Value.Base:
         coll = arguments[0]
         key = arguments[1]
 
@@ -2134,7 +2127,7 @@ class _ContainsKey(EagerFunction):
 
     def _lookup_string_key(
         self, current: Value.Base, key_str: str
-    ) -> Tuple[bool, Optional[Value.Base]]:
+    ) -> tuple[bool, Value.Base | None]:
         """Look up a string key in a Map or Struct while preserving Null as a value."""
         if isinstance(current, Value.Map):
             for k, v in current.value:

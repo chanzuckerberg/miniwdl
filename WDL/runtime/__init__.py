@@ -5,18 +5,22 @@ flexible input loading features; and avoids conflicting with the runtime's threa
 handlers. Alternatively, it's possible to call ``WDL.runtime.run()`` directly if needed.
 """
 
-from typing import Union, Dict, Tuple, Any
-from .. import Tree, Value, Env
-from . import config
-from . import task  # noqa: F401
-from . import workflow  # noqa: F401
+# typing names deliberately re-exported in the package namespace for downstream users
+from typing import Any, Dict, Tuple, Union  # noqa: UP035, F401
+
+from .. import Env, Tree, Value
+from . import (
+    config,
+    task,  # noqa: F401
+    workflow,  # noqa: F401
+)
 from .error import (  # noqa: F401
-    RunFailed,
     CommandFailed,
-    Terminated,
+    DownloadFailed,
     Interrupted,
     OutputError,
-    DownloadFailed,
+    RunFailed,
+    Terminated,
     error_json,
 )
 from .task import run_local_task
@@ -25,10 +29,10 @@ from .workflow import run_local_workflow
 
 def run(
     cfg: config.Loader,
-    exe: Union[Tree.Task, Tree.Workflow],
+    exe: Tree.Task | Tree.Workflow,
     inputs: Env.Bindings[Value.Base],
-    **run_kwargs: Dict[str, Any],
-) -> Tuple[str, Env.Bindings[Value.Base]]:
+    **run_kwargs: dict[str, Any],
+) -> tuple[str, Env.Bindings[Value.Base]]:
     """
     Run the task or workflow given the inputs environment and configuration, returning the outputs
     environment. ``inputs`` may be parsed from a JSON dict using :func:`~WDL.values_from_json`,

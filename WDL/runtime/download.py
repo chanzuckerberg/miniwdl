@@ -16,20 +16,22 @@ The Python context manager itself might be used to obtain and manage the lifetim
 security credentials.
 """
 
-import os
-import logging
-import traceback
-import tempfile
 import hashlib
+import logging
+import os
 import shlex
+import tempfile
+import traceback
+from collections.abc import Callable, Generator
 from contextlib import ExitStack
+from typing import Any
 from urllib.parse import urlparse
-from typing import Optional, Generator, Dict, Any, Tuple, Callable
-from . import config
-from .error import error_json
-from .cache import CallCache
-from .._util import compose_coroutines
+
 from .._util import StructuredLogMessage as _
+from .._util import compose_coroutines
+from . import config
+from .cache import CallCache
+from .error import error_json
 
 
 def _load(cfg: config.Loader):
@@ -55,7 +57,7 @@ def _load(cfg: config.Loader):
 
 def _downloader(
     cfg: config.Loader, uri: str, directory: bool = False
-) -> Optional[Callable[..., Generator[Dict[str, Any], Dict[str, Any], None]]]:
+) -> Callable[..., Generator[dict[str, Any], dict[str, Any], None]] | None:
     _load(cfg)
     colon = uri.find(":")
     if colon <= 0:
@@ -64,7 +66,7 @@ def _downloader(
     return getattr(cfg, "_downloaders")[1 if directory else 0].get(scheme, None)
 
 
-def able(cfg: config.Loader, uri: Optional[str], directory: bool = False) -> bool:
+def able(cfg: config.Loader, uri: str | None, directory: bool = False) -> bool:
     """
     Returns True if uri appears to be a URI we know how to download
     """
@@ -81,9 +83,9 @@ def run(
     useful in particular.
     """
 
-    from .error import RunFailed, DownloadFailed, Terminated
+    from .. import Walker, parse_document, values_from_json, values_to_json
+    from .error import DownloadFailed, RunFailed, Terminated
     from .task import run_local_task
-    from .. import parse_document, values_from_json, values_to_json, Walker
 
     gen = _downloader(cfg, uri, directory=directory)
     assert gen
@@ -132,7 +134,7 @@ def run_cached(
     run_dir: str,
     directory: bool = False,
     **kwargs,
-) -> Tuple[bool, str]:
+) -> tuple[bool, str]:
     """
     Cached download logic: returns the file from the cache if available; otherwise, runs the
     download and puts it into the cache before returning
@@ -173,7 +175,7 @@ def run_cached(
 
 def aria2c_downloader(
     cfg: config.Loader, logger: logging.Logger, uri: str, **kwargs
-) -> Generator[Dict[str, Any], Dict[str, Any], None]:
+) -> Generator[dict[str, Any], dict[str, Any], None]:
     wdl = r"""
     task aria2c {
         input {
@@ -206,8 +208,8 @@ def aria2c_downloader(
 
 def awscli_downloader(
     cfg: config.Loader, logger: logging.Logger, uri: str, **kwargs
-) -> Generator[Dict[str, Any], Dict[str, Any], None]:
-    inputs: Dict[str, Any] = {"uri": uri, "docker": cfg["download_awscli"]["docker"]}
+) -> Generator[dict[str, Any], dict[str, Any], None]:
+    inputs: dict[str, Any] = {"uri": uri, "docker": cfg["download_awscli"]["docker"]}
     with ExitStack() as cleanup:
         inputs["aws_credentials"] = prepare_aws_credentials(cfg, logger, cleanup)
 
@@ -255,8 +257,8 @@ def awscli_downloader(
 
 def awscli_directory_downloader(
     cfg: config.Loader, logger: logging.Logger, uri: str, **kwargs
-) -> Generator[Dict[str, Any], Dict[str, Any], None]:
-    inputs: Dict[str, Any] = {"uri": uri, "docker": cfg["download_awscli"]["docker"]}
+) -> Generator[dict[str, Any], dict[str, Any], None]:
+    inputs: dict[str, Any] = {"uri": uri, "docker": cfg["download_awscli"]["docker"]}
     with ExitStack() as cleanup:
         inputs["aws_credentials"] = prepare_aws_credentials(cfg, logger, cleanup)
 
@@ -304,7 +306,7 @@ def awscli_directory_downloader(
     yield recv
 
 
-def _detect_nonaws_s3_endpoint_url(session: Any) -> Optional[str]:
+def _detect_nonaws_s3_endpoint_url(session: Any) -> str | None:
     """
     Given a boto3 session, detect an S3 endpoint URL configured on the miniwdl host (e.g.
     endpoint_url in ~/.aws/config) for S3-compatible storage on a non-AWS endpoint.
@@ -322,7 +324,7 @@ def _detect_nonaws_s3_endpoint_url(session: Any) -> Optional[str]:
 
 def prepare_aws_credentials(
     cfg: config.Loader, logger: logging.Logger, cleanup: ExitStack
-) -> Optional[str]:
+) -> str | None:
     host_aws_credentials = {}
     if "AWS_EC2_METADATA_DISABLED" in os.environ:
         # https://github.com/aws/aws-cli/issues/5623
@@ -369,8 +371,9 @@ def prepare_aws_credentials(
             "\n".join(f"export {k}={shlex.quote(v)}" for (k, v) in host_aws_credentials.items())
             + "\n"
         )
+        # file handle managed by the cleanup ExitStack (enter_context)
         aws_credentials_file = cleanup.enter_context(
-            tempfile.NamedTemporaryFile(
+            tempfile.NamedTemporaryFile(  # noqa: SIM115
                 prefix=hashlib.sha256(host_aws_credentials_str.encode()).hexdigest(),
                 delete=True,
                 mode="w",
@@ -402,7 +405,7 @@ def prepare_aws_credentials(
 
 def gsutil_downloader(
     cfg: config.Loader, logger: logging.Logger, uri: str, **kwargs
-) -> Generator[Dict[str, Any], Dict[str, Any], None]:
+) -> Generator[dict[str, Any], dict[str, Any], None]:
     """
     Built-in downloader plugin for public gs:// URIs; registered by setup.cfg entry_points section
 
@@ -437,7 +440,7 @@ def gsutil_downloader(
 
 def gsutil_directory_downloader(
     cfg: config.Loader, logger: logging.Logger, uri: str, **kwargs
-) -> Generator[Dict[str, Any], Dict[str, Any], None]:
+) -> Generator[dict[str, Any], dict[str, Any], None]:
     """
     Built-in downloader plugin for public gs:// URIs; registered by setup.cfg entry_points section
 

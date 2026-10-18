@@ -3,14 +3,15 @@
 2. Logic for filling out the log stderr "status bar" with that info
 """
 
-import threading
-import time
 import datetime
 import math
+import threading
+import time
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
-from typing import Optional, Callable, List, Iterator
-from .._util import ANSI, RepeatTimer
+
 from .. import _util
+from .._util import ANSI, RepeatTimer
 
 _counters = {
     "abort": False,
@@ -66,7 +67,7 @@ def abort() -> None:
     _counters["abort"] = True
 
 
-_KITT: List[str] = [
+_KITT: list[str] = [
     "▬▬     ",
     "▬▬▬    ",
     "▬▬▬▬   ",
@@ -85,7 +86,7 @@ _KITT: List[str] = [
 
 
 @contextmanager
-def enable(set_status: Optional[Callable[[List[str]], None]]) -> Iterator[None]:
+def enable(set_status: Callable[[list[str]], None] | None) -> Iterator[None]:
     # set_status comes from .._util.configure_logger to set the status bar contents
     t0 = time.time()
 

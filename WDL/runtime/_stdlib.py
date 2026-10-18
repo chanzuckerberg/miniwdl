@@ -6,20 +6,20 @@ import glob
 import hashlib
 import logging
 import os
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 from .. import Env, Error, StdLib, Type, Value
-from .._util import WDLVersion, wdl_version_geq
 from .._util import StructuredLogMessage as _
+from .._util import WDLVersion, wdl_version_geq
 from . import config
+from ._io_helpers import _resolve_workflow_path, resolve_source_relative_path
 from .cache import CallCache, CallCacheAddPaths, digest_inputs
 from .download import able as downloadable
 from .error import OutputError
-from ._io_helpers import resolve_source_relative_path, _resolve_workflow_path
 
 if TYPE_CHECKING:
-    from .task_container import TaskContainer
     from ._workflow_state import StateMachine
+    from .task_container import TaskContainer
 
 
 class TaskStdLib(StdLib.Base):
@@ -37,8 +37,8 @@ class TaskStdLib(StdLib.Base):
         inputs_only: bool,
         *,
         source_dir: str = "",
-        cache_add_paths: Optional[CallCacheAddPaths] = None,
-        eval_context: Optional[StdLib.EvalContext] = None,
+        cache_add_paths: CallCacheAddPaths | None = None,
+        eval_context: StdLib.EvalContext | None = None,
     ) -> None:
         super().__init__(
             wdl_version,
@@ -130,8 +130,8 @@ class TaskInputStdLib(TaskStdLib):
         container: "TaskContainer",
         *,
         source_dir: str = "",
-        cache_add_paths: Optional[CallCacheAddPaths] = None,
-        eval_context: Optional[StdLib.EvalContext] = None,
+        cache_add_paths: CallCacheAddPaths | None = None,
+        eval_context: StdLib.EvalContext | None = None,
     ) -> None:
         super().__init__(
             wdl_version,
@@ -152,7 +152,7 @@ class TaskOutputStdLib(TaskStdLib):
         logger: logging.Logger,
         container: "TaskContainer",
         *,
-        eval_context: Optional[StdLib.EvalContext] = None,
+        eval_context: StdLib.EvalContext | None = None,
     ) -> None:
         super().__init__(wdl_version, logger, container, False, eval_context=eval_context)
 
@@ -186,8 +186,7 @@ class TaskOutputStdLib(TaskStdLib):
                 raise OutputError("glob() pattern must be relative to task working directory")
             if pat.startswith("..") or "/.." in pat:
                 raise OutputError("glob() pattern must not use .. uplevels")
-            if pat.startswith("./"):
-                pat = pat[2:]
+            pat = pat.removeprefix("./")
             # glob the host directory
             pat = os.path.join(lib.container.host_work_dir(), pat)
             host_files = sorted(fn for fn in glob.glob(pat) if os.path.isfile(fn))
@@ -223,7 +222,7 @@ class WorkflowStdLib(StdLib.Base):
         state: "StateMachine",
         cache: CallCache,
         *,
-        eval_context: Optional[StdLib.EvalContext] = None,
+        eval_context: StdLib.EvalContext | None = None,
     ) -> None:
         super().__init__(
             wdl_version,

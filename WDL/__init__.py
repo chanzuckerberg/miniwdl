@@ -8,24 +8,31 @@ documents. Simply ``import WDL`` once miniwdl has been installed.
 * `Codelabs <https://miniwdl.readthedocs.io/en/latest/WDL.html#python-codelabs>`_ on using this package
 """
 
-import os
-from typing import List, Optional, Callable, Dict, Any, Awaitable, Union
+import os  # noqa: I001 (import block order is load-bearing; see note at the . import below)
+from collections.abc import Awaitable, Callable
+
+# typing names deliberately re-exported in the package namespace for downstream users
+from typing import Any, Dict, List, Optional, Union  # noqa: UP035, F401
+
+# NOTE: submodule import order is load-bearing for this package's circular imports
+# (importing _parser early triggers Tree to fully initialize before _parser's own
+# module-level annotations are evaluated); do not sort.
 from . import _util, _parser, Error, Type, Value, Env, Expr, Tree, Walker
 from .Tree import (  # noqa: F401
-    Decl,
-    StructTypeDef,
-    Task,
     Call,
     CallTry,
-    Scatter,
     Conditional,
-    Gather,
-    Workflow,
+    Decl,
     Document,
+    Gather,
+    ReadSourceResult,
+    Scatter,
+    SourceComment,
+    StructTypeDef,
+    Task,
+    Workflow,
     WorkflowNode,
     WorkflowSection,
-    SourceComment,
-    ReadSourceResult,
 )
 
 SourcePosition = Error.SourcePosition
@@ -34,11 +41,10 @@ SourceNode = Error.SourceNode
 
 def load(
     uri: str,
-    path: Optional[List[str]] = None,
+    path: list[str] | None = None,
     check_quant: bool = True,
-    read_source: Optional[
-        Callable[[str, List[str], Optional[Document]], Awaitable["ReadSourceResult"]]
-    ] = None,
+    read_source: Callable[[str, list[str], Document | None], Awaitable["ReadSourceResult"]]
+    | None = None,
     import_max_depth: int = 10,
 ) -> Document:
     """
@@ -79,11 +85,10 @@ def load(
 
 async def load_async(
     uri: str,
-    path: Optional[List[str]] = None,
+    path: list[str] | None = None,
     check_quant: bool = True,
-    read_source: Optional[
-        Callable[[str, List[str], Optional[Document]], Awaitable["ReadSourceResult"]]
-    ] = None,
+    read_source: Callable[[str, list[str], Document | None], Awaitable["ReadSourceResult"]]
+    | None = None,
     import_max_depth: int = 10,
 ) -> Document:
     """
@@ -101,7 +106,7 @@ async def load_async(
 
 
 async def read_source_default(
-    uri: str, path: List[str], importer: Optional[Document]
+    uri: str, path: list[str], importer: Document | None
 ) -> "ReadSourceResult":
     """
     Default async routine for the ``read_source`` parameter to :func:`load` and :func:`load_async`,
@@ -129,7 +134,7 @@ async def read_source_default(
     return await Tree.read_source_default(uri, path, importer)
 
 
-async def resolve_file_import(uri: str, path: List[str], importer: Optional[Document]) -> str:
+async def resolve_file_import(uri: str, path: list[str], importer: Document | None) -> str:
     """
     Exposes the logic by which :func:`read_source_default` resolves ``uri`` to the absolute path of
     an extant file. If ``uri`` is already an absolute path, it's normalized and returned. A
@@ -184,7 +189,7 @@ def copy_source(doc: Document, dir: str) -> str:
     return ans
 
 
-def parse_document(txt: str, version: Optional[str] = None, uri: str = "") -> Document:
+def parse_document(txt: str, version: str | None = None, uri: str = "") -> Document:
     """"""
     """
     Parse WDL document text into an abstract syntax tree. Doesn't descend into
@@ -201,7 +206,7 @@ def parse_document(txt: str, version: Optional[str] = None, uri: str = "") -> Do
     return doc
 
 
-def parse_expr(txt: str, version: Optional[str] = None) -> Expr.Base:
+def parse_expr(txt: str, version: str | None = None) -> Expr.Base:
     """"""
     """
     Parse an isolated WDL expression text into an abstract syntax tree
@@ -209,14 +214,14 @@ def parse_expr(txt: str, version: Optional[str] = None) -> Expr.Base:
     return _parser.parse_expr(txt, version)
 
 
-def parse_tasks(txt: str, version: Optional[str] = None) -> List[Task]:
+def parse_tasks(txt: str, version: str | None = None) -> list[Task]:
     return _parser.parse_tasks(txt, version)
 
 
 def values_from_json(
-    values_json: Dict[str, Any],
-    available: Union[Env.Bindings[Tree.Decl], Env.Bindings[Type.Base]],
-    required: Optional[Union[Env.Bindings[Tree.Decl], Env.Bindings[Type.Base]]] = None,
+    values_json: dict[str, Any],
+    available: Env.Bindings[Tree.Decl] | Env.Bindings[Type.Base],
+    required: Env.Bindings[Tree.Decl] | Env.Bindings[Type.Base] | None = None,
     namespace: str = "",
 ) -> Env.Bindings[Value.Base]:
     """
@@ -232,7 +237,7 @@ def values_from_json(
     if namespace and not namespace.endswith("."):
         namespace += "."
     ans: Env.Bindings[Value.Base] = Env.Bindings()
-    for key in values_json:
+    for key, value_json in values_json.items():
         if not key.startswith("#"):  # ignore "comments"
             key2 = key
             if namespace and key.startswith(namespace):
@@ -279,7 +284,7 @@ def values_from_json(
 
             assert isinstance(ty, Type.Base)
             try:
-                v = Value.from_json(ty, values_json[key])
+                v = Value.from_json(ty, value_json)
                 try:
                     v.type.check(ty)
                 except Exception:
@@ -299,9 +304,9 @@ def values_from_json(
 
 
 def values_to_json(
-    values_env: Union[Env.Bindings[Value.Base], Env.Bindings[Tree.Decl], Env.Bindings[Type.Base]],
+    values_env: Env.Bindings[Value.Base] | Env.Bindings[Tree.Decl] | Env.Bindings[Type.Base],
     namespace: str = "",
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Convert a ``WDL.Env.Bindings[WDL.Value.Base]`` to a dict which ``json.dumps`` to
     Cromwell-style JSON.
