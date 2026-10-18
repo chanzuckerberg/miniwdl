@@ -1,6 +1,9 @@
-from typing import Union, Dict, Any, Optional
-from ..Error import RuntimeError as _RuntimeError, SourcePosition
-from ..Tree import Task as _Task, Workflow as _Workflow
+from typing import Any
+
+from ..Error import RuntimeError as _RuntimeError
+from ..Error import SourcePosition
+from ..Tree import Task as _Task
+from ..Tree import Workflow as _Workflow
 from . import _statusbar
 
 
@@ -62,15 +65,11 @@ class Interrupted(_RuntimeError):
     Task was interrupted by an exogenous problem (e.g. worker node went down)
     """
 
-    pass
-
 
 class OutputError(_RuntimeError):
     """
     Failure whilst gathering task outputs
     """
-
-    pass
 
 
 class DownloadFailed(_RuntimeError):
@@ -89,11 +88,11 @@ class DownloadFailed(_RuntimeError):
 class RunFailed(_RuntimeError):
     """"""
 
-    exe: Union[_Task, _Workflow]
+    exe: _Task | _Workflow
     run_id: str
     run_dir: str
 
-    def __init__(self, exe: Union[_Task, _Workflow], run_id: str, run_dir: str, **kwargs) -> None:
+    def __init__(self, exe: _Task | _Workflow, run_id: str, run_dir: str, **kwargs) -> None:
         super().__init__(
             f"{'task' if isinstance(exe, _Task) else 'workflow'} {exe.name} "
             f"({exe.pos.uri} Ln {exe.pos.line} Col {exe.pos.column}) failed",
@@ -106,16 +105,16 @@ class RunFailed(_RuntimeError):
 
 
 def error_json(
-    exn: BaseException, cause: Optional[Exception] = None, traceback: Optional[str] = None
-) -> Dict[str, Any]:
+    exn: BaseException, cause: Exception | None = None, traceback: str | None = None
+) -> dict[str, Any]:
     """
     Make a json-dumpable dict to write into error sentinel file
     """
 
-    def pos_json(pos: SourcePosition) -> Dict[str, Any]:
+    def pos_json(pos: SourcePosition) -> dict[str, Any]:
         return {"source": pos.abspath, "line": pos.line, "column": pos.column}
 
-    info: Dict[str, Any] = {"error": exn.__class__.__name__}
+    info: dict[str, Any] = {"error": exn.__class__.__name__}
     pos = None
     if isinstance(exn, RunFailed):
         exe = getattr(exn, "exe")

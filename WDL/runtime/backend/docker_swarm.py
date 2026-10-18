@@ -2,25 +2,28 @@
 Default TaskContainer implementation using Docker Swarm
 """
 
-import os
-import json
-import stat
-import time
-import shlex
-import uuid
 import base64
-import random
-import hashlib
-import logging
-import threading
-import traceback
 import contextlib
+import hashlib
+import json
+import logging
+import os
+import random
+import shlex
+import stat
+import threading
+import time
+import traceback
+import uuid
+from collections.abc import Callable, Iterable
 from io import BytesIO
-from typing import List, Dict, Set, Optional, Any, Callable, Tuple, Iterable
+from typing import Any, ClassVar
+
 import docker
+
 from ... import Error
-from ..._util import chmod_R_plus, TerminationSignalFlag
 from ..._util import StructuredLogMessage as _
+from ..._util import TerminationSignalFlag, chmod_R_plus
 from .. import config
 from ..error import Interrupted, Terminated
 from ..task_container import TaskContainer
@@ -31,7 +34,7 @@ class SwarmContainer(TaskContainer):
     TaskContainer docker (swarm) runtime
     """
 
-    _limits: Dict[str, int] = {}
+    _limits: ClassVar[dict[str, int]] = {}
 
     @classmethod
     def global_init(cls, cfg: config.Loader, logger: logging.Logger) -> None:
@@ -80,7 +83,7 @@ class SwarmContainer(TaskContainer):
                     except Exception as exn:
                         # smooth over race condition with multiple processes trying to init swarm
                         if "already part of a swarm" not in str(exn):
-                            raise exn
+                            raise
 
                 logger.notice(
                     _(
@@ -106,7 +109,7 @@ class SwarmContainer(TaskContainer):
         # Detect swarm's CPU & memory resources. Even on a localhost swarm, these may be less than
         # multiprocessing.cpu_count() and psutil.virtual_memory().total; in particular on macOS,
         # where Docker containers run in a virtual machine with limited resources.
-        resources_max_mem: Dict[str, int] = {}
+        resources_max_mem: dict[str, int] = {}
         total_NanoCPUs = 0
         total_MemoryBytes = 0
 
@@ -149,15 +152,15 @@ class SwarmContainer(TaskContainer):
         cls._limits = {"cpu": max_cpu, "mem_bytes": max_mem}
 
     @classmethod
-    def detect_resource_limits(cls, cfg: config.Loader, logger: logging.Logger) -> Dict[str, int]:
+    def detect_resource_limits(cls, cfg: config.Loader, logger: logging.Logger) -> dict[str, int]:
         assert cls._limits, f"{cls.__name__}.global_init"
         return cls._limits
 
-    create_service_kwargs: Optional[Dict[str, Any]] = None
+    create_service_kwargs: dict[str, Any] | None = None
     # override kwargs to docker service create() (may be set by plugins)
 
     _bind_input_files: bool = True
-    _observed_states: Optional[Set[str]] = None
+    _observed_states: set[str] | None = None
 
     def copy_input_files(self, logger: logging.Logger) -> None:
         assert self._bind_input_files
@@ -186,7 +189,7 @@ class SwarmContainer(TaskContainer):
             image_tag = self.build_inline_dockerfile(logger.getChild("inlineDockerfile"), client)
         else:
             image_tag = self.resolve_tag(
-                logger, client, self.runtime_values.get("docker", "ubuntu:20.04")
+                logger, client, self.runtime_values.get("docker", "ubuntu:22.04")
             )
         mounts = self.prepare_mounts(logger)
         resources, user, groups = self.misc_config(logger)
@@ -288,8 +291,8 @@ class SwarmContainer(TaskContainer):
                 logger.debug(
                     _(
                         "docker service logs",
-                        stdout=list(msg.decode().rstrip() for msg in svc.logs(stdout=True)),
-                        stderr=list(msg.decode().rstrip() for msg in svc.logs(stderr=True)),
+                        stdout=[msg.decode().rstrip() for msg in svc.logs(stdout=True)],
+                        stderr=[msg.decode().rstrip() for msg in svc.logs(stderr=True)],
                     )
                 )
 
@@ -348,7 +351,7 @@ class SwarmContainer(TaskContainer):
         logger.notice(_("docker image", **image_log))
         return image_tag
 
-    def prepare_mounts(self, logger: logging.Logger) -> List[docker.types.Mount]:
+    def prepare_mounts(self, logger: logging.Logger) -> list[docker.types.Mount]:
         def escape(s):
             # docker processes {{ interpolations }}
             return s.replace("{{", '{{"{{"}}')
@@ -434,8 +437,8 @@ class SwarmContainer(TaskContainer):
 
     def misc_config(
         self, logger: logging.Logger
-    ) -> Tuple[Optional[Dict[str, Any]], Optional[str], List[str]]:
-        resources: Dict[str, Any] = {}
+    ) -> tuple[dict[str, Any] | None, str | None, list[str]]:
+        resources: dict[str, Any] = {}
         cpu = self.runtime_values.get("cpu", 0)
         if cpu > 0:
             # the cpu unit expected by swarm is "NanoCPUs"
@@ -488,7 +491,7 @@ class SwarmContainer(TaskContainer):
 
     def poll_service(
         self, logger: logging.Logger, svc: docker.models.services.Service, verbose: bool = False
-    ) -> Optional[int]:
+    ) -> int | None:
         state = "(UNKNOWN)"
         status = {}
 
@@ -648,7 +651,7 @@ class SwarmContainer(TaskContainer):
         self,
         logger: logging.Logger,
         client: docker.DockerClient,
-        tries: Optional[int] = None,
+        tries: int | None = None,
     ) -> str:
         # formulate image tag using digest of dockerfile text
         dockerfile_utf8 = self.runtime_values["inlineDockerfile"].encode("utf8")
@@ -673,7 +676,7 @@ class SwarmContainer(TaskContainer):
         # prepare to tee docker build log to logger.verbose and a file
         build_logfile = os.path.join(self.host_dir, "inlineDockerfile.log")
 
-        def write_log(stream: Iterable[Dict[str, str]]):
+        def write_log(stream: Iterable[dict[str, str]]):
             # tee the log messages to logger.verbose and build_logfile
             with open(build_logfile, "w") as outfile:
                 for d in stream:
@@ -704,7 +707,7 @@ class SwarmContainer(TaskContainer):
             else:
                 write_log(exn.build_log)
                 logger.error(_("docker build failed", msg=exn.msg, log=build_logfile))
-                raise exn
+                raise
 
         write_log(build_log)
         logger.notice(_("docker build", tag=image.tags[0], id=image.id, log=build_logfile))

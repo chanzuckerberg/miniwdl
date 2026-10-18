@@ -1,19 +1,18 @@
-from typing import (
-    List,
-    Optional,
-    Union,
-    Iterable,
-    Generator,
-    Callable,
-    Any,
-    Dict,
-    NamedTuple,
-)
 import os
-from functools import total_ordering
+from collections.abc import Callable, Generator, Iterable
 from contextlib import contextmanager
+from functools import total_ordering
+from typing import (
+    Any,
+    NamedTuple,
+    ParamSpec,
+    TypeVar,
+)
 
 from . import Type
+
+P = ParamSpec("P")
+T = TypeVar("T")
 
 
 class SourcePosition(
@@ -42,10 +41,10 @@ class SyntaxError(Exception):
 
     pos: SourcePosition
     wdl_version: str
-    declared_wdl_version: Optional[str]
+    declared_wdl_version: str | None
 
     def __init__(
-        self, pos: SourcePosition, msg: str, wdl_version: str, declared_wdl_version: Optional[str]
+        self, pos: SourcePosition, msg: str, wdl_version: str, declared_wdl_version: str | None
     ) -> None:
         super().__init__(msg)
         self.pos = pos
@@ -71,7 +70,7 @@ class ImportError(Exception):
 
     pos: SourcePosition
 
-    def __init__(self, pos: SourcePosition, import_uri: str, message: Optional[str] = None) -> None:
+    def __init__(self, pos: SourcePosition, import_uri: str, message: str | None = None) -> None:
         msg = "Failed to import " + import_uri
         if message:
             msg = msg + ", " + message
@@ -90,9 +89,9 @@ class SourceNode:
     Source position for this AST node
     """
 
-    parent: Optional["SourceNode"] = None
+    parent: "SourceNode | None" = None
     """
-    :type: Optional[SourceNode]
+    :type: SourceNode | None
 
     Parent node in the AST, if any
     """
@@ -135,7 +134,7 @@ class SourceNode:
             rhs.pos.end_column,
         )
 
-    def __eq__(self, rhs: Any) -> bool:
+    def __eq__(self, rhs: object) -> bool:
         return isinstance(rhs, SourceNode) and self.pos == rhs.pos
 
     @property
@@ -157,17 +156,17 @@ class ValidationError(Exception):
     pos: SourcePosition
     """:type: SourcePosition"""
 
-    node: Optional[SourceNode] = None
-    """:type: Optional[SourceNode]"""
+    node: SourceNode | None = None
+    """:type: SourceNode | None"""
 
-    source_text: Optional[str] = None
-    """:type: Optional[str]
+    source_text: str | None = None
+    """:type: str | None
 
     The complete source text of the WDL document (if available)"""
 
-    declared_wdl_version: Optional[str] = None
+    declared_wdl_version: str | None = None
 
-    def __init__(self, node: Union[SourceNode, SourcePosition], message: str) -> None:
+    def __init__(self, node: SourceNode | SourcePosition, message: str) -> None:
         if isinstance(node, SourceNode):
             self.node = node
             self.pos = node.pos
@@ -185,22 +184,22 @@ class IndeterminateType(ValidationError):
 
 
 class NoSuchTask(ValidationError):
-    def __init__(self, node: Union[SourceNode, SourcePosition], name: str) -> None:
+    def __init__(self, node: SourceNode | SourcePosition, name: str) -> None:
         super().__init__(node, "No such task/workflow: " + name)
 
 
 class NoSuchCall(ValidationError):
-    def __init__(self, node: Union[SourceNode, SourcePosition], name: str) -> None:
+    def __init__(self, node: SourceNode | SourcePosition, name: str) -> None:
         super().__init__(node, "No such call in this workflow: " + name)
 
 
 class NoSuchFunction(ValidationError):
-    def __init__(self, node: Union[SourceNode, SourcePosition], name: str) -> None:
+    def __init__(self, node: SourceNode | SourcePosition, name: str) -> None:
         super().__init__(node, "No such function: " + name)
 
 
 class WrongArity(ValidationError):
-    def __init__(self, node: Union[SourceNode, SourcePosition], expected: int) -> None:
+    def __init__(self, node: SourceNode | SourcePosition, expected: int) -> None:
         # avoiding circular dep:
         # assert isinstance(node, WDL.Expr.Apply)
         msg = "{} expects {} argument(s)".format(getattr(node, "function_name"), expected)
@@ -208,20 +207,24 @@ class WrongArity(ValidationError):
 
 
 class NotAnArray(ValidationError):
-    def __init__(self, node: Union[SourceNode, SourcePosition]) -> None:
+    def __init__(self, node: SourceNode | SourcePosition) -> None:
         super().__init__(node, "Not an array")
 
 
 class NoSuchMember(ValidationError):
-    def __init__(self, node: Union[SourceNode, SourcePosition], member: str) -> None:
-        super().__init__(node, "No such member '{}'".format(member))
+    def __init__(self, node: SourceNode | SourcePosition, member: str) -> None:
+        super().__init__(node, f"No such member '{member}'")
 
 
 class StaticTypeMismatch(ValidationError):
     message: str
 
     def __init__(
-        self, node: SourceNode, expected: Type.Base, actual: Type.Base, message: str = ""
+        self,
+        node: SourceNode | SourcePosition,
+        expected: Type.Base,
+        actual: Type.Base,
+        message: str = "",
     ) -> None:
         self.expected = expected
         self.actual = actual
@@ -249,7 +252,7 @@ class IncompatibleOperand(ValidationError):
 
 
 class UnknownIdentifier(ValidationError):
-    def __init__(self, node: SourceNode, message: Optional[str] = None) -> None:
+    def __init__(self, node: SourceNode, message: str | None = None) -> None:
         # avoiding circular dep:
         # assert isinstance(node, WDL.Expr.Ident)
         if not message:
@@ -263,7 +266,7 @@ class NoSuchInput(ValidationError):
 
 
 class UncallableWorkflow(ValidationError):
-    def __init__(self, node: SourceNode, name: str, reasons: Optional[List[str]] = None) -> None:
+    def __init__(self, node: SourceNode, name: str, reasons: list[str] | None = None) -> None:
         super().__init__(
             node,
             "Cannot call subworkflow {} because {}".format(
@@ -300,16 +303,14 @@ class CircularDependencies(ValidationError):
 class MultipleValidationErrors(Exception):
     """Propagates several validation/typechecking errors"""
 
-    exceptions: List[ValidationError]
-    """:type: List[ValidationError]"""
+    exceptions: list[ValidationError]
+    """:type: list[ValidationError]"""
 
-    source_text: Optional[str] = None
+    source_text: str | None = None
 
-    declared_wdl_version: Optional[str] = None
+    declared_wdl_version: str | None = None
 
-    def __init__(
-        self, *exceptions: List[Union[ValidationError, "MultipleValidationErrors"]]
-    ) -> None:
+    def __init__(self, *exceptions: "list[ValidationError | MultipleValidationErrors]") -> None:
         super().__init__()
         self.exceptions = []
         for exn in exceptions:
@@ -326,19 +327,19 @@ class MultipleValidationErrors(Exception):
 class _MultiContext:
     """"""
 
-    _exceptions: List[Union[ValidationError, MultipleValidationErrors]]
+    _exceptions: list[ValidationError | MultipleValidationErrors]
 
     def __init__(self) -> None:
         self._exceptions = []
 
-    def try1(self, fn: Callable[[], Any]) -> Optional[Any]:
+    def try1(self, fn: Callable[P, T], *args: P.args, **kwargs: P.kwargs) -> T | None:
         try:
-            return fn()
+            return fn(*args, **kwargs)
         except (ValidationError, MultipleValidationErrors) as exn:
             self._exceptions.append(exn)
             return None
 
-    def append(self, exn: Union[ValidationError, MultipleValidationErrors]) -> None:
+    def append(self, exn: ValidationError | MultipleValidationErrors) -> None:
         self._exceptions.append(exn)
 
     def maybe_raise(self) -> None:
@@ -356,8 +357,8 @@ def multi_context() -> Generator[_MultiContext, None, None]:
     #
     # with WDL.Error.multi_context() as errors:
     #
-    #    result = errors.try1(lambda: perform_validation())
-    #    # Returns the result of invoking the lambda. If the lambda invocation
+    #    result = errors.try1(perform_validation)
+    #    # Returns the result of invoking the function. If the invocation
     #    # raises WDL.Error.ValidationError or
     #    # WDL.Error.MultipleValidationErrors, records the error and returns
     #    # None. (Other exceptions would halt execution and propagate
@@ -380,12 +381,12 @@ def multi_context() -> Generator[_MultiContext, None, None]:
 
 
 class RuntimeError(Exception):
-    more_info: Dict[str, Any]
+    more_info: dict[str, Any]
     """
     Backend-specific information about an error (for example, pointer to a centralized log system)
     """
 
-    value_path: Optional[List[str]] = None
+    value_path: list[str] | None = None
     """
     Location of the error within a nested value being built or coerced, e.g. the path from a
     workflow input to the offending item of JSON; None if the error has no such location. Rendered
@@ -393,7 +394,7 @@ class RuntimeError(Exception):
     class attribute, so it's left immutable and :func:`_extend_value_path` rebinds instead.
     """
 
-    def __init__(self, *args, more_info: Optional[Dict[str, Any]] = None, **kwargs) -> None:
+    def __init__(self, *args, more_info: dict[str, Any] | None = None, **kwargs) -> None:
         super().__init__(*args, **kwargs)
         self.more_info = more_info if more_info else {}
 
@@ -402,7 +403,7 @@ class RuntimeError(Exception):
         if self.value_path:
             rendered = "".join(self.value_path)
             # the outermost segment is the root (an input name or struct member): no separator
-            ans += f" (in {rendered[1:] if rendered.startswith('.') else rendered})"
+            ans += f" (in {rendered.removeprefix('.')})"
         return ans
 
 
@@ -412,10 +413,10 @@ class EvalError(RuntimeError):
     pos: SourcePosition
     """:type: SourcePosition"""
 
-    node: Optional[SourceNode] = None
-    """:type: Optional[SourceNode]"""
+    node: SourceNode | None = None
+    """:type: SourceNode | None"""
 
-    def __init__(self, node: Union[SourceNode, SourcePosition], message: str) -> None:
+    def __init__(self, node: SourceNode | SourcePosition, message: str) -> None:
         if isinstance(node, SourceNode):
             self.node = node
             self.pos = node.pos
@@ -434,14 +435,12 @@ class EmptyArray(EvalError):
 
 
 class NullValue(EvalError):
-    def __init__(self, node: Union[SourceNode, SourcePosition]) -> None:
+    def __init__(self, node: SourceNode | SourcePosition) -> None:
         super().__init__(node, "Null value")
 
 
 class InputError(RuntimeError):
     """Error reading an input value/file"""
-
-    pass
 
 
 def _extend_value_path(exn: RuntimeError, segment: str) -> None:

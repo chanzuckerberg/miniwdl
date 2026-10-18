@@ -1,19 +1,22 @@
-import os
-import time
-import shlex
-import psutil
-import logging
-import threading
 import contextlib
-import subprocess
+import logging
 import multiprocessing
-from typing import Callable, List, Tuple, Dict, Optional, Set
+import os
+import shlex
+import subprocess
+import threading
+import time
 from abc import abstractmethod, abstractproperty
+from collections.abc import Callable
 from contextlib import ExitStack
-from ..._util import TailLogger
+from typing import ClassVar
+
+import psutil
+
 from ..._util import StructuredLogMessage as _
+from ..._util import TailLogger
 from .. import config
-from ..error import Terminated, DownloadFailed
+from ..error import DownloadFailed, Terminated
 from ..task_container import TaskContainer
 
 
@@ -24,14 +27,14 @@ class SubprocessBase(TaskContainer):
     exact command line arguments for the respective implementation.
     """
 
-    _resource_limits: Optional[Dict[str, int]] = None
+    _resource_limits: dict[str, int] | None = None
     _bind_input_files: bool = True
     _pull_lock: threading.Lock = threading.Lock()
     _pulled_images_lock: threading.Lock = threading.Lock()
-    _pulled_images: Set[str] = set()
+    _pulled_images: ClassVar[set[str]] = set()
 
     @classmethod
-    def detect_resource_limits(cls, cfg: config.Loader, logger: logging.Logger) -> Dict[str, int]:
+    def detect_resource_limits(cls, cfg: config.Loader, logger: logging.Logger) -> dict[str, int]:
         if not cls._resource_limits:
             cls._resource_limits = {
                 "cpu": multiprocessing.cpu_count(),
@@ -85,8 +88,10 @@ class SubprocessBase(TaskContainer):
             # 1) --env is subject to command line length limitations
             # 2) --env-file isn't implemented consistently wrt quoting, escaping, etc.
             with open(os.path.join(self.host_dir, "command"), "w") as outfile:
-                for k, v in self.runtime_values.get("env", {}).items():
-                    outfile.write(f"export {k}={shlex.quote(v)}\n")
+                outfile.writelines(
+                    f"export {k}={shlex.quote(v)}\n"
+                    for k, v in self.runtime_values.get("env", {}).items()
+                )
                 outfile.write(command)
 
             # start subprocess
@@ -124,17 +129,17 @@ class SubprocessBase(TaskContainer):
         pass
 
     @property
-    def cli_exe(self) -> List[str]:
+    def cli_exe(self) -> list[str]:
         return [self.cli_name]
 
-    def _pull_invocation(self, logger: logging.Logger, cleanup: ExitStack) -> Tuple[str, List[str]]:
+    def _pull_invocation(self, logger: logging.Logger, cleanup: ExitStack) -> tuple[str, list[str]]:
         image = self.runtime_values.get(
             "docker", self.cfg.get_dict("task_runtime", "defaults")["docker"]
         )
         return (image, self.cli_exe + ["pull", image])
 
     @abstractmethod
-    def _run_invocation(self, logger: logging.Logger, cleanup: ExitStack, image: str) -> List[str]:
+    def _run_invocation(self, logger: logging.Logger, cleanup: ExitStack, image: str) -> list[str]:
         pass
 
     def copy_input_files(self, logger: logging.Logger) -> None:
@@ -150,7 +155,7 @@ class SubprocessBase(TaskContainer):
         # host work dir, so it must either copy the inputs again or bind them while preparing mounts.
         self._bind_input_files = True
 
-    def prepare_mounts(self) -> List[Tuple[str, str, bool]]:
+    def prepare_mounts(self) -> list[tuple[str, str, bool]]:
         mounts = []
         # mount stdout, stderr, and working directory read/write
         self.touch_mount_point(self.host_stdout_txt())
@@ -208,9 +213,8 @@ class SubprocessBase(TaskContainer):
             try:
                 subprocess.run(
                     invocation,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    universal_newlines=True,
+                    capture_output=True,
+                    text=True,
                     check=True,
                 )
             except subprocess.CalledProcessError as cpe:
@@ -243,11 +247,11 @@ class _SubprocessScheduler(contextlib.AbstractContextManager):
 
     _lock: threading.Lock = threading.Lock()
     _cv: threading.Condition
-    _state: Dict[str, int] = {}
+    _state: ClassVar[dict[str, int]] = {}
     delay: int = 0
 
     @classmethod
-    def global_init(cls, resource_limits: Dict[str, int]):
+    def global_init(cls, resource_limits: dict[str, int]):
         with cls._lock:
             cls._cv = threading.Condition(cls._lock)
             cls._state["host_cpu"] = resource_limits["cpu"]

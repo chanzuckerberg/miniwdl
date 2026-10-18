@@ -1,55 +1,41 @@
 # misc utility functions...
 
-import sys
-import os
-import re
 import codecs
+import decimal
+import fcntl
 import json
 import logging
+import os
+import re
+import shutil
 import signal
+import sys
 import threading
 import time
-import fcntl
-import shutil
 import uuid
-import decimal
-from time import sleep
+from collections.abc import Callable, Generator, Iterator
+from contextlib import AbstractContextManager, contextmanager, suppress
 from datetime import datetime
 from enum import IntEnum
-from contextlib import contextmanager, suppress, AbstractContextManager
-from typing import (
-    Tuple,
-    Dict,
-    Union,
-    NamedTuple,
-    BinaryIO,
-    Set,
-    Iterator,
-    List,
-    TypeVar,
-    Generic,
-    Optional,
-    Callable,
-    Generator,
-    Any,
-    TYPE_CHECKING,
-)
+from time import sleep
 from types import FrameType
-from importlib.util import find_spec
+from typing import (
+    TYPE_CHECKING,
+    Any,
+    BinaryIO,
+    Generic,
+    NamedTuple,
+    TypeVar,
+)
 
-# Prefer the non-deprecated import path, but keep compatibility with python-json-logger
-# 2.0.7 while conda-forge catches up: https://github.com/conda-forge/python-json-logger-feedstock/issues/19
-if find_spec("pythonjsonlogger.json") is not None:
-    from pythonjsonlogger import json as jsonlogger
-else:
-    from pythonjsonlogger import jsonlogger  # type: ignore[no-redef]
+from pythonjsonlogger import json as jsonlogger
 
 if TYPE_CHECKING:
     from . import Env, Value
 
 T = TypeVar("T")
 
-__all__: List[str] = []
+__all__: list[str] = []
 
 
 def export(obj: T) -> T:
@@ -87,7 +73,7 @@ def wdl_version_geq(version: str, minimum: WDLVersion) -> bool:
 
 
 @export
-def strip_leading_whitespace(txt: str) -> Tuple[int, str]:
+def strip_leading_whitespace(txt: str) -> tuple[int, str]:
     # Given a multi-line string, determine the largest w such that each line
     # begins with at least w whitespace characters. Return w and the string
     # with w characters removed from the beginning of each line.
@@ -117,27 +103,24 @@ def strip_leading_whitespace(txt: str) -> Tuple[int, str]:
 class AdjM(Generic[T]):
     # A sparse adjacency matrix for topological sorting
     # which we should not have implemented ourselves
-    _forward: Dict[T, Set[T]]
-    _reverse: Dict[T, Set[T]]
-    _unconstrained: Set[T]
+    _forward: dict[T, set[T]]
+    _reverse: dict[T, set[T]]
+    _unconstrained: set[T]
 
     def __init__(self) -> None:
-        self._forward = dict()
-        self._reverse = dict()
+        self._forward = {}
+        self._reverse = {}
         self._unconstrained = set()
 
     def sinks(self, source: T) -> Iterator[T]:
-        for sink in self._forward.get(source, []):
-            yield sink
+        yield from self._forward.get(source, [])
 
     def sources(self, sink: T) -> Iterator[T]:
-        for source in self._reverse.get(sink, []):
-            yield source
+        yield from self._reverse.get(sink, [])
 
     @property
     def nodes(self) -> Iterator[T]:
-        for node in self._forward:
-            yield node
+        yield from self._forward
 
     @property
     def unconstrained(self) -> Iterator[T]:
@@ -186,7 +169,7 @@ class AdjM(Generic[T]):
 
 
 @export
-def topsort(adj: AdjM[T]) -> List[T]:
+def topsort(adj: AdjM[T]) -> list[T]:
     # topsort node IDs in adj (destroys adj)
     # if there's a cycle, raises err: StopIteration with err.node = ID of a
     # node involved in a cycle.
@@ -269,11 +252,9 @@ def write_values_json(
 
 
 @export
-def provision_run_dir(name: str, parent_dir: Optional[str], last_link: bool = False) -> str:
+def provision_run_dir(name: str, parent_dir: str | None, last_link: bool = False) -> str:
     here = (
-        (parent_dir in [".", "./"] or parent_dir.endswith("/.") or parent_dir.endswith("/./"))
-        if parent_dir
-        else False
+        (parent_dir in [".", "./"] or parent_dir.endswith(("/.", "/./"))) if parent_dir else False
     )
     parent_dir = os.path.abspath(parent_dir or os.getcwd())
 
@@ -287,7 +268,7 @@ def provision_run_dir(name: str, parent_dir: Optional[str], last_link: bool = Fa
         # create timestamp-named directory
         while not run_dir:
             run_dir = os.path.join(
-                parent_dir, datetime.today().strftime("%Y%m%d_%H%M%S") + "_" + name
+                parent_dir, datetime.now().astimezone().strftime("%Y%m%d_%H%M%S") + "_" + name
             )
             try:
                 os.makedirs(run_dir, exist_ok=False)
@@ -308,7 +289,7 @@ def provision_run_dir(name: str, parent_dir: Optional[str], last_link: bool = Fa
 @export
 class StructuredLogMessage:
     message: str
-    kwargs: Dict[str, Any]
+    kwargs: dict[str, Any]
 
     # from https://docs.python.org/3/howto/logging-cookbook.html#implementing-structured-logging
     def __init__(self, _message: str, **kwargs) -> None:
@@ -332,7 +313,7 @@ class StructuredLogMessageJSONFormatter(jsonlogger.JsonFormatter):
         return super().format(rec)
 
     def add_fields(
-        self, log_record: Dict[str, Any], record: logging.LogRecord, message_dict: Dict[str, Any]
+        self, log_record: dict[str, Any], record: logging.LogRecord, message_dict: dict[str, Any]
     ) -> None:
         super().add_fields(log_record, record, message_dict)
         log_record["timestamp"] = round(record.created, 3)
@@ -382,7 +363,7 @@ class ANSI:
     SHOW_CURSOR: str = "\x1b[?25h"
 
 
-def _ansilen(parts: List[str]) -> int:
+def _ansilen(parts: list[str]) -> int:
     return sum([len(s) for s in parts if s[0] != "\x1b"])
 
 
@@ -395,7 +376,7 @@ __all__.append("LOGGING_FORMAT")
 @contextmanager
 def configure_logger(
     force_tty: bool = False, json: bool = False
-) -> Iterator[Callable[[List[str]], None]]:
+) -> Iterator[Callable[[list[str]], None]]:
     """
     contextmanager to set up the root/stderr logger; yields a function to set the status line at
     the bottom of the screen (if stderr isatty, else it does nothing)
@@ -409,7 +390,7 @@ def configure_logger(
         status line can be set at any time. It will be truncated to the terminal width.
         """
 
-        _singleton: "Optional[_StatusLineStandardErrorHandler]" = None
+        _singleton: "_StatusLineStandardErrorHandler | None" = None
         _status: str = ""
 
         def __init__(self, *args, **kwargs):
@@ -434,7 +415,7 @@ def configure_logger(
             finally:
                 self.release()
 
-        def set_status(self, new_status: List[str]) -> None:
+        def set_status(self, new_status: list[str]) -> None:
             cols = shutil.get_terminal_size().columns
             if _ansilen(new_status) > cols:
                 new_status = new_status.copy()
@@ -519,7 +500,7 @@ _TAIL_STOPPED = _TailStopped()
 
 # Tailing is in one of three states: not opened yet (None -- each poll retries, since the writer
 # may not have created the file), streaming, or stopped.
-_TailState = Union[None, _TailStream, _TailStopped]
+_TailState = None | _TailStream | _TailStopped
 
 
 def _tail_close(state: _TailState) -> _TailStopped:
@@ -555,7 +536,7 @@ def _tail_emit_lines(buf: str, final: bool, emit: Callable[[str], None]) -> str:
 def TailLogger(
     logger: logging.Logger,
     filename: str,
-    callback: Optional[Callable[[str], None]] = None,
+    callback: Callable[[str], None] | None = None,
     level: int = VERBOSE_LEVEL,
 ) -> Iterator[Callable[[], None]]:
     r"""
@@ -598,7 +579,8 @@ def TailLogger(
             if state is None:
                 try:
                     state = _TailStream(
-                        open(filename, "rb"),
+                        # handle owned by _TailStream state; closed by _tail_close()
+                        open(filename, "rb"),  # noqa: SIM115
                         codecs.getincrementaldecoder("utf-8")(errors="replace"),
                     )
                 except FileNotFoundError:
@@ -635,7 +617,7 @@ PygtailLogger = TailLogger
 __all__.append("PygtailLogger")
 
 
-_terminating: Optional[bool] = None
+_terminating: bool | None = None
 _terminating_lock: threading.Lock = threading.Lock()
 
 
@@ -661,7 +643,7 @@ def TerminationSignalFlag(logger: logging.Logger) -> Iterator[Callable[[], bool]
         # don't trap SIGPIPE -- Python has a default handler to generate BrokenPipeError
     ]
 
-    def handle_signal(sig: int, frame: Optional[FrameType]) -> None:
+    def handle_signal(sig: int, frame: FrameType | None) -> None:
         global _terminating
         if not _terminating:
             if sig != signal.SIGUSR1:
@@ -673,13 +655,10 @@ def TerminationSignalFlag(logger: logging.Logger) -> Iterator[Callable[[], bool]
         _terminating = True
 
     global _terminating
-    global _terminating_lock
     restore_signal_handlers = None
     with _terminating_lock:
         if _terminating is None:
-            restore_signal_handlers = dict(
-                (sig, signal.signal(sig, handle_signal)) for sig in signals
-            )
+            restore_signal_handlers = {sig: signal.signal(sig, handle_signal) for sig in signals}
             _terminating = False
     try:
         yield lambda: _terminating or False
@@ -760,11 +739,11 @@ def pathsize(path: str) -> int:
     return ans
 
 
-def splitall(path: str) -> List[str]:
+def splitall(path: str) -> list[str]:
     """
     https://www.oreilly.com/library/view/python-cookbook/0596001673/ch04s16.html
     """
-    allparts: List[str] = []
+    allparts: list[str] = []
     while True:
         parts = os.path.split(path)
         if parts[0] == path:  # sentinel for absolute paths
@@ -842,7 +821,7 @@ def LoggingFileHandler(
 @export
 @contextmanager
 def compose_coroutines(
-    generators: List[Callable[[Any], Generator[Any, Any, None]]], x: Any
+    generators: list[Callable[[Any], Generator[Any, Any, None]]], x: Any
 ) -> Iterator[Generator[Any, Any, None]]:
     """
     Coroutine (generator) which composes several other coroutines to run in lockstep for one or
@@ -872,7 +851,7 @@ def compose_coroutines(
                             cor.throw(exn)
                         except Exception as exn2:
                             exn = exn2
-                    raise exn
+                    raise
                 # pass value through coroutines
                 cor_exn = None
                 for cor in cors:
@@ -916,11 +895,11 @@ class FlockHolder(AbstractContextManager):
     """
 
     _lock: threading.Lock
-    _flocks: Dict[str, Tuple[int, bool]]
+    _flocks: dict[str, tuple[int, bool]]
     _entries: int
     _logger: logging.Logger
 
-    def __init__(self, logger: Optional[logging.Logger] = None) -> None:
+    def __init__(self, logger: logging.Logger | None = None) -> None:
         self._lock = threading.Lock()
         self._flocks = {}
         self._entries = 0
@@ -955,7 +934,7 @@ class FlockHolder(AbstractContextManager):
     def flock(
         self,
         filename: str,
-        mode: Optional[int] = None,
+        mode: int | None = None,
         exclusive: bool = False,
         wait: bool = False,
     ) -> int:

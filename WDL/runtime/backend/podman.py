@@ -1,13 +1,14 @@
-# NOTE: this file is excluded from coverage analysis since alternate container backends may not be
-#       available in the CI environment. To test locally: prove -v tests/podman.t
+# NOTE: this file is excluded from coverage analysis since alternate container backends aren't
+#       available in the main CI environment. They're tested separately by the alt_backends GitHub
+#       workflow (.github/workflows/alt_backends.yml). To test locally: prove -v tests/podman.t
+import logging
 import os
 import shlex
-import logging
 import subprocess
-from typing import List, Tuple
 from contextlib import ExitStack
-from ...Error import InputError, RuntimeError
+
 from ..._util import StructuredLogMessage as _
+from ...Error import InputError, RuntimeError
 from .. import config
 from .cli_subprocess import SubprocessBase
 
@@ -25,9 +26,8 @@ class PodmanContainer(SubprocessBase):
         try:
             podman_version = subprocess.run(
                 podman_version_cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                universal_newlines=True,
+                capture_output=True,
+                text=True,
                 check=True,
             )
         except subprocess.CalledProcessError as cpe:
@@ -49,16 +49,16 @@ class PodmanContainer(SubprocessBase):
         return "podman"
 
     @property
-    def cli_exe(self) -> List[str]:
+    def cli_exe(self) -> list[str]:
         return self.cfg.get_list("podman", "exe")
 
-    def _pull_invocation(self, logger: logging.Logger, cleanup: ExitStack) -> Tuple[str, List[str]]:
+    def _pull_invocation(self, logger: logging.Logger, cleanup: ExitStack) -> tuple[str, list[str]]:
         image, invocation = super()._pull_invocation(logger, cleanup)
         if invocation[0] == "sudo":
             _sudo_canary()
         return (image, invocation)
 
-    def _run_invocation(self, logger: logging.Logger, cleanup: ExitStack, image: str) -> List[str]:
+    def _run_invocation(self, logger: logging.Logger, cleanup: ExitStack, image: str) -> list[str]:
         """
         Formulate `podman run` command-line invocation
         """
@@ -142,9 +142,8 @@ class PodmanContainer(SubprocessBase):
                     "-c",
                     script,
                 ],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                universal_newlines=True,
+                capture_output=True,
+                text=True,
                 check=True,
             )
         except subprocess.CalledProcessError as cpe:
@@ -160,9 +159,8 @@ def _sudo_canary():
     try:
         subprocess.run(
             ["sudo", "-n", "id"],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            universal_newlines=True,
+            capture_output=True,
+            text=True,
             check=True,
         )
     except subprocess.SubprocessError:

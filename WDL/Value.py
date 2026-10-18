@@ -8,17 +8,19 @@ Each value is represented by an instance of a Python class inheriting from
    :top-classes: WDL.Value.Base
 """
 
-import json
-import copy
 import base64
+import copy
 import hashlib
 import itertools
+import json
 import os
 import posixpath
 import threading
 from abc import ABC
-from typing import Any, List, Optional, Tuple, Dict, Iterable, Union, Callable, Set, TYPE_CHECKING
-from . import Error, Type, Env
+from collections.abc import Callable, Iterable
+from typing import TYPE_CHECKING, Any
+
+from . import Env, Error, Type
 
 if TYPE_CHECKING:
     from . import Expr
@@ -60,9 +62,9 @@ class Base(ABC):
     value: Any
     """The "raw" Python value"""
 
-    _expr: "Optional[Expr.Base]"
+    _expr: "Expr.Base | None"
 
-    def __init__(self, type: Type.Base, value: Any, expr: "Optional[Expr.Base]" = None) -> None:
+    def __init__(self, type: Type.Base, value: Any, expr: "Expr.Base | None" = None) -> None:
         assert isinstance(type, Type.Base)
         self.type = type
         if self.type.optional and not isinstance(self, Null):
@@ -83,7 +85,7 @@ class Base(ABC):
         return json.dumps(self.json)
 
     @property
-    def expr(self) -> "Optional[Expr.Base]":
+    def expr(self) -> "Expr.Base | None":
         """
         Reference to the WDL expression that generated this value, if it originated
         from ``WDL.Expr.eval``
@@ -103,7 +105,7 @@ class Base(ABC):
                     desc._expr = rhs
                     stack.extend(desc2 for desc2 in desc.children)
 
-    def coerce(self, desired_type: Optional[Type.Base] = None) -> "Base":
+    def coerce(self, desired_type: Type.Base | None = None) -> "Base":
         """
         Coerce the value to the desired type and return it. Types should be
         checked statically on ``WDL.Expr.Base`` prior to evaluation.
@@ -123,7 +125,7 @@ class Base(ABC):
             raise Error.InputError(f"cannot coerce '{self.type}' to '{desired_type}'")
         return self
 
-    def expect(self, desired_type: Optional[Type.Base] = None) -> "Base":
+    def expect(self, desired_type: Type.Base | None = None) -> "Base":
         """Alias for coerce"""
         return self.coerce(desired_type)
 
@@ -141,27 +143,27 @@ class Base(ABC):
 class Boolean(Base):
     """``value`` has Python type ``bool``"""
 
-    def __init__(self, value: bool, expr: "Optional[Expr.Base]" = None) -> None:
+    def __init__(self, value: bool, expr: "Expr.Base | None" = None) -> None:
         super().__init__(Type.Boolean(), value, expr)
 
 
 class Float(Base):
     """``value`` has Python type ``float``"""
 
-    def __init__(self, value: float, expr: "Optional[Expr.Base]" = None) -> None:
+    def __init__(self, value: float, expr: "Expr.Base | None" = None) -> None:
         super().__init__(Type.Float(), value, expr)
 
     def __str__(self) -> str:
-        return "{:.6f}".format(self.value)
+        return f"{self.value:.6f}"
 
 
 class Int(Base):
     """``value`` has Python type ``int``"""
 
-    def __init__(self, value: int, expr: "Optional[Expr.Base]" = None) -> None:
+    def __init__(self, value: int, expr: "Expr.Base | None" = None) -> None:
         super().__init__(Type.Int(), value, expr)
 
-    def coerce(self, desired_type: Optional[Type.Base] = None) -> Base:
+    def coerce(self, desired_type: Type.Base | None = None) -> Base:
         """"""
         if isinstance(desired_type, Type.Float):
             return Float(float(self.value), self.expr)
@@ -172,12 +174,12 @@ class String(Base):
     """``value`` has Python type ``str``"""
 
     def __init__(
-        self, value: str, expr: "Optional[Expr.Base]" = None, subtype: Optional[Type.Base] = None
+        self, value: str, expr: "Expr.Base | None" = None, subtype: Type.Base | None = None
     ) -> None:
         subtype = subtype or Type.String()
         super().__init__(subtype, value, expr)
 
-    def coerce(self, desired_type: Optional[Type.Base] = None) -> Base:
+    def coerce(self, desired_type: Type.Base | None = None) -> Base:
         """"""
         if isinstance(desired_type, Type.String):
             return String(self.value, self.expr)
@@ -199,7 +201,7 @@ class String(Base):
 class File(String):
     """``value`` has Python type ``str``"""
 
-    def __init__(self, value: str, expr: "Optional[Expr.Base]" = None) -> None:
+    def __init__(self, value: str, expr: "Expr.Base | None" = None) -> None:
         if value != value.rstrip("/"):
             raise Error.InputError("WDL.Value.File invalid path: " + value)
         value = _canonicalize_local_path(value, directory=False)
@@ -209,7 +211,7 @@ class File(String):
 class Directory(String):
     """``value`` has Python type ``str``"""
 
-    def __init__(self, value: str, expr: "Optional[Expr.Base]" = None) -> None:
+    def __init__(self, value: str, expr: "Expr.Base | None" = None) -> None:
         # WDL 1.2 Path Canonicalization and Validation specifies that, for Directory values,
         # trailing directory separators are removed. Preserve "/" itself as the filesystem root.
         value = _canonicalize_local_path(value, directory=True)
@@ -219,11 +221,11 @@ class Directory(String):
 class Array(Base):
     """``value`` is a Python ``list`` of other ``WDL.Value.Base`` instances"""
 
-    value: List[Base]
+    value: list[Base]
     type: Type.Array
 
     def __init__(
-        self, item_type: Type.Base, value: List[Base], expr: "Optional[Expr.Base]" = None
+        self, item_type: Type.Base, value: list[Base], expr: "Expr.Base | None" = None
     ) -> None:
         self.value = []
         self.type = Type.Array(item_type, nonempty=(len(value) > 0))
@@ -242,7 +244,7 @@ class Array(Base):
     def children(self) -> Iterable[Base]:
         return self.value
 
-    def coerce(self, desired_type: Optional[Type.Base] = None) -> Base:
+    def coerce(self, desired_type: Type.Base | None = None) -> Base:
         """"""
         if isinstance(desired_type, Type.Array):
             if desired_type.nonempty and not self.value:
@@ -263,14 +265,14 @@ class Array(Base):
 
 
 class Map(Base):
-    value: List[Tuple[Base, Base]]
+    value: list[tuple[Base, Base]]
     type: Type.Map
 
     def __init__(
         self,
-        item_type: Tuple[Type.Base, Type.Base],
-        value: List[Tuple[Base, Base]],
-        expr: "Optional[Expr.Base]" = None,
+        item_type: tuple[Type.Base, Type.Base],
+        value: list[tuple[Base, Base]],
+        expr: "Expr.Base | None" = None,
     ) -> None:
         self.value = []
         self.type = Type.Map(item_type)
@@ -281,12 +283,12 @@ class Map(Base):
         """"""
         ans = {}
         if not self.type.item_type[0].coerces(Type.String()):
-            msg = f"cannot write {str(self.type)} to JSON"
+            msg = f"cannot write {self.type!s} to JSON"
             raise (Error.EvalError(self.expr, msg) if self.expr else Error.RuntimeError(msg))
         for k, v in self.value:
             kstr = k.coerce(Type.String()).value
             if kstr in ans:
-                msg = f"cannot write {str(self.type)} to JSON; colliding string key {json.dumps(kstr)}"
+                msg = f"cannot write {self.type!s} to JSON; colliding string key {json.dumps(kstr)}"
                 raise (Error.EvalError(self.expr, msg) if self.expr else Error.RuntimeError(msg))
             ans[kstr] = v.json
         return ans
@@ -303,7 +305,7 @@ class Map(Base):
             yield k
             yield v
 
-    def coerce(self, desired_type: Optional[Type.Base] = None) -> Base:
+    def coerce(self, desired_type: Type.Base | None = None) -> Base:
         """"""
         if isinstance(desired_type, Type.Map) and desired_type != self.type:
             return Map(
@@ -322,7 +324,7 @@ class Map(Base):
                 Type.Map(
                     self.type.item_type,
                     self.type.optional,
-                    set(kv[0].coerce(Type.String()).value for kv in self.value),
+                    {kv[0].coerce(Type.String()).value for kv in self.value},
                 ).check(desired_type)
             except TypeError as exn:
                 msg = "unusable runtime struct initializer"
@@ -362,15 +364,15 @@ class Map(Base):
 
 
 class Pair(Base):
-    value: Tuple[Base, Base]
+    value: tuple[Base, Base]
     type: Type.Pair
 
     def __init__(
         self,
         left_type: Type.Base,
         right_type: Type.Base,
-        value: Tuple[Base, Base],
-        expr: "Optional[Expr.Base]" = None,
+        value: tuple[Base, Base],
+        expr: "Expr.Base | None" = None,
     ) -> None:
         self.value = value
         self.type = Type.Pair(left_type, right_type)
@@ -390,7 +392,7 @@ class Pair(Base):
         yield self.value[0]
         yield self.value[1]
 
-    def coerce(self, desired_type: Optional[Type.Base] = None) -> Base:
+    def coerce(self, desired_type: Type.Base | None = None) -> Base:
         """"""
         if isinstance(desired_type, Type.Pair) and desired_type != self.type:
             return Pair(
@@ -409,10 +411,10 @@ class Null(Base):
     """Represents the missing value which optional inputs may take.
     ``type`` and ``value`` are both None."""
 
-    def __init__(self, expr: "Optional[Expr.Base]" = None) -> None:
+    def __init__(self, expr: "Expr.Base | None" = None) -> None:
         super().__init__(Type.Any(null=True), None, expr)
 
-    def coerce(self, desired_type: Optional[Type.Base] = None) -> Base:
+    def coerce(self, desired_type: Type.Base | None = None) -> Base:
         """"""
         if desired_type and not desired_type.optional and not isinstance(desired_type, Type.Any):
             if isinstance(desired_type, (Type.File, Type.Directory)):
@@ -443,18 +445,18 @@ class Null(Base):
 
 
 class Struct(Base):
-    value: Dict[str, Base]
+    value: dict[str, Base]
 
     # records the names of any extraneous keys that were present in the JSON/Map/Object from which
     # this struct was initialized
-    extra: Set[str]
+    extra: set[str]
 
     def __init__(
         self,
-        type: Union[Type.Object, Type.StructInstance],
-        value: Dict[str, Base],
-        expr: "Optional[Expr.Base]" = None,
-        extra: Optional[Set[str]] = None,
+        type: Type.Object | Type.StructInstance,
+        value: dict[str, Base],
+        expr: "Expr.Base | None" = None,
+        extra: set[str] | None = None,
     ) -> None:
         # type may be Object for the transient evaluation of an object literal or read_json(); we
         # expect it to be coerced to a StructInstance in short order.
@@ -470,7 +472,7 @@ class Struct(Base):
         self.extra = extra or set()
         super().__init__(type, value, expr)
 
-    def coerce(self, desired_type: Optional[Type.Base] = None) -> Base:
+    def coerce(self, desired_type: Type.Base | None = None) -> Base:
         """"""
         if isinstance(desired_type, Type.StructInstance):
             return self._coerce_to_struct(desired_type)
@@ -556,7 +558,7 @@ class Struct(Base):
                 entries.append((map_key, map_value))
         return Map(desired_type.item_type, entries)
 
-    def _eval_error(self, msg: str, value_path: Optional[List[str]] = None) -> None:
+    def _eval_error(self, msg: str, value_path: list[str] | None = None) -> None:
         # Pass value_path when msg names the member that failed, so that enclosing structs add only
         # the route to it rather than re-framing: [] locates the error without contributing a
         # segment, and a non-empty list carries a route inherited from within the member.
@@ -573,7 +575,7 @@ class Struct(Base):
         raise exn from None
 
     def __str__(self) -> Any:
-        return "{" + ", ".join(f"{k}: {str(v)}" for k, v in self.value.items()) + "}"
+        return "{" + ", ".join(f"{k}: {v!s}" for k, v in self.value.items()) + "}"
 
     @property
     def json(self) -> Any:
@@ -621,7 +623,7 @@ def from_json(type: Type.Base, value: Any) -> Base:
     if (
         isinstance(type, Type.Pair)
         and isinstance(value, dict)
-        and set(v.lower() for v in value.keys()) == {"left", "right"}
+        and {v.lower() for v in value} == {"left", "right"}
     ):
         lowercased_value = {k.lower(): v for k, v in value.items()}
         return Pair(
@@ -757,7 +759,7 @@ def _infer_from_json(
     raise Error.InputError(f"couldn't construct value from: {json.dumps(j)}")
 
 
-def rewrite_paths(v: Base, f: Callable[[Union[File, Directory]], Optional[str]]) -> Base:
+def rewrite_paths(v: Base, f: Callable[[File | Directory], str | None]) -> Base:
     """
     Produce a deep copy of the given Value with all File & Directory paths (including those nested
     inside compound Values) rewritten by the given function. The function may return None to
@@ -776,7 +778,7 @@ def rewrite_paths(v: Base, f: Callable[[Union[File, Directory]], Optional[str]])
                 w.value = File(fw, w.expr).value
         # recursive descent into compound Values
         elif isinstance(w.value, list):
-            value2: List[Any] = []
+            value2: list[Any] = []
             for elt in w.value:
                 if isinstance(elt, tuple):
                     assert len(elt) == 2 and all(isinstance(x, Base) for x in elt)
@@ -802,7 +804,7 @@ def rewrite_paths(v: Base, f: Callable[[Union[File, Directory]], Optional[str]])
 
 
 def rewrite_env_paths(
-    env: Env.Bindings[Base], f: Callable[[Union[File, Directory]], Optional[str]]
+    env: Env.Bindings[Base], f: Callable[[File | Directory], str | None]
 ) -> Env.Bindings[Base]:
     """
     Produce a deep copy of the given Value Env with all File & Directory paths rewritten by the
@@ -811,7 +813,7 @@ def rewrite_env_paths(
     return env.map(lambda binding: Env.Binding(binding.name, rewrite_paths(binding.value, f)))
 
 
-def rewrite_files(v: Base, f: Callable[[str], Optional[str]]) -> Base:
+def rewrite_files(v: Base, f: Callable[[str], str | None]) -> Base:
     """
     Produce a deep copy of the given Value with all File names rewritten by the given function
     (including Files nested inside compound Values).
@@ -823,7 +825,7 @@ def rewrite_files(v: Base, f: Callable[[str], Optional[str]]) -> Base:
 
 
 def rewrite_env_files(
-    env: Env.Bindings[Base], f: Callable[[str], Optional[str]]
+    env: Env.Bindings[Base], f: Callable[[str], str | None]
 ) -> Env.Bindings[Base]:
     """
     Produce a deep copy of the given Value Env with all File names rewritten by the given function.

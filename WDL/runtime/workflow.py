@@ -28,50 +28,45 @@ be launched. Scatter and Conditional sections may be nested, inducing a multi-le
 operations.
 """
 
+import json
 import logging
 import multiprocessing
 import os
-import json
-import signal
-import traceback
 import pickle
 import queue
+import signal
 import threading
+import traceback
+from collections.abc import Callable, Iterable
 from concurrent import futures
-from typing import (
-    Optional,
-    List,
-    Callable,
-    Tuple,
-    Dict,
-    NamedTuple,
-    Set,
-    Union,
-    Iterable,
-)
 from contextlib import ExitStack
-from .. import Env, Value, Tree, Error
-from .task import run_local_task
+from typing import (
+    NamedTuple,
+)
+
+from .. import Env, Error, Tree, Value
+from .._util import (
+    LoggingFileHandler,
+    TerminationSignalFlag,
+    compose_coroutines,
+    pathsize,
+    provision_run_dir,
+    write_atomic,
+    write_values_json,
+)
+from .._util import StructuredLogMessage as _
+from . import _statusbar, config
 from ._io_helpers import (
     _add_downloadable_defaults,
     _warn_output_basename_collisions,
     link_outputs,
 )
-from .download import able as downloadable, run_cached as download
 from ._stdlib import WorkflowStdLib
 from ._workflow_state import StateMachine
-from .._util import (
-    write_atomic,
-    write_values_json,
-    provision_run_dir,
-    TerminationSignalFlag,
-    LoggingFileHandler,
-    compose_coroutines,
-    pathsize,
-)
-from .._util import StructuredLogMessage as _
-from . import config, _statusbar
-from .cache import CallCache, CallCacheAddPaths, call_cache_key, new as new_call_cache
+from .cache import CallCache, CallCacheAddPaths, call_cache_key
+from .cache import new as new_call_cache
+from .download import able as downloadable
+from .download import run_cached as download
 from .error import (
     CommandFailed,
     DownloadFailed,
@@ -81,9 +76,9 @@ from .error import (
     Terminated,
     error_json,
 )
+from .task import run_local_task
 
-
-_CallFuture = futures.Future[Tuple[str, Env.Bindings[Value.Base]]]
+_CallFuture = futures.Future[tuple[str, Env.Bindings[Value.Base]]]
 
 
 class WorkflowMainLoopResult(NamedTuple):
@@ -102,7 +97,7 @@ class _ThreadPools:
     _lock: threading.Lock
     _cleanup: ExitStack
     _task_pool: futures.ThreadPoolExecutor
-    _subworkflow_pools: List[futures.ThreadPoolExecutor]
+    _subworkflow_pools: list[futures.ThreadPoolExecutor]
     _subworkflow_concurrency: int
     _logger: logging.Logger
 
@@ -155,7 +150,7 @@ class _ThreadPools:
 def _download_workflow_input_files(
     cfg: config.Loader,
     logger: logging.Logger,
-    logger_prefix: List[str],
+    logger_prefix: list[str],
     run_dir: str,
     inputs: Env.Bindings[Value.Base],
     thread_pools: _ThreadPools,
@@ -168,9 +163,9 @@ def _download_workflow_input_files(
     """
 
     # scan inputs for URIs
-    uris: Set[Tuple[str, bool]] = set()
+    uris: set[tuple[str, bool]] = set()
 
-    def scan_uri(v: Union[Value.File, Value.Directory]) -> str:
+    def scan_uri(v: Value.File | Value.Directory) -> str:
         nonlocal uris
         directory = isinstance(v, Value.Directory)
         uri = v.value
@@ -187,9 +182,9 @@ def _download_workflow_input_files(
     download_concurrency = cfg.get_int("scheduler", "download_concurrency")
     if download_concurrency <= 0:
         download_concurrency = 999999
-    ops: Dict[futures.Future[Tuple[bool, str]], str] = {}
+    ops: dict[futures.Future[tuple[bool, str]], str] = {}
     incomplete = len(uris)
-    outstanding: Set[futures.Future[Tuple[bool, str]]] = set()
+    outstanding: set[futures.Future[tuple[bool, str]]] = set()
     downloaded_bytes = 0
     cached_hits = 0
     exn = None
@@ -261,14 +256,14 @@ def run_local_workflow(
     cfg: config.Loader,
     workflow: Tree.Workflow,
     inputs: Env.Bindings[Value.Base],
-    run_id: Optional[str] = None,
-    run_dir: Optional[str] = None,
-    logger_prefix: Optional[List[str]] = None,
-    _thread_pools: Optional[_ThreadPools] = None,
-    _cache: Optional[CallCache] = None,
+    run_id: str | None = None,
+    run_dir: str | None = None,
+    logger_prefix: list[str] | None = None,
+    _thread_pools: _ThreadPools | None = None,
+    _cache: CallCache | None = None,
     _test_pickle: bool = False,
-    _run_id_stack: Optional[List[str]] = None,
-) -> Tuple[str, Env.Bindings[Value.Base]]:
+    _run_id_stack: list[str] | None = None,
+) -> tuple[str, Env.Bindings[Value.Base]]:
     """
     Run a workflow locally.
 
@@ -359,6 +354,7 @@ def run_local_workflow(
         if not _thread_pools:
             # delayed heavy imports -- load .task_container now to work around python issue41567
             from importlib import metadata as importlib_metadata
+
             from .task_container import new as _new_task_container  # noqa: F401
 
             assert not _run_id_stack
@@ -415,17 +411,17 @@ def _workflow_main_loop(
     cfg: config.Loader,
     workflow: Tree.Workflow,
     inputs: Env.Bindings[Value.Base],
-    run_id_stack: List[str],
+    run_id_stack: list[str],
     run_dir: str,
     logger: logging.Logger,
-    logger_id: List[str],
+    logger_id: list[str],
     thread_pools: _ThreadPools,
     cache: CallCache,
     terminating: Callable[[], bool],
     _test_pickle: bool,
 ) -> WorkflowMainLoopResult:
     assert isinstance(cfg, config.Loader)
-    call_futures: Dict[_CallFuture, Tuple[str, str]] = {}
+    call_futures: dict[_CallFuture, tuple[str, str]] = {}
     completed_futures: queue.SimpleQueue[_CallFuture] = queue.SimpleQueue()
     try:
         # start plugin coroutines and process inputs through them
@@ -620,7 +616,7 @@ def _exception_chain(exn: BaseException) -> Iterable[BaseException]:
         exn = exn.__cause__ or exn.__context__  # type: ignore
 
 
-def _tolerated_call_failure(exn: BaseException) -> Optional[BaseException]:
+def _tolerated_call_failure(exn: BaseException) -> BaseException | None:
     """Classify failures that a ``call?`` can downgrade to null outputs.
 
     These are failures from running, downloading inputs for, or scheduling the callee, including

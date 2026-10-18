@@ -1,14 +1,15 @@
-# NOTE: this file is excluded from coverage analysis since alternate container backends may not be
-#       available in the CI environment. To test locally: prove -v tests/singularity.t
+# NOTE: this file is excluded from coverage analysis since alternate container backends aren't
+#       available in the main CI environment. They're tested separately by the alt_backends GitHub
+#       workflow (.github/workflows/alt_backends.yml). To test locally: prove -v tests/singularity.t
+import logging
 import os
 import shlex
-import logging
-import tempfile
 import subprocess
-from typing import List, Tuple, Optional
+import tempfile
 from contextlib import ExitStack
-from ...Error import InputError, RuntimeError
+
 from ..._util import StructuredLogMessage as _
+from ...Error import InputError, RuntimeError
 from .. import config
 from .cli_subprocess import SubprocessBase
 
@@ -18,7 +19,7 @@ class SingularityContainer(SubprocessBase):
     Singularity task runtime based on cli_subprocess.SubprocessBase
     """
 
-    image_cache_dir: Optional[str]
+    image_cache_dir: str | None
 
     @classmethod
     def global_init(cls, cfg: config.Loader, logger: logging.Logger) -> None:
@@ -26,10 +27,9 @@ class SingularityContainer(SubprocessBase):
         try:
             singularity_version = subprocess.run(
                 cmd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
+                capture_output=True,
                 check=True,
-                universal_newlines=True,
+                text=True,
             )
         except Exception:
             raise RuntimeError(
@@ -55,11 +55,11 @@ class SingularityContainer(SubprocessBase):
         return "singularity"
 
     @property
-    def cli_exe(self) -> List[str]:
+    def cli_exe(self) -> list[str]:
         return self.cfg.get_list("singularity", "exe")
 
-    def _pull_invocation(self, logger: logging.Logger, cleanup: ExitStack) -> Tuple[str, List[str]]:
-        image, invocation = super()._pull_invocation(logger, cleanup)
+    def _pull_invocation(self, logger: logging.Logger, cleanup: ExitStack) -> tuple[str, list[str]]:
+        image, _invocation = super()._pull_invocation(logger, cleanup)
         docker_uri = "docker://" + image
         pulldir = self.image_cache_dir or cleanup.enter_context(
             tempfile.TemporaryDirectory(prefix="miniwdl_sif_")
@@ -72,7 +72,7 @@ class SingularityContainer(SubprocessBase):
         logger.info(_("Singularity SIF found in image cache directory", sif=image_path))
         return image_path, []
 
-    def _run_invocation(self, logger: logging.Logger, cleanup: ExitStack, image: str) -> List[str]:
+    def _run_invocation(self, logger: logging.Logger, cleanup: ExitStack, image: str) -> list[str]:
         """
         Formulate `singularity run` command-line invocation
         """

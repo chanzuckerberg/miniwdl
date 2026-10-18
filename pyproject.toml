@@ -36,7 +36,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
-    "ruff~=0.15.0",  # 0.16 changed the default rule set drastically; revisit before unpinning
+    "ruff~=0.17.0",  # 0.16 expanded the default rule set (see #906)
     "mypy",
     "pytest",
     "testfixtures",
@@ -74,4 +74,13 @@ line-length = 100
 exclude = ["WDL/_version.py"]
 
 [tool.ruff.lint]
-ignore = ["E741", "E731"]
+ignore = [
+    "N999",    # CapWords module names (WDL.Tree, WDL.Error, ...) are the public API
+    "INT001",  # presumes `_` is gettext; here `_` is StructuredLogMessage
+    "PLC3002", # flags the deliberate try1 loop-variable binding idiom in Tree.py
+    "PYI034",  # fix requires typing.Self (py3.11+); floor is 3.10
+    "B009",    # dynamic attrs are a deliberate idiom (exception/AST decoration, probing)
+    "B010",    # ditto B009; direct access breaks mypy on undeclared attrs
+    "BLE001",  # broad catches are deliberate containment at runner boundaries
+    "D419",    # """""" is the autodoc exclusion marker, not a placeholder
+]

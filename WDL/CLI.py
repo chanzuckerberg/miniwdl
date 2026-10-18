@@ -3,52 +3,53 @@ miniwdl command-line interface
 """
 
 # PYTHON_ARGCOMPLETE_OK
-import sys
-import os
-import platform
-import tempfile
-import json
-import logging
 import asyncio
 import atexit
+import json
+import logging
+import os
+import platform
+import sys
+import tempfile
 import textwrap
 import traceback
-from shlex import quote as shellquote
-from argparse import ArgumentParser, Action, SUPPRESS, RawDescriptionHelpFormatter
+from argparse import SUPPRESS, Action, ArgumentParser, RawDescriptionHelpFormatter
 from contextlib import ExitStack
-from typing import Optional
+from shlex import quote as shellquote
+
 import argcomplete
+
 from . import (
-    load,
-    Error,
-    Value,
-    Type,
-    Expr,
-    Document,
-    Workflow,
-    Task,
-    Env,
-    Decl,
     Call,
-    Scatter,
     Conditional,
-    parse_document,
+    Decl,
+    Document,
+    Env,
+    Error,
+    Expr,
+    ReadSourceResult,
+    Scatter,
+    Task,
+    Type,
+    Value,
+    Workflow,
+    Zip,
     copy_source,
+    load,
+    parse_document,
+    read_source_default,
     values_from_json,
     values_to_json,
-    read_source_default,
-    ReadSourceResult,
-    Zip,
 )
 from ._util import (
-    VERBOSE_LEVEL,
+    ANSI,
     NOTICE_LEVEL,
+    VERBOSE_LEVEL,
+    LoggingFileHandler,
     configure_logger,
+    currently_in_container,
     parse_byte_size,
     path_really_within,
-    ANSI,
-    currently_in_container,
-    LoggingFileHandler,
     write_atomic,
 )
 from ._util import StructuredLogMessage as _
@@ -96,7 +97,6 @@ def main(args=None):
         Error.MultipleValidationErrors,
         FileNotFoundError,
     ) as exn:
-        global quant_warning
         print_error(exn)
         if args.check_quant and quant_warning:
             print(
@@ -105,7 +105,7 @@ def main(args=None):
                 file=sys.stderr,
             )
         if args.debug:
-            raise exn
+            raise
         sys.exit(2)
     sys.exit(0)
 
@@ -144,7 +144,7 @@ class PipVersionAction(Action):
 
         from importlib import metadata as importlib_metadata
 
-        for group in runtime.config.default_plugins().keys():
+        for group in runtime.config.default_plugins():
             group = f"miniwdl.plugin.{group}"
             for plugin in importlib_metadata.entry_points(group=group):
                 plugin_info = f"{plugin.dist.name} {plugin.dist.version}"
@@ -262,7 +262,7 @@ def check(
                         file=sys.stderr,
                     )
                 )
-            raise exn
+            raise
 
         Lint.lint(doc)
 
@@ -329,7 +329,7 @@ def outline(
             descend(task)
         # imports
         for imp in sorted(obj.imports, key=lambda t: t.namespace):
-            print("    {}{} : {}".format(s, imp.namespace, os.path.basename(imp.uri)), file=file)
+            print(f"    {s}{imp.namespace} : {os.path.basename(imp.uri)}", file=file)
             descend(imp.doc)
     # workflow
     elif isinstance(obj, Workflow):
@@ -359,12 +359,12 @@ def outline(
             print("{}call {}".format(s, ".".join(obj.callee_id)), file=file)
     # scatter
     elif isinstance(obj, Scatter):
-        print("{}scatter {}".format(s, obj.variable), file=file)
+        print(f"{s}scatter {obj.variable}", file=file)
         for elt in obj.body:
             descend(elt)
     # if
     elif isinstance(obj, Conditional):
-        print("{}if".format(s), file=file)
+        print(f"{s}if", file=file)
         for elt in obj.body:
             descend(elt)
     # decl
@@ -374,7 +374,7 @@ def outline(
     descend()
 
 
-def print_error(exn: Optional[BaseException]) -> None:
+def print_error(exn: BaseException | None) -> None:
     global quant_warning
     if isinstance(exn, Error.MultipleValidationErrors):
         for exn1 in exn.exceptions:
@@ -424,7 +424,7 @@ def make_read_source(no_outside_imports):
     async def read_source(uri, path, importer):
         from urllib import parse, request
 
-        if uri.startswith("http:") or uri.startswith("https:"):
+        if uri.startswith(("http:", "https:")):
             with tempfile.TemporaryDirectory(prefix="miniwdl_import_uri_") as tmpdir:
                 assert isinstance(tmpdir, str) and os.path.isdir(tmpdir)
                 fn = os.path.join(
@@ -432,7 +432,8 @@ def make_read_source(no_outside_imports):
                     os.path.basename(parse.urlsplit(uri).path),
                 )
                 request.urlretrieve(uri, filename=fn)
-                with open(fn, "r") as infile:
+                # small local file, just downloaded by this coroutine; read synchronously
+                with open(fn, "r") as infile:  # noqa: ASYNC230
                     return ReadSourceResult(infile.read(), uri)
         elif importer and (
             importer.pos.abspath.startswith("http:") or importer.pos.abspath.startswith("https:")
@@ -601,13 +602,15 @@ def fill_run_subparser(subparsers):
     return run_parser
 
 
+# The [] defaults below are never mutated (inputs are only read); they're part of this public
+# API's signature and defaults introspection, so they're kept instead of None sentinels.
 def runner(
     uri,
     task=None,
-    inputs=[],
+    inputs=[],  # noqa: B006
     input_file=None,
-    empty=[],
-    none=[],
+    empty=[],  # noqa: B006
+    none=[],  # noqa: B006
     json_only=False,
     run_dir=None,
     path=None,
@@ -615,11 +618,11 @@ def runner(
     cfg=None,
     runtime_cpu_max=None,
     runtime_memory_max=None,
-    env=[],
+    env=[],  # noqa: B006
     runtime_defaults=None,
     max_tasks=None,
     copy_input_files=False,
-    copy_input_files_for=[],
+    copy_input_files_for=[],  # noqa: B006
     as_me=False,
     no_cache=False,
     error_json=False,
@@ -798,7 +801,7 @@ def runner(
 
         enabled_plugins = []
         disabled_plugins = []
-        for group in runtime.config.default_plugins().keys():
+        for group in runtime.config.default_plugins():
             for enabled, plugin in runtime.config.load_all_plugins(cfg, group):
                 (enabled_plugins if enabled else disabled_plugins).append(
                     f"{plugin.name} = {plugin.value}"
@@ -874,7 +877,7 @@ def unpack_source_zip(logger, cleanup, uri, file_io_root=None):
         if not uri.endswith(".zip"):  # nothing to do
             return (uri, None)
 
-        if uri.startswith("http:") or uri.startswith("https:"):
+        if uri.startswith(("http:", "https:")):
             from urllib import parse, request
 
             source_zip = os.path.join(
@@ -910,7 +913,7 @@ def runner_input_completer(prefix, parsed_args, **kwargs):
         # load document. in the completer setting, we need to substitute the home directory
         # and environment variables
         uri = os.path.expandvars(os.path.expanduser(parsed_args.uri))
-        if not (uri.startswith("http:") or uri.startswith("https:") or os.path.exists(uri)):
+        if not (uri.startswith(("http:", "https:")) or os.path.exists(uri)):
             argcomplete.warn("file not found: " + uri)
             return []
         try:
@@ -925,9 +928,7 @@ def runner_input_completer(prefix, parsed_args, **kwargs):
                 ),
             )
         except Exception as exn:
-            argcomplete.warn(
-                "unable to load {}; try 'miniwdl check' on it ({})".format(uri, str(exn))
-            )
+            argcomplete.warn(f"unable to load {uri}; try 'miniwdl check' on it ({exn!s})")
             return []
 
         try:
@@ -980,7 +981,7 @@ def runner_input(
         downloadable,
         root,
     )
-    json_keys = set(b.name for b in input_env)
+    json_keys = {b.name for b in input_env}
 
     # set explicitly empty arrays or strings
     for empty_name in empty or []:
@@ -991,14 +992,12 @@ def runner_input(
             raise Error.InputError(f"No such input to {target.name}: {empty_name}")
         if isinstance(decl.type, Type.Array):
             if decl.type.nonempty:
-                raise Error.InputError(
-                    f"Cannot set input {str(decl.type)} {decl.name} to empty array"
-                )
+                raise Error.InputError(f"Cannot set input {decl.type!s} {decl.name} to empty array")
             input_env = input_env.bind(empty_name, Value.Array(decl.type.item_type, []), decl)
         elif isinstance(decl.type, Type.String):
             input_env = input_env.bind(empty_name, Value.String(""), decl)
         else:
-            msg = f"Cannot set {str(decl.type)} {decl.name} to empty array or string"
+            msg = f"Cannot set {decl.type!s} {decl.name} to empty array or string"
             if decl.type.optional:
                 msg += "; perhaps you want --none " + decl.name
             raise Error.InputError(msg)
@@ -1012,7 +1011,7 @@ def runner_input(
             raise Error.InputError(f"No such input to {target.name}: {none_name}")
         if not decl.type.optional:
             raise Error.InputError(
-                f"Cannot set non-optional input {str(decl.type)} {decl.name} to None"
+                f"Cannot set non-optional input {decl.type!s} {decl.name} to None"
             )
         input_env = input_env.bind(none_name, Value.Null(), decl)
 
@@ -1050,11 +1049,16 @@ def runner_input(
                     (i for i, term in enumerate(nmparts) if term == override),
                     -1,
                 )
-                if runtime_idx >= 0 and len(nmparts) > (runtime_idx + 1):
-                    if decl := available_inputs.get(
-                        ".".join(nmparts[:runtime_idx] + ["_" + override])
-                    ):
-                        break
+                if (
+                    runtime_idx >= 0
+                    and len(nmparts) > (runtime_idx + 1)
+                    and (
+                        decl := available_inputs.get(
+                            ".".join(nmparts[:runtime_idx] + ["_" + override])
+                        )
+                    )
+                ):
+                    break
 
         if not decl:
             runner_input_help(target)
@@ -1170,7 +1174,7 @@ def runner_input_help(target):
     required_inputs = target.required_inputs
     ans.append(bold("\nrequired inputs:"))
     for b in required_inputs:
-        ans.append(bold(f"  {str(b.value.type)} {b.name}"))
+        ans.append(bold(f"  {b.value.type!s} {b.name}"))
         add_wrapped_parameter_meta(target, b.name, ans)
     optional_inputs = target.available_inputs.subtract(target.required_inputs)
     optional_inputs = optional_inputs.filter(lambda b: not b.value.name.startswith("_"))
@@ -1183,7 +1187,7 @@ def runner_input_help(target):
     if optional_inputs:
         ans.append(bold("\noptional inputs:"))
         for b in optional_inputs:
-            d = bold(f"  {str(b.value.type)} {b.name}")
+            d = bold(f"  {b.value.type!s} {b.name}")
             if b.value.expr:
                 ans.append(f"{d} = {b.value.expr}")
             else:
@@ -1191,7 +1195,7 @@ def runner_input_help(target):
             add_wrapped_parameter_meta(target, b.name, ans)
     ans.append(bold("\noutputs:"))
     for b in target.effective_outputs:
-        ans.append(bold(f"  {str(b.value)} {b.name}"))
+        ans.append(bold(f"  {b.value!s} {b.name}"))
     for line in ans:
         print(line, file=sys.stderr)
 
@@ -1255,9 +1259,7 @@ def runner_input_value(s_value, ty, downloadable, root):
             return Value.Boolean(True)
         if s_value == "false":
             return Value.Boolean(False)
-        raise Error.InputError(
-            "Boolean input should be true or false instead of `{}'".format(s_value)
-        )
+        raise Error.InputError(f"Boolean input should be true or false instead of `{s_value}'")
     if isinstance(ty, Type.Int):
         return Value.Int(int(s_value))
     if isinstance(ty, Type.Float):
@@ -1275,9 +1277,7 @@ def runner_input_value(s_value, ty, downloadable, root):
             return Value.from_json(ty, json.loads(s_value))
         except json.JSONDecodeError as exn:
             raise Error.InputError(
-                "Invalid JSON for input of type {}, check syntax and shell quoting: {}".format(
-                    str(ty), exn
-                )
+                f"Invalid JSON for input of type {ty!s}, check syntax and shell quoting: {exn}"
             )
     if isinstance(ty, Type.Any):
         # infer dynamically-typed runtime overrides
@@ -1291,9 +1291,7 @@ def runner_input_value(s_value, ty, downloadable, root):
             pass
         return Value.String(s_value)
     raise Error.InputError(
-        "No command-line support yet for inputs of type {}; workaround: specify in JSON file with --input".format(
-            str(ty)
-        )
+        f"No command-line support yet for inputs of type {ty!s}; workaround: specify in JSON file with --input"
     )
 
 
@@ -1323,9 +1321,9 @@ def validate_input_path(path, directory, downloadable, root):
         def raiser(exc: OSError):
             raise exc
 
-        for root, subdirs, files in os.walk(path, onerror=raiser, followlinks=False):
+        for walk_root, subdirs, files in os.walk(path, onerror=raiser, followlinks=False):
             for fn in files:
-                fn = os.path.join(root, fn)
+                fn = os.path.join(walk_root, fn)
                 if os.path.islink(fn) and (
                     not os.path.exists(fn)
                     or os.path.isabs(os.readlink(fn))
@@ -1656,7 +1654,7 @@ def localize(
             )
 
             try:
-                target, input_env, input_json = runner_input(
+                _target, input_env, _input_json = runner_input(
                     doc,
                     [],
                     infile,
@@ -1710,8 +1708,8 @@ def localize(
             sys.exit(2)
 
         with runtime.cache.CallCache(cfg, logger) as cache:
-            disabled_files = set(u for u in file if not cache.download_path(u))
-            disabled_dirs = set(u for u in directory if not cache.download_path(u, directory=True))
+            disabled_files = {u for u in file if not cache.download_path(u)}
+            disabled_dirs = {u for u in directory if not cache.download_path(u, directory=True)}
         if disabled_files or disabled_dirs:
             logger.notice(
                 _(
@@ -1745,7 +1743,7 @@ def localize(
         localizer = parse_document(localizer_wdl)
         localizer.typecheck()
         cfg = runtime.config.Loader(logger)
-        subdir, outputs = runtime.run(
+        _subdir, outputs = runtime.run(
             cfg,
             localizer.workflow,
             values_from_json(
@@ -1789,7 +1787,8 @@ def configure(cfg=None, show=False, force=False, **kwargs):
     if not (sys.stdin.isatty() and sys.stdout.isatty()):
         die("`miniwdl configure` is for interactive use")
 
-    from datetime import datetime
+    from datetime import datetime, timezone
+
     import questionary  # type: ignore
     from xdg import XDG_CONFIG_HOME
 
@@ -1881,7 +1880,7 @@ def configure(cfg=None, show=False, force=False, **kwargs):
             sys.exit(1)
 
         if not options:
-            print("", file=sys.stderr)
+            print(file=sys.stderr)
             logger.warning("All selections match defaults; exiting")
             sys.exit(0)
 
@@ -1894,7 +1893,7 @@ def configure(cfg=None, show=False, force=False, **kwargs):
             os.makedirs(dn, exist_ok=True)
         with open(cfg, "w") as outfile:
             print(
-                f"# miniwdl configure {miniwdl_version or '(version unknown)'} {datetime.utcnow()}Z",
+                f"# miniwdl configure {miniwdl_version or '(version unknown)'} {datetime.now(timezone.utc).replace(tzinfo=None)}Z",
                 file=outfile,
             )
             print(cfg_content, file=outfile)
@@ -1990,8 +1989,8 @@ def fill_eval_subparser(subparsers):
 
 
 def eval_expr(decl, expr, wdl_version="development", check_quant=True, report_type=False, **kwargs):
-    from ._parser import parse_bound_decl, parse_expr
     from . import StdLib
+    from ._parser import parse_bound_decl, parse_expr
 
     # setup
     class _StdLib(StdLib.Base):

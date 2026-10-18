@@ -27,16 +27,18 @@ The ``descend_imports`` flag controls whether lint warnings are generated for im
 recursively (true, default), or otherwise only the given document (false).
 """
 
-import subprocess
-import tempfile
 import json
 import os
 import random
 import shutil
+import subprocess
+import tempfile
 from enum import IntEnum
-from typing import Any, Optional, Union
+from typing import Any, ClassVar
+
 import regex
-from . import Error, Type, Env, Expr, Tree, StdLib, Value, Walker, _util
+
+from . import Env, Error, Expr, StdLib, Tree, Type, Value, Walker, _util
 from ._util import WDLVersion, wdl_version_geq, wdl_version_ord
 
 
@@ -65,7 +67,7 @@ def _find_expr_parent(obj: Expr.Base):
 class Linter(Walker.Base):
     """
     Linters are Walkers which annotate each Tree node with
-        ``lint : List[Tuple[SourceNode,str,str]]``
+        ``lint : list[tuple[SourceNode,str,str]]``
     providing lint warnings with a node (possibly more-specific than the
     node it's attached to), short codename, and message.
 
@@ -77,7 +79,7 @@ class Linter(Walker.Base):
         super().__init__(auto_descend=auto_descend, descend_imports=descend_imports)
 
     def add(
-        self, obj: Error.SourceNode, message: str, pos: Optional[Error.SourcePosition] = None
+        self, obj: Error.SourceNode, message: str, pos: Error.SourcePosition | None = None
     ) -> bool:
         """
         Used by subclasses to attach lint to a node.
@@ -155,7 +157,7 @@ class _Collector(Walker.Base):
         super().__init__(auto_descend=True)
         self.lint = []
 
-    def __call__(self, obj, descend: Optional[bool] = None):
+    def __call__(self, obj, descend: bool | None = None):
         if hasattr(obj, "lint"):
             self.lint.extend(getattr(obj, "lint"))
         super().__call__(obj, descend=descend)
@@ -212,16 +214,12 @@ def _compound_coercion(
         if predicates:
             return predicates(to_type, from_type)
         if not from_type_predicate:
-            from_type_predicate = lambda ty: (
-                not isinstance(  # noqa: E731
-                    ty, (base_to_type, Type.Any)
-                )
-            )
+            from_type_predicate = lambda ty: not isinstance(ty, (base_to_type, Type.Any))
         return from_type_predicate(from_type)
     return False
 
 
-def _parent_executable(obj: Error.SourceNode) -> Optional[Union[Tree.Task, Tree.Workflow]]:
+def _parent_executable(obj: Error.SourceNode) -> Tree.Task | Tree.Workflow | None:
     if isinstance(obj, (Tree.Task, Tree.Workflow)):
         return obj
     if hasattr(obj, "parent_executable"):
@@ -254,7 +252,7 @@ class StringCoercion(Linter):
                 )
             ),
         ):
-            self.add(obj, "{} {} = :{}:".format(str(obj.type), obj.name, str(obj.expr.type)))
+            self.add(obj, f"{obj.type!s} {obj.name} = :{obj.expr.type!s}:")
 
     def expr(self, obj: Expr.Base) -> Any:
         if isinstance(obj, Expr.Apply):
@@ -325,9 +323,7 @@ class StringCoercion(Linter):
                                 )
                             ),
                         ):
-                            msg = "{} argument of {}() = :{}:".format(
-                                str(F_i), F.name, str(arg_i.type)
-                            )
+                            msg = f"{F_i!s} argument of {F.name}() = :{arg_i.type!s}:"
                             self.add(obj, msg, arg_i.pos)
         elif isinstance(obj, Expr.Array):
             # Array literal with mixed item types, one of which is String,
@@ -343,7 +339,7 @@ class StringCoercion(Linter):
                 item_types.append(str(elt.type))
             if any_string and not all_string:
                 msg = "{} literal = [{}]".format(
-                    str(obj.type), ", ".join(":{}:".format(ty) for ty in item_types)
+                    str(obj.type), ", ".join(f":{ty}:" for ty in item_types)
                 )
                 self.add(obj, msg, obj.pos)
 
@@ -351,7 +347,7 @@ class StringCoercion(Linter):
         for name, inp_expr in obj.inputs.items():
             decl = _find_input_decl(obj, name)
             if _compound_coercion(decl.type, inp_expr.type, (Type.String,)):
-                msg = "input {} {} = :{}:".format(str(decl.type), decl.name, str(inp_expr.type))
+                msg = f"input {decl.type!s} {decl.name} = :{inp_expr.type!s}:"
                 self.add(obj, msg, inp_expr.pos)
 
 
@@ -393,7 +389,7 @@ def _source_relative_path_kind(
 
 def _file_coercion_literal_status(
     to_type: Type.Base, expr: Expr.Base, source_dir: str
-) -> Optional[_SourceRelativePathKind]:
+) -> _SourceRelativePathKind | None:
     """
     Classify a single expression leaf that would be coerced to File/Directory.
 
@@ -489,7 +485,7 @@ class FileCoercion(Linter):
         for d in obj.postinputs:
             self(d)
         self(obj.command)
-        for _, ex in obj.runtime.items():
+        for ex in obj.runtime.values():
             self(ex)
 
     # File declaration with String rhs expression
@@ -517,11 +513,9 @@ class FileCoercion(Linter):
                     obj.type, obj.expr, obj.source_dir
                 )
                 if not allowed:
-                    self.add(
-                        obj, "{} {} = :{}:".format(str(obj.type), obj.name, str(obj.expr.type))
-                    )
+                    self.add(obj, f"{obj.type!s} {obj.name} = :{obj.expr.type!s}:")
         elif wdl_1_2 and _file_coercion_decl_suspicious(obj.type, obj.expr, obj.source_dir):
-            self.add(obj, "{} {} = :{}:".format(str(obj.type), obj.name, str(obj.expr.type)))
+            self.add(obj, f"{obj.type!s} {obj.name} = :{obj.expr.type!s}:")
 
     def expr(self, obj: Expr.Base) -> Any:
         super().expr(obj)
@@ -533,7 +527,7 @@ class FileCoercion(Linter):
                     F_i = F.argument_types[i]
                     arg_i = obj.arguments[i]
                     if _compound_coercion(F_i, arg_i.type, (Type.File, Type.Directory)):
-                        msg = "{} argument of {}() = :{}:".format(str(F_i), F.name, str(arg_i.type))
+                        msg = f"{F_i!s} argument of {F.name}() = :{arg_i.type!s}:"
                         self.add(obj, msg, arg_i.pos)
             elif obj.function_name == "size":
                 arg0ty = obj.arguments[0].type
@@ -542,9 +536,7 @@ class FileCoercion(Linter):
                 ):
                     self.add(
                         obj,
-                        "File?/Array[File?] argument of size() = :{}:".format(
-                            str(obj.arguments[0].type)
-                        ),
+                        f"File?/Array[File?] argument of size() = :{obj.arguments[0].type!s}:",
                         obj.arguments[0].pos,
                     )
 
@@ -553,7 +545,7 @@ class FileCoercion(Linter):
         for name, inp_expr in obj.inputs.items():
             decl = _find_input_decl(obj, name)
             if _compound_coercion(decl.type, inp_expr.type, (Type.File, Type.Directory)):
-                msg = "input {} {} = :{}:".format(str(decl.type), decl.name, str(inp_expr.type))
+                msg = f"input {decl.type!s} {decl.name} = :{inp_expr.type!s}:"
                 self.add(obj, msg, inp_expr.pos)
 
 
@@ -577,7 +569,7 @@ class ArrayCoercion(Linter):
     # implicit promotion of T to Array[T]
     def decl(self, obj: Tree.Decl) -> Any:
         if obj.expr and _is_array_coercion(obj.type, obj.expr.type):
-            msg = "{} {} = :{}:".format(str(obj.type), obj.name, str(obj.expr.type))
+            msg = f"{obj.type!s} {obj.name} = :{obj.expr.type!s}:"
             self.add(obj, msg)
 
     def expr(self, obj: Expr.Base) -> Any:
@@ -588,14 +580,14 @@ class ArrayCoercion(Linter):
                     F_i = F.argument_types[i]
                     arg_i = obj.arguments[i]
                     if _is_array_coercion(F_i, arg_i.type):
-                        msg = "{} argument of {}() = :{}:".format(str(F_i), F.name, str(arg_i.type))
+                        msg = f"{F_i!s} argument of {F.name}() = :{arg_i.type!s}:"
                         self.add(obj, msg, arg_i.pos)
 
     def call(self, obj: Tree.Call) -> Any:
         for name, inp_expr in obj.inputs.items():
             decl = _find_input_decl(obj, name)
             if _is_array_coercion(decl.type, inp_expr.type):
-                msg = "input {} {} = :{}:".format(str(decl.type), decl.name, str(inp_expr.type))
+                msg = f"input {decl.type!s} {decl.name} = :{inp_expr.type!s}:"
                 self.add(obj, msg, inp_expr.pos)
 
 
@@ -615,9 +607,7 @@ class UnverifiedStruct(Linter):
         ):
             self.add(
                 obj,
-                "{} {} = :{}: -- struct initializer isn't statically verified".format(
-                    str(obj.type), obj.name, str(obj.expr.type)
-                ),
+                f"{obj.type!s} {obj.name} = :{obj.expr.type!s}: -- struct initializer isn't statically verified",
             )
 
     def call(self, obj: Tree.Call) -> Any:
@@ -632,9 +622,7 @@ class UnverifiedStruct(Linter):
                     or (isinstance(from_type, Type.Map) and from_type.literal_keys is None)
                 ),
             ):
-                msg = "input {} {} = :{}: -- struct initializer isn't statically verified".format(
-                    str(decl.type), decl.name, str(inp_expr.type)
-                )
+                msg = f"input {decl.type!s} {decl.name} = :{inp_expr.type!s}: -- struct initializer isn't statically verified"
                 self.add(obj, msg, inp_expr.pos)
 
 
@@ -647,10 +635,9 @@ class NonStringKeyMapJSON(Linter):
         "Maps with non-String keys are not JSON-serializable per WDL spec (miniwdl may allow)"
     )
 
-    def _map_with_non_string_key(self, ty: Type.Base) -> Optional[Type.Map]:
-        if isinstance(ty, Type.Map):
-            if ty.item_type[0] != Type.String():
-                return ty
+    def _map_with_non_string_key(self, ty: Type.Base) -> Type.Map | None:
+        if isinstance(ty, Type.Map) and ty.item_type[0] != Type.String():
+            return ty
         for p in ty.parameters:
             ans = self._map_with_non_string_key(p)
             if ans:
@@ -711,9 +698,7 @@ class OptionalCoercion(Linter):
                 if arg0ty.optional or arg1ty.optional:
                     self.add(
                         obj,
-                        "infix operator has :{}: and :{}: operands".format(
-                            str(arg0ty), str(arg1ty)
-                        ),
+                        f"infix operator has :{arg0ty!s}: and :{arg1ty!s}: operands",
                         obj.pos,
                     )
             else:
@@ -727,9 +712,7 @@ class OptionalCoercion(Linter):
                         if not arg_i.type.coerces(F_i, check_quant=True) and not _is_array_coercion(
                             F_i, arg_i.type
                         ):
-                            msg = "{} argument of {}() = :{}:".format(
-                                str(F.argument_types[i]), F.name, str(obj.arguments[i].type)
-                            )
+                            msg = f"{F.argument_types[i]!s} argument of {F.name}() = :{obj.arguments[i].type!s}:"
                             self.add(obj, msg, obj.arguments[i].pos)
 
     def decl(self, obj: Tree.Decl) -> Any:
@@ -738,7 +721,7 @@ class OptionalCoercion(Linter):
             and not obj.expr.type.coerces(obj.type, check_quant=True)
             and not _is_array_coercion(obj.type, obj.expr.type)
         ):
-            self.add(obj, "{} {} = :{}:".format(str(obj.type), obj.name, str(obj.expr.type)))
+            self.add(obj, f"{obj.type!s} {obj.name} = :{obj.expr.type!s}:")
 
     def call(self, obj: Tree.Call) -> Any:
         for name, inp_expr in obj.inputs.items():
@@ -748,7 +731,7 @@ class OptionalCoercion(Linter):
             if not inp_expr.type.coerces(decltype, check_quant=True) and not _is_array_coercion(
                 decltype, inp_expr.type
             ):
-                msg = "input {} {} = :{}:".format(str(decl.type), decl.name, str(inp_expr.type))
+                msg = f"input {decl.type!s} {decl.name} = :{inp_expr.type!s}:"
                 self.add(obj, msg, inp_expr.pos)
 
 
@@ -773,9 +756,7 @@ class NonemptyCoercion(Linter):
                     F_i = F.argument_types[i]
                     arg_i = obj.arguments[i]
                     if _is_nonempty_coercion(F_i, arg_i.type):
-                        msg = "{} argument of {}() = :{}:".format(
-                            str(F.argument_types[i]), F.name, str(obj.arguments[i].type)
-                        )
+                        msg = f"{F.argument_types[i]!s} argument of {F.name}() = :{obj.arguments[i].type!s}:"
                         self.add(obj, msg, obj.arguments[i].pos)
 
     def decl(self, obj: Tree.Decl) -> Any:
@@ -788,13 +769,13 @@ class NonemptyCoercion(Linter):
                 and obj.expr.function_name in ["glob", "read_lines", "read_tsv", "read_array"]
             )
         ):
-            self.add(obj, "{} {} = :{}:".format(str(obj.type), obj.name, str(obj.expr.type)))
+            self.add(obj, f"{obj.type!s} {obj.name} = :{obj.expr.type!s}:")
 
     def call(self, obj: Tree.Call) -> Any:
         for name, inp_expr in obj.inputs.items():
             decl = _find_input_decl(obj, name)
             if _is_nonempty_coercion(decl.type, inp_expr.type):
-                msg = "input {} {} = :{}:".format(str(decl.type), decl.name, str(inp_expr.type))
+                msg = f"input {decl.type!s} {decl.name} = :{inp_expr.type!s}:"
                 self.add(obj, msg, inp_expr.pos)
 
 
@@ -803,10 +784,9 @@ class IncompleteCall(Linter):
     # Call without all required inputs (allowed for top-level workflow)
     def call(self, obj: Tree.Call) -> Any:
         assert obj.callee is not None
-        required_inputs = set(decl.name for decl in obj.callee.required_inputs)
-        for name, _ in obj.inputs.items():
-            if name in required_inputs:
-                required_inputs.remove(name)
+        required_inputs = {decl.name for decl in obj.callee.required_inputs}
+        for name in obj.inputs:
+            required_inputs.discard(name)
         if required_inputs:
             msg = "required input(s) omitted in call to {} ({})".format(
                 obj.callee.name, ", ".join(required_inputs)
@@ -837,7 +817,7 @@ class NameCollision(Linter):
         doc = _find_doc(obj)
         for imp in doc.imports:
             if imp.namespace == obj.name:
-                msg = "call name '{}' collides with imported document namespace".format(obj.name)
+                msg = f"call name '{obj.name}' collides with imported document namespace"
                 self.add(obj, msg)
         for stb in doc.struct_typedefs:
             assert isinstance(stb, Env.Binding) and isinstance(stb.value, Tree.StructTypeDef)
@@ -852,16 +832,14 @@ class NameCollision(Linter):
         assert isinstance(doc, Tree.Document)
         for imp in doc.imports:
             if imp.namespace == obj.name:
-                msg = "declaration of '{}' collides with imported document namespace".format(
-                    obj.name
-                )
+                msg = f"declaration of '{obj.name}' collides with imported document namespace"
                 self.add(obj, msg)
         if doc.workflow and doc.workflow.name == obj.name:
-            msg = "declaration of '{}' collides with workflow name".format(obj.name)
+            msg = f"declaration of '{obj.name}' collides with workflow name"
             self.add(obj, msg)
         for task in doc.tasks:
             if obj.name == task.name:
-                msg = "declaration of '{}' collides with a task name".format(obj.name)
+                msg = f"declaration of '{obj.name}' collides with a task name"
                 self.add(obj, msg)
         for stb in doc.struct_typedefs:
             assert isinstance(stb, Env.Binding) and isinstance(stb.value, Tree.StructTypeDef)
@@ -875,16 +853,14 @@ class NameCollision(Linter):
         doc = _find_doc(obj)
         for imp in doc.imports:
             if imp.namespace == obj.variable:
-                msg = "scatter variable '{}' collides with imported document namespace".format(
-                    obj.variable
-                )
+                msg = f"scatter variable '{obj.variable}' collides with imported document namespace"
                 self.add(obj, msg)
         if doc.workflow and doc.workflow.name == obj.variable:
-            msg = "scatter variable '{}' collides with workflow name".format(obj.variable)
+            msg = f"scatter variable '{obj.variable}' collides with workflow name"
             self.add(obj, msg)
         for task in doc.tasks:
             if obj.variable == task.name:
-                msg = "scatter variable '{}' collides with a task name".format(obj.variable)
+                msg = f"scatter variable '{obj.variable}' collides with a task name"
                 self.add(obj, msg)
         for stb in doc.struct_typedefs:
             assert isinstance(stb, Env.Binding) and isinstance(stb.value, Tree.StructTypeDef)
@@ -898,9 +874,7 @@ class NameCollision(Linter):
         doc = _find_doc(obj)
         for imp in doc.imports:
             if imp.namespace == obj.name:
-                msg = "workflow name '{}' collides with imported document namespace".format(
-                    obj.name
-                )
+                msg = f"workflow name '{obj.name}' collides with imported document namespace"
                 self.add(obj, msg)
         for stb in doc.struct_typedefs:
             assert isinstance(stb, Env.Binding) and isinstance(stb.value, Tree.StructTypeDef)
@@ -914,7 +888,7 @@ class NameCollision(Linter):
         doc = _find_doc(obj)
         for imp in doc.imports:
             if imp.namespace == obj.name:
-                msg = "task name '{}' collides with imported document namespace".format(obj.name)
+                msg = f"task name '{obj.name}' collides with imported document namespace"
                 self.add(obj, msg)
         for stb in doc.struct_typedefs:
             assert isinstance(stb, Env.Binding) and isinstance(stb.value, Tree.StructTypeDef)
@@ -980,9 +954,9 @@ class ForwardReference(Linter):
                 and referee.pos.column > obj.pos.column  # type: ignore
             ):
                 if isinstance(referee, Tree.Decl):
-                    msg = "reference to {} precedes its declaration".format(obj.name)
+                    msg = f"reference to {obj.name} precedes its declaration"
                 elif isinstance(referee, Tree.Call):
-                    msg = "reference to output {} precedes the call".format(obj.name)
+                    msg = f"reference to output {obj.name} precedes the call"
                 else:
                     assert False
                 self.add(obj, msg, obj.pos)
@@ -1036,7 +1010,7 @@ class UnusedDeclaration(Linter):
                 )
                 or self._used_as_command_env_var(obj)
             ):
-                self.add(obj, "nothing references {} {}".format(str(obj.type), obj.name))
+                self.add(obj, f"nothing references {obj.type!s} {obj.name}")
 
     def _used_as_command_env_var(self, decl: Tree.Decl) -> bool:
         # Task input declarations with the "env" modifier are intended to be
@@ -1052,9 +1026,8 @@ class UnusedDeclaration(Linter):
             return False
         pat = regex.compile(r"\$\{?" + decl.name + r"([^0-9A-Za-z_]|$)")
         for part in task.command.parts:
-            if isinstance(part, str):
-                if pat.search(part):
-                    return True
+            if isinstance(part, str) and pat.search(part):
+                return True
         return False
 
 
@@ -1125,7 +1098,7 @@ class CommandShellCheck(Linter):
     #   SC2193 The arguments to this comparison can never be equal
     # which can be triggered by dummy values we substitute to write the script
     # also SC1009 and SC1072 are non-informative commentary
-    _suppressions = [1009, 1072, 1083, 2043, 2050, 2157, 2193]
+    _suppressions: ClassVar[list[int]] = [1009, 1072, 1083, 2043, 2050, 2157, 2193]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -1138,7 +1111,6 @@ class CommandShellCheck(Linter):
         shutil.rmtree(self._tmpdir, ignore_errors=True)
 
     def task(self, obj: Tree.Task) -> Any:
-        global _shellcheck_available
         if not _shellcheck_available:
             return
 
@@ -1185,11 +1157,11 @@ class CommandShellCheck(Linter):
                 )
 
         if shellcheck_items:
-            env_decls = set(
+            env_decls = {
                 decl.name
                 for decl in ((obj.inputs or []) + obj.postinputs)
                 if decl.decor.get("env", False)
-            )
+            }
             try:
                 shellcheck_items = json.loads(shellcheck_items)
                 assert isinstance(shellcheck_items, list)
@@ -1292,33 +1264,31 @@ class UnknownRuntimeKey(Linter):
     # https://github.com/dnanexus/dxWDL/blob/master/doc/ExpertOptions.md
     # https://cromwell.readthedocs.io/en/develop/backends/TES/
     # https://aws.github.io/amazon-genomics-cli/docs/workflow-engines/cromwell/#aws-batch-retries
-    known_keys = set(
-        [
-            "awsBatchRetryAttempts",
-            "bootDiskSizeGb",
-            "container",
-            "continueOnReturnCode",
-            "cpu",
-            "cpuPlatform",
-            "disk",
-            "disks",
-            "docker",
-            "dockerWorkingDir",
-            "dx_instance_type",
-            "gpu",
-            "gpuCount",
-            "gpuType",
-            "inlineDockerfile",
-            "maxRetries",
-            "memory",
-            "noAddress",
-            "preemptible",
-            "queueArn",
-            "returnCodes",
-            "time",
-            "zones",
-        ]
-    )
+    known_keys: ClassVar[set[str]] = {
+        "awsBatchRetryAttempts",
+        "bootDiskSizeGb",
+        "container",
+        "continueOnReturnCode",
+        "cpu",
+        "cpuPlatform",
+        "disk",
+        "disks",
+        "docker",
+        "dockerWorkingDir",
+        "dx_instance_type",
+        "gpu",
+        "gpuCount",
+        "gpuType",
+        "inlineDockerfile",
+        "maxRetries",
+        "memory",
+        "noAddress",
+        "preemptible",
+        "queueArn",
+        "returnCodes",
+        "time",
+        "zones",
+    }
 
     def task(self, obj: Tree.Task) -> Any:
         known_keys = self.known_keys
@@ -1331,7 +1301,7 @@ class UnknownRuntimeKey(Linter):
 
 @a_linter
 class UnexpectedRuntimeValue(Linter):
-    expected = {
+    expected: ClassVar[dict[str, tuple[type[Type.Base], ...]]] = {
         "cpu": (Type.Int, Type.Float, Type.String),
         "memory": (Type.Int, Type.String),
         "docker": (Type.String, Type.Array),
@@ -1350,7 +1320,7 @@ class UnexpectedRuntimeValue(Linter):
         if "cpu" in obj.runtime and isinstance(obj.runtime["cpu"].type, Type.String):
             # for historical reasons, allow strings that are int literals, or a single placeholder
             # for an int value
-            cpu: Optional[Expr.Base] = obj.runtime["cpu"]
+            cpu: Expr.Base | None = obj.runtime["cpu"]
             if isinstance(cpu, Expr.String) and len(cpu.parts) == 3:
                 cpu_part = cpu.parts[1]
                 if (isinstance(cpu_part, str) and cpu_part.isdigit()) or (
@@ -1408,17 +1378,16 @@ class MissingVersion(Linter):
 class UnboundDeclaration(Linter):
     # Unbound declaration outside of input{} section in WDL 1.0+
     def decl(self, obj: Tree.Decl) -> Any:
-        if not obj.expr:
-            if _find_doc(obj).effective_wdl_version != "draft-2":
-                exe = obj
-                while not isinstance(exe, (Tree.Task, Tree.Workflow)):
-                    exe = getattr(exe, "parent")
-                assert isinstance(exe, (Tree.Task, Tree.Workflow))
-                if obj not in (exe.inputs or []):
-                    self.add(
-                        obj,
-                        f"{obj.type} {obj.name} should either be in the input section or bound to an expression",
-                    )
+        if not obj.expr and _find_doc(obj).effective_wdl_version != "draft-2":
+            exe = obj
+            while not isinstance(exe, (Tree.Task, Tree.Workflow)):
+                exe = getattr(exe, "parent")
+            assert isinstance(exe, (Tree.Task, Tree.Workflow))
+            if obj not in (exe.inputs or []):
+                self.add(
+                    obj,
+                    f"{obj.type} {obj.name} should either be in the input section or bound to an expression",
+                )
 
 
 @a_linter
