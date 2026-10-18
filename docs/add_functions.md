@@ -29,7 +29,7 @@ class Base:
 
 Given a list of the arguments' WDL data types (`WDL.Type.Base`) and the return type, the `static()` helper decorates a function which takes the argument values (`WDL.Value.Base`) and returns the result value. Miniwdl uses the declared data types to handle type-checking wherever the function is used. The function itself receives the integer argument in a {py:mod}`WDL.Value <WDL.Value>` "box," and similarly boxes its return value.
 
-Notice that we include not only the WDL type signature, but also [PEP 484 type hints](https://www.python.org/dev/peps/pep-0484/) for the Python functions. The miniwdl codebase uses such type hints throughout, checked using [pyre](https://pyre-check.org/), which you can try with `make check` in the repository directory. When you send a pull request upstream, miniwdl's continuous integration will require pyre's approval.
+Notice that we include not only the WDL type signature, but also [PEP 484 type hints](https://peps.python.org/pep-0484/) for the Python functions. The miniwdl codebase uses such type hints throughout, checked using [pyre](https://pyre-check.org/), which you can try with `make check` in the repository directory. When you send a pull request upstream, miniwdl's continuous integration will require pyre's approval.
 
 **You can find the complete git diff for this and the following examples on the [codelab-stdlib-functions](https://github.com/chanzuckerberg/miniwdl/pull/318/files) branch.**
 

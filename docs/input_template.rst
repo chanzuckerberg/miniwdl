@@ -15,6 +15,8 @@ Currently, the template includes only the WDL's required inputs (not the optiona
 Command line
 ------------
 
+.. highlight:: text
+
 .. argparse::
    :module: WDL.CLI
    :func: create_arg_parser

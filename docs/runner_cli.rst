@@ -1,6 +1,8 @@
 ``miniwdl run`` command line
 ============================
 
+.. highlight:: text
+
 .. argparse::
    :module: WDL.CLI
    :func: create_arg_parser

@@ -15,6 +15,8 @@ Use ``--additional``/``--add`` to include other files, directories, or glob patt
 Command line
 ------------
 
+.. highlight:: text
+
 .. argparse::
    :module: WDL.CLI
    :func: create_arg_parser

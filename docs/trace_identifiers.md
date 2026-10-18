@@ -123,7 +123,7 @@ L18 Array[Int] x defined on L15
 
 Or on a real workflow:
 
-```
+```console
 $ wget https://raw.githubusercontent.com/gatk-workflows/gatk4-germline-snps-indels/master/joint-discovery-gatk4-local.wdl
 $ python3 trace_identifiers.py joint-discovery-gatk4-local.wdl
 L103 Array[File] input_gvcfs defined on L48

@@ -99,6 +99,8 @@ Then try ``pre-commit run --all-files`` or install git hooks according to its pr
 Command line
 ------------
 
+.. highlight:: text
+
 .. argparse::
    :module: WDL.CLI
    :func: create_arg_parser

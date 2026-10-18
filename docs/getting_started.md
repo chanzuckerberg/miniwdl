@@ -13,8 +13,8 @@ Requirements:
 
 1. GNU/Linux or [macOS (specific steps required)](https://github.com/chanzuckerberg/miniwdl/issues/145)
 2. Python 3.10 or higher
-3. [Docker Engine](https://docs.docker.com/install/) 17 or higher (if unable, see [alternate container runtimes](runner_backends.md))
-4. Unix user must have [permission to control Docker](https://docs.docker.com/install/linux/linux-postinstall/#manage-docker-as-a-non-root-user)
+3. [Docker Engine](https://docs.docker.com/engine/install/) 17 or higher (if unable, see [alternate container runtimes](runner_backends.md))
+4. Unix user must have [permission to control Docker](https://docs.docker.com/engine/install/linux-postinstall/#manage-docker-as-a-non-root-user)
 
 
 Installation options:
@@ -25,7 +25,7 @@ Installation options:
 
 Then open a command prompt and try,
 
-```
+```bash
 miniwdl run_self_test
 ```
 
@@ -35,7 +35,7 @@ miniwdl run_self_test
 
 For this exercise we'll use the [Broad Institute's viral sequencing pipeline](https://github.com/broadinstitute/viral-pipelines/), which includes a small EBOV dataset for testing. Start by fetching a copy:
 
-```
+```bash
 wget -nv -O - https://github.com/broadinstitute/viral-pipelines/archive/v2.1.0.2.tar.gz | tar zx
 cd viral-pipelines-*
 ```
@@ -44,7 +44,7 @@ cd viral-pipelines-*
 
 First we can use miniwdl to preview the inputs and outputs of the [reference-based assembly workflow](https://github.com/broadinstitute/viral-pipelines/blob/master/pipes/WDL/workflows/assemble_refbased.wdl):
 
-```
+```console
 $ miniwdl run pipes/WDL/workflows/assemble_refbased.wdl
 
 missing required inputs for assemble_refbased: reads_unmapped_bams, reference_fasta
@@ -68,7 +68,7 @@ outputs:
 
 To invoke the workflow, miniwdl can accept the inputs as command-line arguments in most cases. Here we'll start it on the test reads and EBOV reference genome included in the repository:
 
-```
+```console
 $ miniwdl run pipes/WDL/workflows/assemble_refbased.wdl   \
     reads_unmapped_bams=test/input/G5012.3.testreads.bam  \
     reference_fasta=test/input/ebov-makona.fasta          \
@@ -89,7 +89,7 @@ By default, `miniwdl run` creates a new subdirectory of the current working dire
 
 The standard output from `miniwdl run` provides the subdirectory along with JSON describing the workflow outputs, for example (abbreviated):
 
-```
+```text
 {
   "outputs": {
     "assemble_refbased.assembly_length": 18865,
@@ -105,7 +105,7 @@ The standard output from `miniwdl run` provides the subdirectory along with JSON
 
 This is also stored in `outputs.json` in the subdirectory. For your convenience, miniwdl furthermore generates a symbolic link `_LAST` pointing to the timestamped subdirectory for the most recent run, and an `out` directory tree containing symbolic links to the output files.
 
-```
+```console
 $ tree _LAST/out/
 _LAST/out/
 ├── align_to_ref_merged_aligned_trimmed_only_bam

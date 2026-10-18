@@ -31,7 +31,7 @@ The top-level run directory also contains:
 
 When miniwdl creates a new timestamp-named subdirectory for a run, it also creates a symbolic link `_LAST` to it in the same parent directory. (For convenience referring to the most recent run; should not be relied upon if multiple runs can start concurrently.)
 
-The miniwdl source repository includes several [example scripts](https://github.com/chanzuckerberg/miniwdl/blob/main/examples) illustrating how the structures described here can inform production automation (e.g. retrieving error messages, uploading output files).
+The miniwdl source repository includes several [example scripts](https://github.com/chanzuckerberg/miniwdl/tree/main/examples) illustrating how the structures described here can inform production automation (e.g. retrieving error messages, uploading output files).
 
 ## Task requirements attributes
 
@@ -55,10 +55,10 @@ Instead of local paths for File and Directory inputs, miniwdl can accept URIs an
 
 * `http:`, `https:`, and `ftp:` downloads for Files
 * Amazon S3 `s3:` URIs for both File and Directory inputs
-  * On an EC2 instance, the downloader attempts to assume an [attached IAM role](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/iam-roles-for-amazon-ec2.html) by contacting the [instance metadata service](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/iam-roles-for-amazon-ec2.html#instance-metadata-security-credentials)
+  * On an EC2 instance, the downloader attempts to assume an [attached IAM role](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/iam-roles-for-amazon-ec2.html) by contacting the [instance metadata service](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/instance-metadata-security-credentials.html)
   * Outside EC2, to use AWS credentials from the invoking session, set the configuration option `[download_awscli] host_credentials = true` or environment `MINIWDL__DOWNLOAD_AWSCLI__HOST_CREDENTIALS=true` (requires [boto3](https://aws.amazon.com/sdk-for-python/) package installed if not already)
 * Google Cloud Storage `gs:` URIs for both File and Directory inputs
-  * On a GCE instance, the downloader attempts to use the [associated service account](https://cloud.google.com/compute/docs/access/create-enable-service-accounts-for-instances) by contacting the [instance metadata service](https://cloud.google.com/compute/docs/storing-retrieving-metadata)
+  * On a GCE instance, the downloader attempts to use the [associated service account](https://docs.cloud.google.com/compute/docs/access/create-enable-service-accounts-for-instances) by contacting the [instance metadata service](https://docs.cloud.google.com/compute/docs/metadata/overview)
 
 ## Configuration
 
@@ -79,7 +79,7 @@ Upon starting, miniwdl looks for a custom configuration file in the following lo
 1. File named by `--cfg` command-line argument
 2. File named by `MINIWDL_CFG` environment variable
 3. `XDG_CONFIG_HOME/miniwdl.cfg` (usually `~/.config/miniwdl.cfg`)
-4. `miniwdl.cfg` in [XDG_CONFIG_DIRS](https://specifications.freedesktop.org/basedir-spec/latest/) (usually `/etc/xdg/miniwdl.cfg`)
+4. `miniwdl.cfg` in [XDG_CONFIG_DIRS](https://specifications.freedesktop.org/basedir/latest/) (usually `/etc/xdg/miniwdl.cfg`)
 
 Miniwdl loads *only the first file found* in this priority order, and merges its options into the defaults; so the file needs only contain selected sections & options to override. For example, the following overrides the default docker image (used when a task doesn't specify `docker`/`container`), leaving other defaults in place:
 
@@ -96,7 +96,7 @@ EOF
 
 Environment variables following the convention `MINIWDL__SECTION__KEY=VALUE` override individual cfg file and default options. Note the variable name is all-uppercase and delimited with *double* underscores (as section and key names may contain underscores). Reusing the previous example, the default docker image may be changed by setting in the environment:
 
-```
+```bash
 MINIWDL__TASK_RUNTIME__DEFAULTS='{"docker":"ubuntu:24.04"}'
 ```
 
@@ -142,7 +142,7 @@ Details:
 * The cache is **keyed by URI**: a cached File or Directory is used if previously stored for the same URI. This doesn't depend on which task/workflow is running, and doesn't use timestamps or digests. Therefore, the cache should only be used with immutable remote content, or if there's no need for immediate coherence with remote changes.
 * URIs can be excluded from caching using the "pattern" options, in which case they'll be downloaded under the current run directory. Typically, write the patterns to **include reusable reference data while excluding any run-specific inputs** that might be supplied as URIs.
 * Cached content that's no longer needed can simply be **deleted from the cache directory**, once no longer in use by a running workflow.
-* Miniwdl doesn't delete anything from the cache, but to support an **external cleanup process**, it updates the access timestamp (atime) and opens a shared `flock()` on any cached File or Directory it's using. The script [examples/clean_download_cache.sh](https://github.com/chanzuckerberg/miniwdl/blob/main/examples/clean_download_cache.sh) illustrates a process to shrink the cache to a desired maximum size, by evicting the least-recently used content that can be exclusively flocked (the latter condition needed only if the cleaner must run alongside concurrent workflows).
+* Miniwdl doesn't delete anything from the cache, but to support an **external cleanup process**, it updates the access timestamp (atime) and opens a shared `flock()` on any cached File or Directory it's using. The script [examples/clean_download_cache.sh](https://github.com/chanzuckerberg/miniwdl/tree/main/examples/clean_download_cache.sh) illustrates a process to shrink the cache to a desired maximum size, by evicting the least-recently used content that can be exclusively flocked (the latter condition needed only if the cleaner must run alongside concurrent workflows).
 * If needed, the `miniwdl localize` subcommand can **"prime" the local cache** with URIs found in a given JSON input template (or a simple list of URIs) before actually running any workflow.
 * With the cache enabled in configuration, `--no-cache` disables it for one run.
 

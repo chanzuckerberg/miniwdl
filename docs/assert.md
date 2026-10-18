@@ -59,7 +59,7 @@ assertion: "assert" expr
 
 Reusing the existing `expr` production. Then we can let the statement appear in the body of a task, alongside any of its "non-input" declarations.
 
-```
+```text
 task: "task" CNAME "{" task_section* command task_section* "}"
 ?task_section: input_decls
              | output_decls
@@ -133,7 +133,7 @@ By this point the subroutine has already sorted the declarations in order of the
 
 Now we can add to our `TestAssert` class a new case checking that the assertion causes the task to fail:
 
-```
+```python3
 class TestAssert(RunnerTestCase):
     ...
     def test_negative(self):
@@ -144,7 +144,7 @@ class TestAssert(RunnerTestCase):
 
 Finally we can enable exceptions in workflows as well as tasks. Add our `assertion` production to the grammar for workflow bodies (and scatter/if section bodies):
 
-```
+```text
 workflow: "workflow" CNAME "{" workflow_element* "}"
 ?workflow_element: input_decls | any_decl | call | scatter | conditional | workflow_outputs | meta_section | assertion
 
@@ -171,7 +171,7 @@ class StateMachine:
 
 And add tests,
 
-```
+```python3
 class TestAssert(RunnerTestCase):
     ...
     wf1 = R"""

@@ -2,6 +2,8 @@
 Minimal Pygments lexer for WDL code blocks in the docs (Pygments doesn't ship one)
 """
 
+from typing import ClassVar
+
 from pygments.lexer import RegexLexer, bygroups, include, words
 from pygments.token import (
     Comment,
@@ -18,10 +20,10 @@ from pygments.token import (
 
 class WDLLexer(RegexLexer):
     name = "WDL"
-    aliases = ["wdl"]
-    filenames = ["*.wdl"]
+    aliases: ClassVar = ["wdl"]
+    filenames: ClassVar = ["*.wdl"]
 
-    tokens = {
+    tokens: ClassVar = {
         "root": [
             (r"\s+", Whitespace),
             (r"#.*$", Comment.Single),
@@ -96,7 +98,7 @@ class WDLLexer(RegexLexer):
         ],
         "dqs": [
             include("placeholder"),
-            (r'\\.', String.Escape),
+            (r"\\.", String.Escape),
             (r'"', String.Double, "#pop"),
             (r'[^"\\~$]+|[~$]', String.Double),
         ],

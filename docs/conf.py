@@ -40,11 +40,14 @@ myst_heading_anchors = 3
 myst_enable_extensions = ["colon_fence", "deflist"]
 
 autodoc_member_order = "bysource"
+autodoc_typehints = "description"
+toc_object_entries_show_parents = "hide"
 
 intersphinx_mapping = {"python": ("https://docs.python.org/3", None)}
 
 graphviz_output_format = "svg"
-inheritance_graph_attrs = {"rankdir": "LR", "fontsize": 11, "ratio": "compress"}
+# white background so that the diagrams remain legible in dark mode
+inheritance_graph_attrs = {"rankdir": "LR", "size": '""', "bgcolor": "white", "pad": 0.2}
 inheritance_node_attrs = {"fontsize": 11, "shape": "box", "style": "rounded"}
 
 # -- HTML output -------------------------------------------------------------
@@ -53,6 +56,7 @@ html_theme = "furo"
 html_title = "miniwdl"
 html_logo = "miniwdl-logo.png"
 html_theme_options = {
+    "sidebar_hide_name": True,
     "source_repository": "https://github.com/chanzuckerberg/miniwdl/",
     "source_branch": "main",
     "source_directory": "docs/",
