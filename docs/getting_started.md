@@ -82,7 +82,7 @@ The workflow should finish in just a few minutes.
 * A space may be included after a `=` and before an input value, allowing shell filename autocompletion on the latter.
 * Array inputs can be supplied on the command-line by repeating, e.g. `array_input1=/path/to/file1 array_input1=/path/to/file2` translates to `{"array_input1": ["/path/to/file1", "/path/to/file2"]}`
 * Strings with spaces can be supplied by quoting the whole pair, `"name=Wid L. Hacker"`
-* For other cases or to separate inputs from the invocation, you can supply a [Cromwell-style JSON](https://support.terra.bio/hc/en-us/articles/360037120252) file with `--input inputs.json`. Relative `File`/`Directory` paths within an input file resolve relative to the directory containing that file; input JSON supplied inline or on standard input has no containing file, so its relative paths resolve relative to the working directory.
+* For other cases or to separate inputs from the invocation, you can supply a [Cromwell-style JSON](https://support.terra.bio/hc/en-us/articles/360037120252) file with `--input inputs.json`. Relative `File`/`Directory` paths within an input file resolve first relative to the directory containing that file; if a path isn't found there but exists relative to the working directory, it's resolved relative to the working directory with a deprecation warning, so prefer paths relative to the input file (or absolute). Input JSON supplied inline or on standard input has no containing file, so its relative paths resolve relative to the working directory.
 
 ## Inspect results
 

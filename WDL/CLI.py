@@ -1310,23 +1310,34 @@ def validate_input_path(path, directory, downloadable, root, base_dir=None):
     2. resides within root
     3. contains no symlinks pointing outside or to absolute paths
 
-    A relative path is resolved against base_dir, if supplied, instead of the process
-    working directory.
+    A relative path is resolved against base_dir, if supplied, in preference to the
+    process working directory. If not found under base_dir but the path exists relative
+    to the working directory, the latter is used with a deprecation warning (legacy
+    behavior); the not-found error below then names the base_dir-resolved path.
     """
     if downloadable and downloadable(path, directory):
         return path
 
     if base_dir and not os.path.isabs(path):
+        logger = logging.getLogger("miniwdl-run")
         rebased_path = os.path.join(base_dir, path)
-        if not os.path.exists(rebased_path) and os.path.exists(path):
-            # the path exists relative to the process working directory, but not
-            # relative to the input file it came from -- flag the likely confusion
-            raise Error.InputError(
-                f"{path} not found relative to the input file's directory {base_dir} "
-                "(relative paths in an input file resolve against that file's directory, "
-                "not the working directory)"
+        if os.path.exists(rebased_path):
+            if os.path.exists(path) and os.path.realpath(rebased_path) != os.path.realpath(path):
+                logger.warning(
+                    f"{path} exists relative to both the input file's directory {base_dir} "
+                    "and the working directory; using the former"
+                )
+            path = rebased_path
+        elif os.path.exists(path):
+            # deprecated fallback: resolve relative to the process working directory,
+            # as prior to input-file-relative resolution
+            logger.warning(
+                f"{path} resolved relative to the working directory, not the input file's "
+                f"directory {base_dir}; this fallback is deprecated, since relative paths "
+                "in an input file should be relative to that file (or absolute)"
             )
-        path = rebased_path
+        else:
+            path = rebased_path
 
     if not ((directory and os.path.isdir(path)) or (not directory and os.path.isfile(path))):
         raise Error.InputError(("Directory" if directory else "File") + " not found: " + path)

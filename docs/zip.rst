@@ -10,7 +10,7 @@
 
 Optionally, you can also include a JSON file with default workflow inputs. Any command-line arguments provided at runtime would be merged into (override) these defaults. The ZIP file will include a MANIFEST.json identifying the top-level WDL and inputs JSON, if present.
 
-Relative paths in the embedded default inputs JSON resolve against the directory where the ZIP is unpacked for the run, so bundle any referenced data files into the ZIP with ``--add``, or use absolute paths for data that stays outside the archive.
+Relative paths in the embedded default inputs JSON first resolve against the directory where the ZIP is unpacked for the run, so data bundled into the ZIP with ``--add`` is found wherever the archive runs. Relative paths to data outside the archive still resolve against the working directory as a deprecated fallback (with a warning), e.g. when running the archive from the original project directory; prefer bundling such data with ``--add``, or use absolute paths for it.
 
 Use ``--additional``/``--add`` to include other files, directories, or glob
 patterns; they'll be stored in the ZIP at the same relative location to the WDL source files. Importantly, be sure to add any files/directories needed for WDL 1.2+ source-relative inputs.
