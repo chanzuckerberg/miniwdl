@@ -829,7 +829,7 @@ def runner(
                 from_rundir = exn_rundir
                 exn = exn.__cause__
             if isinstance(exn, runtime.CommandFailed):
-                exit_status = (lambda v: v if v else exit_status)(getattr(exn, "exit_status", 0))
+                exit_status = getattr(exn, "exit_status", 0) or exit_status
                 if not (kwargs["verbose"] or kwargs["debug"]):
                     logger.notice(
                         "run with --verbose to include task standard error streams in this log"
