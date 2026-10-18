@@ -1,12 +1,5 @@
-.. miniwdl documentation master file, created by
-   sphinx-quickstart on Tue Sep  4 15:20:37 2018.
-   You can adapt this file completely to your liking, but it should at least
-   contain the root `toctree` directive.
-
 Python ``WDL`` package
 ======================
-
-.. contents::
 
 .. automodule:: WDL
    :members:
@@ -54,7 +47,7 @@ Lint
 .. automodule:: WDL.Lint
 
 Zip
-----
+---
 .. automodule:: WDL.Zip
    :members:
 
@@ -63,16 +56,18 @@ runtime
 .. automodule:: WDL.runtime
    :members:
 
+runtime.config
+^^^^^^^^^^^^^^
 .. automodule:: WDL.runtime.config
    :members:
 
 Python codelabs
-===============
+---------------
 
-.. toctree::
-   :maxdepth: 2
+These tutorials introduce common ways to use and extend the ``WDL`` package:
 
-   trace_identifiers.md
-   wdlviz.md
-   add_functions.md
-   assert.md
+* :doc:`trace_identifiers`: basic syntax tree traversal
+* :doc:`wdlviz`: generating graphviz diagrams from WDL source code
+* :doc:`add_functions`: adding new functions to the standard library
+* :doc:`assert`: adding a new WDL language feature, with parsing, type-checking, and runtime
+  execution
