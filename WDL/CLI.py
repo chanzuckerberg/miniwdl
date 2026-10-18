@@ -1145,10 +1145,8 @@ def runner_input_json_file(available_inputs, namespace, input_file, downloadable
             read_result = asyncio.run(make_read_source(False)(input_file, [], None))
             input_json = read_result.source_text
             if not read_result.abspath.startswith(("http:", "https:")):
-                # inputs from a local JSON/YAML file: the WDL spec suggests resolving any
-                # relative File & Directory inputs relative to the directory containing
-                # that file (instead of the process working directory, which remains the
-                # basis for inline and stdin JSON)
+                # resolve relative paths in a local input file against its directory, as the
+                # WDL spec suggests (inline & stdin JSON still use the working directory)
                 input_dir = os.path.dirname(read_result.abspath)
         input_json = YAML(typ="safe", pure=True).load(input_json)
         if not isinstance(input_json, dict):
@@ -1172,9 +1170,7 @@ def runner_input_json_file(available_inputs, namespace, input_file, downloadable
                 ambiguous_paths,
             ),
         )
-        # summarize the resolutions collected by validate_input_path with at most one
-        # warning per kind for this input file, instead of one warning per path (the
-        # collectors stay empty unless inputs came from a local file; see input_dir)
+        # warn once per input file rather than per path (lists stay empty without input_dir)
         logger = logging.getLogger("miniwdl-run")
         if fallback_paths:
             logger.warning(
@@ -1338,14 +1334,12 @@ def validate_input_path(
     2. resides within root
     3. contains no symlinks pointing outside or to absolute paths
 
-    A relative path is resolved against base_dir, if supplied, in preference to the
-    process working directory. If not found under base_dir but the path exists relative
-    to the working directory, the latter is used (legacy behavior, deprecated); if the
-    path is found under base_dir while also existing relative to the working directory
-    (a different file), the base_dir one is used. Either case is noted for a warning:
-    appended to fallback_paths / ambiguous_paths, respectively, if those lists are
-    supplied (so the caller can summarize them), or logged individually right away.
-    The not-found error below names the base_dir-resolved path.
+    A relative path resolves against base_dir, if given, with these special cases:
+    - exists only relative to the working directory: use that (deprecated fallback)
+    - exists relative to both, as different files: use the base_dir one
+    - exists in neither: the not-found error names the base_dir path
+    The first two cases are appended to fallback_paths / ambiguous_paths if supplied, for
+    the caller to summarize; otherwise each is logged as a warning.
     """
     if downloadable and downloadable(path, directory):
         return path
@@ -1364,8 +1358,7 @@ def validate_input_path(
                     )
             path = rebased_path
         elif os.path.exists(path):
-            # deprecated fallback: resolve relative to the process working directory,
-            # as prior to input-file-relative resolution
+            # deprecated fallback to the old behavior: resolve against the working directory
             if fallback_paths is not None:
                 fallback_paths.append(path)
             else:

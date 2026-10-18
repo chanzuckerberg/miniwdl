@@ -1515,10 +1515,8 @@ class TestDirectoryIO(RunnerTestCase):
         assert "file_io.root" in str(ctx.exception)
 
     def test_input_json_file_relative_path_cwd_fallback(self):
-        # deprecated fallback: a relative input that exists relative to the process
-        # working directory, but NOT relative to the input file's directory, resolves
-        # to the working-directory file; the deprecation warning is consolidated into
-        # a single record per input file, with a count and an example path
+        # found only relative to the working directory: resolve there (deprecated
+        # fallback), with one consolidated warning giving a count and example path
         target = self._input_json_fixture()
         os.makedirs(os.path.join(self._dir, "cwd", "data"))
         with open(os.path.join(self._dir, "cwd", "data", "only_cwd.txt"), mode="w") as outfile:
@@ -1554,9 +1552,7 @@ class TestDirectoryIO(RunnerTestCase):
         )
 
     def test_input_json_file_relative_path_cwd_fallback_consolidated(self):
-        # several relative inputs falling back to the working directory in one input
-        # file produce exactly ONE consolidated deprecation warning for the file,
-        # stating the count and example paths, rather than one warning per path
+        # several fallbacks in one input file: exactly one warning, with count & examples
         target = self._input_json_fixture()
         os.makedirs(os.path.join(self._dir, "cwd", "data"))
         fns = ["c1.txt", "c2.txt", "c3.txt"]
@@ -1592,9 +1588,8 @@ class TestDirectoryIO(RunnerTestCase):
         ]
 
     def test_input_json_file_relative_path_both_exist(self):
-        # a relative input existing relative to BOTH the input file's directory and
-        # the working directory (different files) resolves to the former; the warning
-        # is consolidated into a single record per input file
+        # different files relative to both the input file and the working directory:
+        # the input file's directory wins, with one consolidated warning
         target = self._input_json_fixture()
         os.makedirs(os.path.join(self._dir, "cwd", "data"))
         with open(os.path.join(self._dir, "cwd", "data", "plain.txt"), mode="w") as outfile:
