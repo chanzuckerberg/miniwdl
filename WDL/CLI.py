@@ -1158,12 +1158,38 @@ def runner_input_json_file(available_inputs, namespace, input_file, downloadable
         except Error.InputError as exn:
             raise Error.InputError("check JSON input; " + str(exn))
 
+        fallback_paths = []
+        ambiguous_paths = []
         ans = Value.rewrite_env_paths(
             ans,
             lambda v: validate_input_path(
-                v.value, isinstance(v, Value.Directory), downloadable, root, input_dir
+                v.value,
+                isinstance(v, Value.Directory),
+                downloadable,
+                root,
+                input_dir,
+                fallback_paths,
+                ambiguous_paths,
             ),
         )
+        # summarize the resolutions collected by validate_input_path with at most one
+        # warning per kind for this input file, instead of one warning per path (the
+        # collectors stay empty unless inputs came from a local file; see input_dir)
+        logger = logging.getLogger("miniwdl-run")
+        if fallback_paths:
+            logger.warning(
+                f"{len(fallback_paths)} relative paths in {input_file} resolved relative to "
+                f"the working directory rather than that file's directory {input_dir} "
+                f"(e.g. {', '.join(fallback_paths[:2])}); this fallback is deprecated, "
+                "since relative paths in an input file should be relative to that file "
+                "(or absolute)"
+            )
+        if ambiguous_paths:
+            logger.warning(
+                f"{len(ambiguous_paths)} relative paths in {input_file} exist relative to "
+                f"both that file's directory {input_dir} and the working directory; using "
+                f"the former (e.g. {', '.join(ambiguous_paths[:2])})"
+            )
 
     return ans
 
@@ -1303,7 +1329,9 @@ def runner_input_value(s_value, ty, downloadable, root):
     )
 
 
-def validate_input_path(path, directory, downloadable, root, base_dir=None):
+def validate_input_path(
+    path, directory, downloadable, root, base_dir=None, fallback_paths=None, ambiguous_paths=None
+):
     """
     If the path is downloadable, return it back. Otherwise, return the absolute path after checking
     1. exists and is a file or directory (according to directory: bool)
@@ -1312,8 +1340,12 @@ def validate_input_path(path, directory, downloadable, root, base_dir=None):
 
     A relative path is resolved against base_dir, if supplied, in preference to the
     process working directory. If not found under base_dir but the path exists relative
-    to the working directory, the latter is used with a deprecation warning (legacy
-    behavior); the not-found error below then names the base_dir-resolved path.
+    to the working directory, the latter is used (legacy behavior, deprecated); if the
+    path is found under base_dir while also existing relative to the working directory
+    (a different file), the base_dir one is used. Either case is noted for a warning:
+    appended to fallback_paths / ambiguous_paths, respectively, if those lists are
+    supplied (so the caller can summarize them), or logged individually right away.
+    The not-found error below names the base_dir-resolved path.
     """
     if downloadable and downloadable(path, directory):
         return path
@@ -1323,19 +1355,25 @@ def validate_input_path(path, directory, downloadable, root, base_dir=None):
         rebased_path = os.path.join(base_dir, path)
         if os.path.exists(rebased_path):
             if os.path.exists(path) and os.path.realpath(rebased_path) != os.path.realpath(path):
-                logger.warning(
-                    f"{path} exists relative to both the input file's directory {base_dir} "
-                    "and the working directory; using the former"
-                )
+                if ambiguous_paths is not None:
+                    ambiguous_paths.append(path)
+                else:
+                    logger.warning(
+                        f"{path} exists relative to both the input file's directory {base_dir} "
+                        "and the working directory; using the former"
+                    )
             path = rebased_path
         elif os.path.exists(path):
             # deprecated fallback: resolve relative to the process working directory,
             # as prior to input-file-relative resolution
-            logger.warning(
-                f"{path} resolved relative to the working directory, not the input file's "
-                f"directory {base_dir}; this fallback is deprecated, since relative paths "
-                "in an input file should be relative to that file (or absolute)"
-            )
+            if fallback_paths is not None:
+                fallback_paths.append(path)
+            else:
+                logger.warning(
+                    f"{path} resolved relative to the working directory, not the input file's "
+                    f"directory {base_dir}; this fallback is deprecated, since relative paths "
+                    "in an input file should be relative to that file (or absolute)"
+                )
         else:
             path = rebased_path
 

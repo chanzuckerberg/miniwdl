@@ -1517,7 +1517,8 @@ class TestDirectoryIO(RunnerTestCase):
     def test_input_json_file_relative_path_cwd_fallback(self):
         # deprecated fallback: a relative input that exists relative to the process
         # working directory, but NOT relative to the input file's directory, resolves
-        # to the working-directory file with a deprecation warning
+        # to the working-directory file; the deprecation warning is consolidated into
+        # a single record per input file, with a count and an example path
         target = self._input_json_fixture()
         os.makedirs(os.path.join(self._dir, "cwd", "data"))
         with open(os.path.join(self._dir, "cwd", "data", "only_cwd.txt"), mode="w") as outfile:
@@ -1538,10 +1539,13 @@ class TestDirectoryIO(RunnerTestCase):
                 )
         finally:
             os.chdir(old_cwd)
-        assert any(
-            "resolved relative to the working directory" in line and "deprecated" in line
-            for line in logs.output
-        )
+        assert len(logs.records) == 1
+        msg = logs.records[0].getMessage()
+        assert "1 relative paths in" in msg
+        assert os.path.join(self._dir, "inputs", "fallback.json") in msg
+        assert "resolved relative to the working directory" in msg
+        assert "data/only_cwd.txt" in msg
+        assert "deprecated" in msg
         got = {b.name: b.value for b in env}
         # (realpath: the resolved path derives from the process working directory,
         # which may differ textually from self._dir through symlinks, e.g. macOS /var)
@@ -1549,9 +1553,48 @@ class TestDirectoryIO(RunnerTestCase):
             os.path.join(self._dir, "cwd", "data", "only_cwd.txt")
         )
 
+    def test_input_json_file_relative_path_cwd_fallback_consolidated(self):
+        # several relative inputs falling back to the working directory in one input
+        # file produce exactly ONE consolidated deprecation warning for the file,
+        # stating the count and example paths, rather than one warning per path
+        target = self._input_json_fixture()
+        os.makedirs(os.path.join(self._dir, "cwd", "data"))
+        fns = ["c1.txt", "c2.txt", "c3.txt"]
+        for fn in fns:
+            with open(os.path.join(self._dir, "cwd", "data", fn), mode="w") as outfile:
+                print(fn, file=outfile)
+        with open(os.path.join(self._dir, "inputs", "multi.json"), mode="w") as outfile:
+            json.dump({"w.arr": ["data/" + fn for fn in fns]}, outfile)
+
+        old_cwd = os.getcwd()
+        try:
+            os.chdir(os.path.join(self._dir, "cwd"))
+            with self.assertLogs("miniwdl-run", level="WARNING") as logs:
+                env = WDL.CLI.runner_input_json_file(
+                    target.available_inputs,
+                    target.name,
+                    os.path.join(self._dir, "inputs", "multi.json"),
+                    None,
+                    "/",
+                )
+        finally:
+            os.chdir(old_cwd)
+        assert len(logs.records) == 1
+        msg = logs.records[0].getMessage()
+        assert "3 relative paths in" in msg
+        assert "data/c1.txt" in msg and "data/c2.txt" in msg
+        assert "deprecated" in msg
+        got = {b.name: b.value for b in env}
+        # (realpath: the resolved paths derive from the process working directory,
+        # which may differ textually from self._dir through symlinks, e.g. macOS /var)
+        assert [os.path.realpath(v.value) for v in got["arr"].value] == [
+            os.path.realpath(os.path.join(self._dir, "cwd", "data", fn)) for fn in fns
+        ]
+
     def test_input_json_file_relative_path_both_exist(self):
         # a relative input existing relative to BOTH the input file's directory and
-        # the working directory (different files) resolves to the former, with a warning
+        # the working directory (different files) resolves to the former; the warning
+        # is consolidated into a single record per input file
         target = self._input_json_fixture()
         os.makedirs(os.path.join(self._dir, "cwd", "data"))
         with open(os.path.join(self._dir, "cwd", "data", "plain.txt"), mode="w") as outfile:
@@ -1572,7 +1615,13 @@ class TestDirectoryIO(RunnerTestCase):
                 )
         finally:
             os.chdir(old_cwd)
-        assert any("exists relative to both" in line for line in logs.output)
+        assert len(logs.records) == 1
+        msg = logs.records[0].getMessage()
+        assert "1 relative paths in" in msg
+        assert os.path.join(self._dir, "inputs", "both.json") in msg
+        assert "exist relative to both" in msg
+        assert "using the former" in msg
+        assert "data/plain.txt" in msg
         got = {b.name: b.value for b in env}
         assert got["plain"].value == os.path.join(self._dir, "inputs", "data", "plain.txt")
 
