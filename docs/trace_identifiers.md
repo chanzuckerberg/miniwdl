@@ -78,7 +78,7 @@ if __name__ == "__main__":
     main(sys.argv[1:])
 ```
 
-At last, we may reach individual identifier expressions ([`WDL.Expr.Ident`](https://miniwdl.readthedocs.io/en/latest/WDL.html#WDL.Expr.Ident)), which miniwdl decorates with the referred-to object ("referee") and data type. Here we check if the data type, represented as an object deriving from `WDL.Type.Base`, is an array; and if so, we can also get its parametric `item_type`. Each AST node exposes a `pos` with the original source code position (`line`, `column`, `end_line` and `end_column`), which we use to report the identifier and referee line numbers.
+At last, we may reach individual identifier expressions ({py:obj}`WDL.Expr.Ident <WDL.Expr.Ident>`), which miniwdl decorates with the referred-to object ("referee") and data type. Here we check if the data type, represented as an object deriving from `WDL.Type.Base`, is an array; and if so, we can also get its parametric `item_type`. Each AST node exposes a `pos` with the original source code position (`line`, `column`, `end_line` and `end_column`), which we use to report the identifier and referee line numbers.
 
 The referee object might be any of the following:
 
@@ -87,7 +87,7 @@ The referee object might be any of the following:
 3. `Scatter` for use of a scatter variable
 4. `Gather` for reference to a value defined inside a `scatter`/`if` section
 
-The last case [`Gather`](https://miniwdl.readthedocs.io/en/latest/WDL.html#WDL.Tree.Gather) is a concept miniwdl synthesizes to model WDL's implicit special meaning of a value inside a `scatter`/`if` section, when seen from outside of that section. For example, an `Int` value in a `scatter` section is an `Array[Int]` elsewhere. Hence, a tricky detail: the identifier's `obj.type` may differ from that of the original value or call output.
+The last case {py:obj}`Gather <WDL.Tree.Gather>` is a concept miniwdl synthesizes to model WDL's implicit special meaning of a value inside a `scatter`/`if` section, when seen from outside of that section. For example, an `Int` value in a `scatter` section is an `Array[Int]` elsewhere. Hence, a tricky detail: the identifier's `obj.type` may differ from that of the original value or call output.
 
 **Try it out**
 

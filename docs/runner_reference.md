@@ -14,7 +14,7 @@ For tasks, the run directory also contains:
 * `write_/` with any files written during the evaluation of WDL expressions (e.g. `write_lines()`)
 * `download/` with any files downloaded from URIs in task inputs
 * `work/` the working directory mounted into the task container, where the command leaves its output files
-* `stdout.txt` and `stderr.txt` from the task command, streamed as it runs.
+* `stdout.txt` and `stderr.txt` from the task command, streamed as it runs
 * `out/` if the task succeeded, symbolic links to the individual output files, organized in a directory tree reflecting the WDL output declarations
 
 For workflows,
@@ -37,7 +37,7 @@ The miniwdl source repository includes several [example scripts](https://github.
 
 The default local scheduler observes these task `requirements {}` attributes (formerly `runtime {}` prior to WDL 1.2):
 
-* `docker`/`container` (String): docker image tag used to instantiate container; if omitted, a default image is specified in the miniwdl configuration option `[task_runtime] defaults` (currently `ubuntu:22.04`)
+* `docker`/`container` (String): Docker image tag used to instantiate the container; if omitted, a default image is specified in the miniwdl configuration option `[task_runtime] defaults` (currently `ubuntu:22.04`)
 * `cpu` (Int): container reserves, and is throttled to, this many CPUs
   * Automatically rounds down to all host CPUs, if fewer
   * Multiple tasks can run concurrently on the local host, if CPUs and memory are available to meet their total reservations, and the workflow dependencies allow
@@ -46,7 +46,7 @@ The default local scheduler observes these task `requirements {}` attributes (fo
   * The memory reservation informs scheduling, but isn't an enforced limit unless the configuration option `[task_runtime] memory_limit_multiplier` is set
 * `max_retries`/`maxRetries` (Int): retry failing tasks up to this many additional attempts (after the first). In WDL 1.2+, `max_retries` is preferred and `maxRetries` is an alias; older WDL code uses `maxRetries`.
 * `return_codes`/`returnCodes` (Int/Array[Int]/`"*"`): consider the given non-zero exit code(s) to indicate command success. In WDL 1.2+, `return_codes` is preferred and `returnCodes` is an alias; older WDL code uses `returnCodes`.
-* `docker_network` (String): name of a docker network to which to attach container, e.g. "host"; the network name must also appear in the configuration option `[docker_swarm] allow_networks` JSON list.
+* `docker_network` (String): name of a Docker network to which to attach the container, e.g. "host"; the network name must also appear in the configuration option `[docker_swarm] allow_networks` JSON list.
 * `privileged` (Boolean): if true, *and* configuration option `[task_runtime] allow_privileged = true`, then run task containers with privileged capabilities. (Not recommended, for security & portability reasons.)
 
 ## File & Directory URI downloads
@@ -64,13 +64,13 @@ Instead of local paths for File and Directory inputs, miniwdl can accept URIs an
 
 The miniwdl runner's configuration loader sources from command-line options, environment variables, and a configuration file, in that priority order.
 
-**default.cfg**
+### default.cfg
 
 The available configuration options are exemplified in [`default.cfg`](https://github.com/chanzuckerberg/miniwdl/blob/main/WDL/runtime/config_templates/default.cfg), which follows the format of [Python's configparser module](https://docs.python.org/3/library/configparser.html#quick-start), organized into `[SECTION]` headings with `KEY = VALUE` entries in each section. Some values take the form of a JSON object or array, which may span multiple lines with indentation.
 
 Miniwdl loads these defaults from the locally installed copy of that file.
 
-**Custom configuration files**
+### Custom configuration files
 
 First step: `miniwdl configure` interactively drafts a configuration file with common options in the default location. Subsequently, running this command will display the effective configuration.
 
@@ -79,25 +79,25 @@ Upon starting, miniwdl looks for a custom configuration file in the following lo
 1. File named by `--cfg` command-line argument
 2. File named by `MINIWDL_CFG` environment variable
 3. `XDG_CONFIG_HOME/miniwdl.cfg` (usually `~/.config/miniwdl.cfg`)
-4. `miniwdl.cfg` in [XDG_CONFIG_DIRS](https://specifications.freedesktop.org/basedir-spec/basedir-spec-latest.html) (usually `/etc/xdg/.config/miniwdl.cfg`)
+4. `miniwdl.cfg` in [XDG_CONFIG_DIRS](https://specifications.freedesktop.org/basedir-spec/latest/) (usually `/etc/xdg/miniwdl.cfg`)
 
-Miniwdl loads *only the first file found* in this priority order, and merges its options into the defaults; so the file needs only contain selected sections & options to override. For example, the following overrides the default docker image (used when a task doesn't specify `runtime.docker`), leaving other defaults in place:
+Miniwdl loads *only the first file found* in this priority order, and merges its options into the defaults; so the file needs only contain selected sections & options to override. For example, the following overrides the default docker image (used when a task doesn't specify `docker`/`container`), leaving other defaults in place:
 
-```
+```bash
 $ cat << 'EOF' > ~/.config/miniwdl.cfg
 [task_runtime]
 defaults = {
-        "docker": "ubuntu:20.10"
+        "docker": "ubuntu:24.04"
     }
 EOF
 ```
 
-**Environment and command line**
+### Environment and command line
 
 Environment variables following the convention `MINIWDL__SECTION__KEY=VALUE` override individual cfg file and default options. Note the variable name is all-uppercase and delimited with *double* underscores (as section and key names may contain underscores). Reusing the previous example, the default docker image may be changed by setting in the environment:
 
 ```
-MINIWDL__TASK_RUNTIME__DEFAULTS='{"docker":"ubuntu:20.10"}'
+MINIWDL__TASK_RUNTIME__DEFAULTS='{"docker":"ubuntu:24.04"}'
 ```
 
 Any option can thus be set/changed temporarily without a configuration file.
@@ -106,9 +106,9 @@ Any option can thus be set/changed temporarily without a configuration file.
 
 ### Call cache
 
-Miniwdl can cache task & workflow outputs, reusing them for repeat calls with the same inputs, for example while debugging an intermediate task or sub-workflow, or resuming from a transient error. This functionality must be enabled in the configuration; the relevant options are listed in the [`default.cfg`](https://github.com/chanzuckerberg/miniwdl/blob/main/WDL/runtime/config_templates/default.cfg) template, ``[call_cache]`` section. A minimal configuration might include:
+Miniwdl can cache task & workflow outputs, reusing them for repeat calls with the same inputs, for example while debugging an intermediate task or sub-workflow, or resuming from a transient error. This functionality must be enabled in the configuration; the relevant options are listed in the [`default.cfg`](https://github.com/chanzuckerberg/miniwdl/blob/main/WDL/runtime/config_templates/default.cfg) template, `[call_cache]` section. A minimal configuration might include:
 
-```
+```ini
 [call_cache]
 put = true
 get = true
@@ -128,9 +128,9 @@ Details:
 
 By default, downloaded URI inputs are used only for the current run, stored under the run directory. Miniwdl can also store downloads in a central directory, where subsequent runs (even of different tasks and workflows) can reference them by URI without downloading them again. This permits efficient use of WDL input templates referring to public databases by URI (e.g. reference genomes, sequence databases, interval lists), without having to rewrite them with local, non-portable paths.
 
-The download cache must be enabled in the configuration; the relevant options are listed in the [`default.cfg`](https://github.com/chanzuckerberg/miniwdl/blob/main/WDL/runtime/config_templates/default.cfg) template, ``[download_cache]`` section. A minimal configuration might include:
+The download cache must be enabled in the configuration; the relevant options are listed in the [`default.cfg`](https://github.com/chanzuckerberg/miniwdl/blob/main/WDL/runtime/config_templates/default.cfg) template, `[download_cache]` section. A minimal configuration might include:
 
-```
+```ini
 [download_cache]
 put = true
 get = true
@@ -148,21 +148,21 @@ Details:
 
 ### Advanced options
 
-Please review [`default.cfg`](https://github.com/chanzuckerberg/miniwdl/blob/main/WDL/runtime/config_templates/default.cfg) for numerous advanced configuration options, which can be set as described above.
+Review [`default.cfg`](https://github.com/chanzuckerberg/miniwdl/blob/main/WDL/runtime/config_templates/default.cfg) for numerous advanced configuration options, which can be set as described above.
 
 ## Using NVIDIA GPU
 
-While `miniwdl` itself ignores GPU directives in a task’s  `requirements`/`runtime` block, most scenarios with a local NVIDIA GPU will work with these steps:
+While `miniwdl` itself ignores GPU directives in a task's `requirements`/`runtime` section, most scenarios with a local NVIDIA GPU will work with these steps:
 
 1. Install the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html)
 2. Edit `/etc/docker/daemon.json` to add the top-level key `"default-runtime":"nvidia"`
 3. Restart Docker, e.g. `systemctl restart docker`
 
-**Limitations**
+Limitations:
 
 * The host then uses the NVIDIA runtime for all containers, which could (but doesn't usually) cause a conflict for certain Docker images.
 * The GPU isn't considered for task scheduling, so intensive workloads may need GPU task parallelism constrained by *either*:
-  * Reserving most of the host’s `cpu` or `memory` in each GPU-using task’s `requirements`/`runtime`.
+  * Reserving most of the host's `cpu` or `memory` in each GPU-using task's `requirements`/`runtime`.
   * Setting the configuration `[scheduler] task_concurrency = 1` (affecting all tasks, GPU-using or not).
 
 ## WDL interoperability
@@ -171,10 +171,10 @@ The runner supports versions 1.2, 1.1, 1.0, and draft-2 of the [WDL specificatio
 
 * `Object` type is unsupported except for initializing WDL 1.0+ `struct` types, which should be used instead.
   * The `read_object()` and `read_objects()` library functions are available *only* for initializing structs and `Map[String,String]`
-* Task may only *output* files created within/beneath its container's initial working directory, not e.g. under `/tmp` ([#214](https://github.com/chanzuckerberg/miniwdl/issues/214))
-* The following task runtime/requirements values are ignored: `disks` `fpga` `gpu` (but see GPU section above)
+* A task may only *output* files created within/beneath its container's initial working directory, not e.g. under `/tmp` ([#214](https://github.com/chanzuckerberg/miniwdl/issues/214))
+* The following task `requirements`/`runtime` values are ignored: `disks`, `fpga`, `gpu` (but see the [GPU section](#using-nvidia-gpu) above)
 * WDL 1.2 task/workflow `hints` sections are parsed but ignored, including `allow_nested_inputs`
 
 Please [file an issue](https://github.com/chanzuckerberg/miniwdl/issues?q=is%3Aopen+is%3Aissue+label%3Ainterop) for any other incompatibilities observed.
 
-Additionally, miniwdl's `version development` strives to implement [features and changes pending](https://github.com/openwdl/wdl/pulls?q=is%3Apr+is%3Aclosed) for the next specification release (best-effort & potentially unstable).
+Additionally, miniwdl's `version development` strives to implement [features and changes pending](https://github.com/openwdl/wdl/pulls) for the next specification release (best-effort & potentially unstable).

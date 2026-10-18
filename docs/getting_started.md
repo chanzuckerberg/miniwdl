@@ -1,13 +1,11 @@
 # Getting Started
 
-<img src="https://raw.githubusercontent.com/chanzuckerberg/miniwdl/main/docs/miniwdl-logo.png" width="200"  />
-
 [miniwdl](https://github.com/chanzuckerberg/miniwdl/) is a local runner and developer toolkit for
-the bioinformatics-focused [Workflow Description Language (WDL)](http://openwdl.org/).  In this tutorial, we'll install miniwdl and use its runner to assemble an Ebola virus (EBOV) genome from short sequencing reads.  
+the bioinformatics-focused [Workflow Description Language (WDL)](https://openwdl.org/). In this tutorial, we'll install miniwdl and use its runner to assemble an Ebola virus (EBOV) genome from short sequencing reads.
 
-TIP: If you are new to working with WDL workflow language, you may want to review the open source 'learn-wdl' course' - [link](https://github.com/openwdl/learn-wdl).    
-
-Also there is an embedded short course 'learn-miniwdl' which includes screencasts reviewing the tutorial on this page in more detail - [link](https://github.com/openwdl/learn-wdl/tree/master/6_miniwdl_course)
+:::{tip}
+If you're new to WDL, you may want to review the open-source [learn-wdl course](https://github.com/openwdl/learn-wdl). It also includes a short [learn-miniwdl course](https://github.com/openwdl/learn-wdl/tree/master/6_miniwdl_course) with screencasts reviewing this tutorial in more detail.
+:::
 
 ## Install miniwdl
 
@@ -15,26 +13,27 @@ Requirements:
 
 1. GNU/Linux or [macOS (specific steps required)](https://github.com/chanzuckerberg/miniwdl/issues/145)
 2. Python 3.10 or higher
-3. [Docker Engine](https://docs.docker.com/install/) 17 or higher (if unable, see [alternate container runtimes](https://miniwdl.readthedocs.io/en/latest/runner_backends.html))
+3. [Docker Engine](https://docs.docker.com/install/) 17 or higher (if unable, see [alternate container runtimes](runner_backends.md))
 4. Unix user must have [permission to control Docker](https://docs.docker.com/install/linux/linux-postinstall/#manage-docker-as-a-non-root-user)
 
 
 Installation options:
 
 * via PyPI: `pip3 install miniwdl`
-* via conda: [setup conda-forge](https://conda-forge.org/docs/user/introduction/#how-can-i-install-packages-from-conda-forge) and run `conda install miniwdl`
-- Verify your miniwdl installation: `miniwdl run_self_test`
+* via conda: [set up conda-forge](https://conda-forge.org/docs/user/introduction/#how-can-i-install-packages-from-conda-forge) and run `conda install miniwdl`
 * see the [GitHub repo README](https://github.com/chanzuckerberg/miniwdl/) to install from source
 
 Then open a command prompt and try,
 
-```miniwdl run_self_test```
+```
+miniwdl run_self_test
+```
 
 ...to test the installation with a trivial built-in workflow. This should print numerous log messages, and conclude with `miniwdl run_self_test OK` in about 30 seconds.
 
 ## Fetch viral-pipelines
 
-For this exercise we'll use the [Broad Institute's viral sequencing pipeline](https://github.com/broadinstitute/viral-pipelines/), which includes a small EBOV dataset for testing. Start by fetching a copy,
+For this exercise we'll use the [Broad Institute's viral sequencing pipeline](https://github.com/broadinstitute/viral-pipelines/), which includes a small EBOV dataset for testing. Start by fetching a copy:
 
 ```
 wget -nv -O - https://github.com/broadinstitute/viral-pipelines/archive/v2.1.0.2.tar.gz | tar zx
@@ -78,10 +77,10 @@ $ miniwdl run pipes/WDL/workflows/assemble_refbased.wdl   \
 
 The workflow should finish in just a few minutes.
 
-* Adding ``--verbose`` shows more status detail, including a realtime log of each task's standard error stream (often informative for debugging).
+* Adding `--verbose` shows more status detail, including a realtime log of each task's standard error stream (often informative for debugging).
 * A space may be included after a `=` and before an input value, allowing shell filename autocompletion on the latter.
-* Array inputs can be supplied on the command-line by repeating, e.g. `array_input1=/path/to/file1 array_input1=/path/to/file2` translates to `{"array_input1": ["/path/to/file1", "/path/to/file2"]}`
-* Strings with spaces can be supplied by quoting the whole pair, `"name=Wid L. Hacker"`
+* Array inputs can be supplied on the command-line by repeating, e.g. `array_input1=/path/to/file1 array_input1=/path/to/file2` translates to `{"array_input1": ["/path/to/file1", "/path/to/file2"]}`.
+* Strings with spaces can be supplied by quoting the whole pair, `"name=Wid L. Hacker"`.
 * For other cases or to separate inputs from the invocation, you can supply a [Cromwell-style JSON](https://support.terra.bio/hc/en-us/articles/360037120252) file with `--input inputs.json`.
 
 ## Inspect results
@@ -104,7 +103,7 @@ The standard output from `miniwdl run` provides the subdirectory along with JSON
 }
 ```
 
-This is also stored in `outputs.json` in the subdirectory. For your convenience, miniwdl furthermore generates a symbolic link `_LAST` pointing to the timestamped subdirectory for most recent run; and an `out` directory tree containing symbolic links to the output files.
+This is also stored in `outputs.json` in the subdirectory. For your convenience, miniwdl furthermore generates a symbolic link `_LAST` pointing to the timestamped subdirectory for the most recent run, and an `out` directory tree containing symbolic links to the output files.
 
 ```
 $ tree _LAST/out/
@@ -136,13 +135,13 @@ The `out` links are often more convenient to consume than the JSON, but they onl
 
 ## Next steps
 
-The following pages document features and optimization for `miniwdl run`, including numerous available configuration options. Use `miniwdl configure` to create a configuration file with common options interactively.
+The [following pages](runner_reference.md) document features and optimization for `miniwdl run`, including numerous available configuration options. Use `miniwdl configure` to create a configuration file with common options interactively.
 
-To aid the workflow development cycle, miniwdl also includes a static code quality checker, `miniwdl check`. Lastly, installing miniwdl makes available a Python `WDL` package, providing programmatic access to miniwdl's WDL parser and runtime.
+To aid the workflow development cycle, miniwdl also includes a static code quality checker, [`miniwdl check`](check.rst). Lastly, installing miniwdl makes available a [Python `WDL` package](WDL.rst), providing programmatic access to miniwdl's WDL parser and runtime.
 
-The miniwdl runner schedules WDL tasks in parallel up to the CPUs & memory available on the local host; so a more-powerful host enables larger workloads. Separately-maintained extensions can distribute tasks to cloud & HPC backends:
+The miniwdl runner schedules WDL tasks in parallel up to the CPUs & memory available on the local host, so a more powerful host enables larger workloads. Separately-maintained extensions can distribute tasks to cloud & HPC backends:
 
-* [miniwdl-omics-run](https://github.com/miniwdl-ext/miniwdl-omics-run) tool for the [Amazon Omics](https://aws.amazon.com/omics/) workflow service
+* [miniwdl-omics-run](https://github.com/miniwdl-ext/miniwdl-omics-run) tool for the [AWS HealthOmics](https://aws.amazon.com/healthomics/) workflow service
 * [AWS Batch](https://github.com/miniwdl-ext/miniwdl-aws)
 * [SLURM](https://github.com/miniwdl-ext/miniwdl-slurm)
 
