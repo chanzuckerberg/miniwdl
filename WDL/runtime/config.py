@@ -1,8 +1,14 @@
+"""
+Configuration loader for the miniwdl runtime, merging options from ``default.cfg``, a custom
+configuration file, environment variables, and overrides. See
+`Configuration <https://miniwdl.readthedocs.io/en/latest/runner_reference.html#configuration>`_
+for an overview.
+"""
+
 # Portions copied from AirflowConfigParser --
 #  https://github.com/apache/airflow/blob/master/airflow/configuration.py
 # Exposition --
 #  https://medium.com/@tszumowski/delightful-designs-airflows-configuration-parser-1ef1a6b3d03c
-
 
 import configparser
 import json
@@ -20,8 +26,9 @@ _T = TypeVar("_T")
 
 
 class ConfigMissing(Exception):
+    """Raised when a requested configuration section or option isn't present"""
+
     # configparser.No{Option,Section}Error have vague hard-coded error messages
-    pass
 
 
 class Section:
@@ -144,6 +151,7 @@ class Loader:
         """
         Last-priority default settings; typically added by plugins (whose options won't be
         represented in default.cfg).
+
         (DEPRECATED)
         """
         options2: dict[str, dict[str, Any]] = {}

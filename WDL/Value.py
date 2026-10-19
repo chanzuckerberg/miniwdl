@@ -88,7 +88,7 @@ class Base(ABC):
     def expr(self) -> "Expr.Base | None":
         """
         Reference to the WDL expression that generated this value, if it originated
-        from ``WDL.Expr.eval``
+        from :meth:`WDL.Expr.Base.eval`
         """
         return self._expr
 
@@ -110,7 +110,7 @@ class Base(ABC):
         Coerce the value to the desired type and return it. Types should be
         checked statically on ``WDL.Expr.Base`` prior to evaluation.
 
-        :raises: ReferenceError for a null value and non-optional type
+        :raises WDL.Error.InputError: if the value can't be coerced to the desired type
         """
         if isinstance(desired_type, Type.String):
             return String(str(self), self.expr)
@@ -131,8 +131,10 @@ class Base(ABC):
 
     @property
     def json(self) -> Any:
-        """Return a value representation which can be serialized to JSON using ``json.dumps``"""
-        """(str, int, float, list, dict, or null)"""
+        """
+        Return a value representation which can be serialized to JSON using ``json.dumps`` (str,
+        int, float, list, dict, or null)
+        """
         return self.value
 
     @property
@@ -265,6 +267,8 @@ class Array(Base):
 
 
 class Map(Base):
+    """``value`` is a Python ``list`` of (key, value) ``tuple`` pairs of ``WDL.Value.Base``"""
+
     value: list[tuple[Base, Base]]
     type: Type.Map
 
@@ -364,6 +368,8 @@ class Map(Base):
 
 
 class Pair(Base):
+    """``value`` is a Python ``tuple`` of two ``WDL.Value.Base`` instances"""
+
     value: tuple[Base, Base]
     type: Type.Pair
 
@@ -409,7 +415,7 @@ class Pair(Base):
 
 class Null(Base):
     """Represents the missing value which optional inputs may take.
-    ``type`` and ``value`` are both None."""
+    ``value`` is None and ``type`` is ``WDL.Type.Any(null=True)``."""
 
     def __init__(self, expr: "Expr.Base | None" = None) -> None:
         super().__init__(Type.Any(null=True), None, expr)
@@ -445,6 +451,8 @@ class Null(Base):
 
 
 class Struct(Base):
+    """``value`` is a Python ``dict`` mapping member names to ``WDL.Value.Base`` instances"""
+
     value: dict[str, Base]
 
     # records the names of any extraneous keys that were present in the JSON/Map/Object from which
@@ -595,7 +603,7 @@ def from_json(type: Type.Base, value: Any) -> Base:
     Instantiate a WDL value of the specified type from a parsed JSON value (str, int, float, list,
     dict, or null).
 
-    If type is :class:`WDL.Type.Any()`, attempts to infer a WDL type & value from the JSON's
+    If type is :class:`WDL.Type.Any`, attempts to infer a WDL type & value from the JSON's
     intrinsic types. This isn't ideal; for example, Files can't be distinguished from Strings, and
     JSON lists and dicts with heterogeneous item types may give undefined results.
 

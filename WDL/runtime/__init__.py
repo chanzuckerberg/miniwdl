@@ -30,22 +30,24 @@ def run(
     cfg: config.Loader,
     exe: Tree.Task | Tree.Workflow,
     inputs: Env.Bindings[Value.Base],
-    **run_kwargs: dict[str, Any],
+    **run_kwargs: Any,
 ) -> tuple[str, Env.Bindings[Value.Base]]:
     """
-    Run the task or workflow given the inputs environment and configuration, returning the outputs
-    environment. ``inputs`` may be parsed from a JSON dict using :func:`~WDL.values_from_json`,
-    which can also validate them; see example below.
+    Run the task or workflow given the inputs environment and configuration, returning the run
+    directory and the outputs environment. ``inputs`` may be parsed from a JSON dict using
+    :func:`~WDL.values_from_json`, which can also validate them; see example below.
 
     :param run_id: a run identifier used in logs and filenames; defaults to executable name
     :param run_dir: directory under which to create a timestamp-named subdirectory for this run
                     (defaults to current working directory).
                     If the final path component is ``.`` then operate in run_dir directly.
+    :return: ``(run_dir, outputs_env)``
 
     Typical usage:
 
     .. code-block:: python
 
+       import logging
        import WDL
        import WDL.runtime
 

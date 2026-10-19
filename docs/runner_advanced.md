@@ -12,7 +12,7 @@ If your production workload uses many tasks that take only seconds each, conside
 
 Except as needed for workflow orchestration (e.g. scatter arrays), pass large datasets through Files instead of WDL data structures (Arrays, Maps, structs, etc.). Excessively large WDL data structures might bottleneck the workflow, as they're handled within the miniwdl orchestrator process.
 
-Passing large `Array[File]` (more than dozens of files, regardless of their individual sizes) through task inputs can be especially costly, due to overhead localizing and mounting each file into the task's container. Instead, consider `Directory` inputs/outputs (available in the WDL `development` version), or consolidating the files into tar or zip archives to extract inside the task.
+Passing large `Array[File]` (more than dozens of files, regardless of their individual sizes) through task inputs can be especially costly, due to overhead localizing and mounting each file into the task's container. Instead, consider `Directory` inputs/outputs (available in WDL 1.2+), or consolidating the files into tar or zip archives to extract inside the task.
 
 ### Read-only input files
 
@@ -26,13 +26,16 @@ Scratch files (created but never output) should be written somewhere under `$TMP
 
 Output files should be written directly into the initial working directory, which might be on a network file system to facilitate downstream reuse.
 
-### Scale runtime resources to input size
+(scale-runtime-resources-to-input-size)=
+### Scale resource requirements to input size
 
-Miniwdl can schedule multiple task containers on one host concurrently, but only if it has enough CPU and memory resources to fulfill their total requirements (as declared in their runtime sections). If you run a workflow on small inputs (e.g. for testing) but the task runtime sections have hard-coded high CPU and memory requirements, the scheduler tends to serialize them unnecessarily.
+Miniwdl can schedule multiple task containers on one host concurrently, but only if it has enough CPU and memory resources to fulfill their total reservations (as declared in their `requirements` sections, or `runtime` before WDL 1.2). If you run a workflow on small inputs (e.g. for testing) but the tasks have hard-coded high CPU and memory requirements, the scheduler tends to serialize them unnecessarily.
 
-Therefore, consider using WDL expressions to scale the runtime resource reservations to the input sizes:
+Therefore, consider using WDL expressions to scale the resource reservations to the input sizes:
 
 ```wdl
+version 1.2
+
 task res {
   input {
     Array[File]+ input_files
@@ -41,28 +44,28 @@ task res {
     Int memGB = cpu*2
   }
 
-  command {
-    cat "~{write_lines(input_files)}" | xargs -i -P ~{cpu} echo {}
-  }
+  command <<<
+    cat "~{write_lines(input_files)}" | xargs -I{} -P ~{cpu} echo {}
+  >>>
 
-  runtime {
+  requirements {
     cpu: cpu
     memory: "~{memGB}GB"
   }
 }
 ```
 
-WDL's `size()` function to measure `File` size (or total `Array[File]` size) can also be useful here. Placing the expressions among the inputs allows the caller to override the reservations if needed.
+WDL's `size()` function, which measures `File` size (or total `Array[File]` size), can also be useful here. Placing the expressions among the inputs allows the caller to override the reservations if needed.
 
 ### Control multithreading explicitly
 
-With multiple concurrent containers, each one might "see" all of the host processors (for example, using `nproc` or Python `multiprocessing.cpu_count()`) even if its `runtime.cpu` reserved fewer. If the tasks use parallel tools that default their thread/process count to the detected processor count, they might cause an overload. Therefore, tasks should explicitly control their internal multithreading to match their reserved CPU count, as illustrated in the previous example with `xargs -P`.
+With multiple concurrent containers, each one might "see" all of the host processors (for example, using `nproc` or Python `multiprocessing.cpu_count()`) even if it reserved fewer `cpu`. If the tasks use parallel tools that default their thread/process count to the detected processor count, they might cause an overload. Therefore, tasks should explicitly control their internal multithreading to match their reserved CPU count, as illustrated in the previous example with `xargs -P`.
 
 ### bash shell configuration
 
-In any task whose command consists of a non-trivial script, `set -euxo pipefail` at the beginning to configure the bash shell in a way that [usually improves robustness and debuggability](https://vaneyckt.io/posts/safer_bash_scripts_with_set_euxo_pipefail/).
+In any task whose command consists of a non-trivial script, use `set -euxo pipefail` at the beginning to configure the bash shell in a way that [usually improves robustness and debuggability](https://vaneyckt.io/posts/safer_bash_scripts_with_set_euxo_pipefail/).
 
-The record of invocations left by `set -x` goes well with `miniwdl run --verbose`, which includes them in the task log along with timestamps. You can also put arbitrary messages into this log by writing them into standard error, e.g. `>&2 echo "progress report"`
+The record of invocations left by `set -x` goes well with `miniwdl run --verbose`, which includes them in the task log along with timestamps. You can also put arbitrary messages into this log by writing them into standard error, e.g. `>&2 echo "progress report"`.
 
 ### Protect task command templates from script injection
 
@@ -82,13 +85,13 @@ A configuration option `[task_runtime] placeholder_regex` (environment `MINIWDL_
 
 ### Enable call and download caches
 
-Miniwdl can cache task & workflow call outputs and downloaded URIs for reuse across multiple runs, but these features must be enabled in the [runner configuration](runner_reference.html#configuration).
+Miniwdl can cache task & workflow call outputs and downloaded URIs for reuse across multiple runs, but these features must be enabled in the [runner configuration](runner_reference.md#configuration).
 
 ### Use local disks for Docker storage
 
 Docker images and containers should reside on fast local disks, rather than a network file system, to optimize container startup and scratch I/O performance. These typically reside under `/var/lib/docker`, which on a cloud instance would usually be on the network-attached root file system. Suppose your instance has a local scratch disk mounted to `/mnt`. You can [change the Docker storage location](https://linuxconfig.org/how-to-move-docker-s-default-var-lib-docker-to-another-directory-on-ubuntu-debian-linux) using a procedure like this:
 
-```
+```bash
 systemctl stop docker    # or appropriate command to stop dockerd
 mv /var/lib/docker /mnt
 ln -s /mnt/docker /var/lib/docker

@@ -1,87 +1,81 @@
-# FAQ for miniwdl
+# FAQ
 
-<img src="https://raw.githubusercontent.com/chanzuckerberg/miniwdl/main/docs/miniwdl-logo.png" width="200"  />
-
-[miniwdl](https://github.com/chanzuckerberg/miniwdl/) is a local runner and developer toolkit for
-the bioinformatics-focused [Workflow Description Language (WDL)](http://openwdl.org/). 
-
-TIP: If you are new to working with WDL workflow language, you may want to review the open source 'learn-wdl' course' - [link](https://github.com/openwdl/learn-wdl).   
-
-Also there is an embedded short course 'learn-miniwdl' which includes screencasts reviewing the concepts on this page in more detail - [link](https://github.com/openwdl/learn-wdl/tree/master/6_miniwdl_course)
+:::{tip}
+If you're new to WDL, you may want to review the open-source [learn-wdl course](https://github.com/openwdl/learn-wdl). It also includes a short [learn-miniwdl course](https://github.com/openwdl/learn-wdl/tree/master/6_miniwdl_course) with screencasts reviewing the concepts on this page in more detail.
+:::
 
 ## Common Questions
 
-###  Install and verify miniwdl
+### Install and verify miniwdl
 
-- Q: miniwdl won't install (or work) on my machine
-  - Verify installation of Python 3.10+
+- Q: Miniwdl won't install (or work) on my machine
+  - Verify installation of Python 3.10+.
   - Verify installation of Docker.
 
-- Q: miniwdl isn't working on my Mac
+- Q: Miniwdl isn't working on my Mac
   - Verify Docker version (17+) and user permission for Docker.
-  - You'll first need to override the `TMPDIR` environment variable, e.g. `export TMPDIR=/tmp` to allow Docker containers to mount shared working directories. 
+  - You may need to override the `TMPDIR` environment variable, e.g. `export TMPDIR=/tmp` to allow Docker containers to mount shared working directories.
   - Please [file any other issues](https://github.com/chanzuckerberg/miniwdl/issues) that arise!
 
-- Q: the ```miniwdl run``` command won't run my WDL workflow
-  - Verify that each workflow task runs from a Docker container image.
-  - Define the container image in the WDL script (task section(s)).
+- Q: The `miniwdl run` command won't run my WDL workflow
+  - Each task runs in the Docker container image given in its `requirements` section (`runtime` before WDL 1.2), or a [configurable default image](runner_reference.md#task-requirements-attributes) if none is specified.
+  - Verify that the image exists and supplies the tools used in the task command.
 
-- Q: what is the quickest way to verify that miniwdl is properly installed?
-  - Run ```miniwdl --help``` and review the list of possible commands.
+- Q: What is the quickest way to verify that miniwdl is properly installed?
+  - Run `miniwdl --help` and review the list of possible commands.
 
 ---
 
-### Run WDL workflow with the ```miniwdl run``` command
+### Run WDL workflow with the `miniwdl run` command
 
-- Q: what is simplest way to test running a WDL workflow on miniwdl?
-  - Run ```miniwdl run_self_test``` - it includes an example workflow.
-  - Verify this job returns the ```ok``` and ```done``` messages as expected.
+- Q: What is the simplest way to test running a WDL workflow on miniwdl?
+  - Run `miniwdl run_self_test` - it includes an example workflow.
+  - Verify that it concludes with `miniwdl run_self_test OK`.
 
-- Q: how can I run a quick ```hello.wdl``` WDL workflow?
+- Q: How can I run a quick `hello.wdl` WDL workflow?
   - Copy [this file](https://github.com/openwdl/learn-wdl/blob/master/6_miniwdl_course/1_hello.wdl) to your miniwdl development environment.
-  - Run ```miniwdl run hello.wdl```, there are no input parameters used in this quick test.
+  - Run `miniwdl run hello.wdl`; this quick test has no input parameters.
 
-- Q: Where is the job output from miniwdl job?
-  - miniwdl produces workflow, task and job logs as well as task output.  
-  - See the folder\file structure generated for each job run for these files.
+- Q: Where is the output from a miniwdl run?
+  - Miniwdl produces workflow and task logs as well as task outputs.
+  - See the [run directory structure](runner_reference.md#io-and-run-directory-structure) generated for each run.
 
-- Q: What does ```miniwdl run myfile.wdl``` do?
-  - If your WDL file defines inputs and outputs, then it prints a list of inputs and outputs and notes which inputs are required.
+- Q: What does `miniwdl run myfile.wdl` do?
+  - If any required inputs are missing, then it prints a list of the inputs and outputs, noting which inputs are required.
 
-- Q: How to do I assign values to input variables when I use miniwdl to run a WDL file?
-  - you can assign directly on the command line, i.e. ```miniwdl run myfile.wdl input1=input.bam input2= input.bai, etc...``` 
-  - or you can use the ```--input``` flag and assign input values via an ```input.json``` file
+- Q: How do I assign values to input variables when I use miniwdl to run a WDL file?
+  - You can assign them directly on the command line, e.g. `miniwdl run myfile.wdl input1=input.bam input2=input.bai`
+  - Or you can use the `--input` flag to supply input values in an `input.json` file
 
 - Q: How can I get more information about job execution?
-  - Run the ```miniwdl run myfile.wdl``` command
-  - Use the ```--verbose``` flag
+  - Run `miniwdl run myfile.wdl --verbose`
 
-- Q: What is the ```_LAST``` directory?
-  - miniwdl generates a symbolic link `_LAST` pointing to the timestamped subdirectory for most recent run,
-    and an `out` directory tree containing symbolic links to the output files.
+- Q: What is the `_LAST` directory?
+  - Miniwdl generates a symbolic link `_LAST` pointing to the timestamped subdirectory for the most recent run,
+    which contains an `out` directory tree with symbolic links to the output files.
 
 ---
 
 ### Scaling up `miniwdl run`
 
 - Q: Can miniwdl handle large-scale workloads?
-  - A more-powerful host enables larger workloads, as it schedules WDL tasks in parallel up to the avaliable CPUs & memory
-  - The optimization guide has [host configuration suggestions](https://miniwdl.readthedocs.io/en/latest/runner_advanced.html#host-configuration)
+  - A more-powerful host enables larger workloads, as it schedules WDL tasks in parallel up to the available CPUs & memory
+  - The optimization guide has [host configuration suggestions](runner_advanced.md#host-configuration)
+
 - Q: Can miniwdl run workflows on my cloud/cluster?
   - If you can factor the workload into separate workflow runs, submit each one as a job to run miniwdl on a powerful worker node.
-  - [Alternate container runtimes](https://miniwdl.readthedocs.io/en/latest/runner_backends.html) widen local compatibility
-  - [External plugins](https://miniwdl.readthedocs.io/en/latest/runner_backends.html#external-plugins) enable cloud &cluster integrations, with an API to add new ones.
+  - [Alternate container runtimes](runner_backends.md) widen local compatibility
+  - [External plugins](runner_backends.md#external-plugins) enable cloud & cluster integrations, with an API to add new ones.
 
 ---
 
-### Check WDL syntax with the ```miniwdl check``` command
+### Check WDL syntax with the `miniwdl check` command
 
-- Q: When I run ```miniwdl check myfile.wdl``` it doesn't produce any output
-  - Re-run the command, sometimes it takes a couple of seconds to complete the WDL file parsing
+- Q: When I run `miniwdl check myfile.wdl` it doesn't produce any output
+  - Parsing and type-checking can take a few seconds, especially for workflows with many imports. When finished, it prints an outline of the document with any warnings nested within; an outline with no warnings means none were found.
 
-- Q: Do I have to fix all of items listed (warnings) in the results of ```miniwdl check myfile.wdl``` 
-  - This command generates both warnings (which you optionally fix) and errors (which you must fix).
-  - Errors are shown in red.
+- Q: Do I have to fix all of the items listed in the results of `miniwdl check myfile.wdl`?
+  - This command reports both warnings (which you may optionally fix or [suppress](check.rst)) and errors (which you must fix).
 
 ---
 
@@ -90,4 +84,4 @@ Also there is an embedded short course 'learn-miniwdl' which includes screencast
 * [chanzuckerberg/miniwdl GitHub](https://github.com/chanzuckerberg/miniwdl/) where issues & contributions are welcome
 * [openwdl/wdl GitHub](https://github.com/openwdl/wdl) for WDL spec & proposals
 * [OpenWDL Slack #miniwdl](https://openwdl.slack.com/archives/C02JCRJU79T) for discussions
-* [CZI Science Tech](https://tech.chanzuckerberg.com/scitech/) sponsors this project
+* [CZI Science](https://chanzuckerberg.com/science/) sponsors this project

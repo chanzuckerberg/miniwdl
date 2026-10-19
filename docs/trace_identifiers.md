@@ -41,7 +41,7 @@ def trace_identifiers(obj):
 
 `trace_identifiers` recursively descends through the WDL document to find all Array identifier expressions. It begins with the workflow and tasks in the top-level `Document` object, if any. The `Document` object may also include imports and struct type definitions, which we won't use here.
 
-For the workflow, we descend into its body and its `input{}` and `output{}` sections, if any. For each task, we descend into all its value declarations, the command template, and any expressions in the runtime section. 
+For the workflow, we descend into its body and its `input{}` and `output{}` sections, if any. For each task, we descend into all its value declarations, the command template, and any expressions in the `requirements` section (exposed as `obj.runtime`, after its pre-WDL 1.2 name).
 
 ```python3
     elif isinstance(obj, WDL.WorkflowSection):
@@ -78,7 +78,7 @@ if __name__ == "__main__":
     main(sys.argv[1:])
 ```
 
-At last, we may reach individual identifier expressions ([`WDL.Expr.Ident`](https://miniwdl.readthedocs.io/en/latest/WDL.html#WDL.Expr.Ident)), which miniwdl decorates with the referred-to object ("referee") and data type. Here we check if the data type, represented as an object deriving from `WDL.Type.Base`, is an array; and if so, we can also get its parametric `item_type`. Each AST node exposes a `pos` with the original source code position (`line`, `column`, `end_line` and `end_column`), which we use to report the identifier and referee line numbers.
+At last, we may reach individual identifier expressions ({py:obj}`WDL.Expr.Ident <WDL.Expr.Ident>`), which miniwdl decorates with the referred-to object ("referee") and data type. Here we check if the data type, represented as an object deriving from `WDL.Type.Base`, is an array; and if so, we can also get its parametric `item_type`. Each AST node exposes a `pos` with the original source code position (`line`, `column`, `end_line` and `end_column`), which we use to report the identifier and referee line numbers.
 
 The referee object might be any of the following:
 
@@ -87,7 +87,7 @@ The referee object might be any of the following:
 3. `Scatter` for use of a scatter variable
 4. `Gather` for reference to a value defined inside a `scatter`/`if` section
 
-The last case [`Gather`](https://miniwdl.readthedocs.io/en/latest/WDL.html#WDL.Tree.Gather) is a concept miniwdl synthesizes to model WDL's implicit special meaning of a value inside a `scatter`/`if` section, when seen from outside of that section. For example, an `Int` value in a `scatter` section is an `Array[Int]` elsewhere. Hence, a tricky detail: the identifier's `obj.type` may differ from that of the original value or call output.
+The last case {py:obj}`Gather <WDL.Tree.Gather>` is a concept miniwdl synthesizes to model WDL's implicit special meaning of a value inside a `scatter`/`if` section, when seen from outside of that section. For example, an `Int` value in a `scatter` section is an `Array[Int]` elsewhere. Hence, a tricky detail: the identifier's `obj.type` may differ from that of the original value or call output.
 
 **Try it out**
 
@@ -123,7 +123,7 @@ L18 Array[Int] x defined on L15
 
 Or on a real workflow:
 
-```
+```console
 $ wget https://raw.githubusercontent.com/gatk-workflows/gatk4-germline-snps-indels/master/joint-discovery-gatk4-local.wdl
 $ python3 trace_identifiers.py joint-discovery-gatk4-local.wdl
 L103 Array[File] input_gvcfs defined on L48
