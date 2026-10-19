@@ -29,6 +29,7 @@ extensions = [
     "sphinx.ext.inheritance_diagram",
     "myst_parser",
     "sphinxarg.ext",
+    "sphinx_copybutton",
     "wdl_lexer",
 ]
 
@@ -42,6 +43,12 @@ myst_enable_extensions = ["colon_fence", "deflist"]
 autodoc_member_order = "bysource"
 autodoc_typehints = "description"
 toc_object_entries_show_parents = "hide"
+
+# copy button on code blocks: omit "$ " prompts and output lines, but keep continuation lines and
+# heredoc bodies following a prompted line
+copybutton_prompt_text = "$ "
+copybutton_line_continuation_character = "\\"
+copybutton_here_doc_delimiter = "EOF"
 
 intersphinx_mapping = {"python": ("https://docs.python.org/3", None)}
 

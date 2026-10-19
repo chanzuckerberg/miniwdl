@@ -45,10 +45,10 @@ Then follow the :doc:`getting_started` tutorial. The documentation is organized 
    :maxdepth: 2
    :hidden:
 
-   runner_reference.md
-   runner_advanced.md
-   runner_backends.md
-   runner_cli.rst
+   Reference <runner_reference.md>
+   Optimization <runner_advanced.md>
+   Container runtimes <runner_backends.md>
+   Command line <runner_cli.rst>
 
 .. toctree::
    :caption: Other tools
@@ -72,7 +72,7 @@ Then follow the :doc:`getting_started` tutorial. The documentation is organized 
    :hidden:
 
    trace_identifiers.md
-   wdlviz.md
+   Workflow visualization (wdlviz) <wdlviz.md>
    add_functions.md
    assert.md
 

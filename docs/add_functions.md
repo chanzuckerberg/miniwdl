@@ -36,7 +36,7 @@ Notice that we include not only the WDL type signature, but also [PEP 484 type h
 We can try an *ad hoc* test of our new factorial function,
 
 ```bash
-$ python3 -m WDL run --dir /tmp <(echo "
+python3 -m WDL run --dir /tmp <(echo "
 workflow factorials {
     scatter (n in range(11)) {
         Pair[Int,Int] p = (n, factorial(n))
@@ -66,7 +66,7 @@ Next we'll add `word_count(text_file)`, illustrating how to interact with the fi
 Trying it out,
 
 ```bash
-$ python3 -m WDL run --dir /tmp <(echo '
+python3 -m WDL run --dir /tmp <(echo '
 task wc {
     command {
         echo The quick brown fox jumps over the lazy dog > message.txt

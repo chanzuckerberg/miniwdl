@@ -52,6 +52,7 @@ dev = [
     "furo",
     "sphinx-argparse",
     "myst-parser",
+    "sphinx-copybutton",
     "graphviz",
     "boto3"
 ]
