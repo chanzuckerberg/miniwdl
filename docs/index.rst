@@ -22,7 +22,7 @@ It supports WDL versions 1.2, 1.1, 1.0, and draft-2. To get started:
 Then follow the :doc:`getting_started` tutorial. The documentation is organized into:
 
 * **Getting started**: the :doc:`tutorial <getting_started>` and :doc:`FAQ`
-* **Running workflows**: :doc:`reference <runner_reference>` for ``miniwdl run`` (run directory
+* **miniwdl run**: :doc:`reference <runner_reference>` (run directory
   structure, task requirements, URI downloads, configuration, caching),
   :doc:`optimization <runner_advanced>` guidelines, alternate
   :doc:`container runtimes <runner_backends>`, and :doc:`command-line options <runner_cli>`
@@ -41,7 +41,7 @@ Then follow the :doc:`getting_started` tutorial. The documentation is organized 
    FAQ.md
 
 .. toctree::
-   :caption: Running workflows
+   :caption: miniwdl run
    :maxdepth: 2
    :hidden:
 
