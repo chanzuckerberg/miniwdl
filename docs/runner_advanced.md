@@ -26,6 +26,7 @@ Scratch files (created but never output) should be written somewhere under `$TMP
 
 Output files should be written directly into the initial working directory, which might be on a network file system to facilitate downstream reuse.
 
+(scale-runtime-resources-to-input-size)=
 ### Scale resource requirements to input size
 
 Miniwdl can schedule multiple task containers on one host concurrently, but only if it has enough CPU and memory resources to fulfill their total reservations (as declared in their `requirements` sections, or `runtime` before WDL 1.2). If you run a workflow on small inputs (e.g. for testing) but the tasks have hard-coded high CPU and memory requirements, the scheduler tends to serialize them unnecessarily.
