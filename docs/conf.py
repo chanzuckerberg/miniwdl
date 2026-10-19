@@ -62,6 +62,7 @@ inheritance_node_attrs = {"fontsize": 11, "shape": "box", "style": "rounded"}
 html_theme = "furo"
 html_title = "miniwdl"
 html_static_path = ["_static"]
+html_css_files = ["custom.css"]
 html_theme_options = {
     "sidebar_hide_name": True,
     "light_logo": "miniwdl-logo-light.png",
