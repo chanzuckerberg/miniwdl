@@ -1647,6 +1647,138 @@ class TestTaskContainerRetryPaths(unittest.TestCase):
         self.assertTrue(container._bind_input_files)
 
 
+class TestProcessHints(unittest.TestCase):
+    """
+    On each task run, the core task runner evaluates the task's hints{} section and
+    hands the plain values to the TaskContainer via process_hints() -- which stores
+    them in hints_values without acting on them.
+    """
+
+    class RecordingContainer(TaskContainer):
+        # most recent instance, kept on the class because run_local_task
+        # instantiates the container itself
+        last_instance = None
+
+        @classmethod
+        def global_init(cls, cfg, logger):
+            pass
+
+        @classmethod
+        def detect_resource_limits(cls, cfg, logger):
+            return {"cpu": 1, "mem_bytes": 1}
+
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.hints_calls = 0
+            type(self).last_instance = self
+
+        def process_hints(self, logger, hints_eval):
+            super().process_hints(logger, hints_eval)
+            self.hints_calls += 1
+
+        def _run(self, logger, terminating, command):
+            return 0
+
+    def setUp(self):
+        self._dir = tempfile.mkdtemp(prefix="miniwdl_test_hints_")
+        self._logger = logging.getLogger(self.id())
+        self.RecordingContainer.last_instance = None
+        self._cfg = WDL.runtime.config.Loader(self._logger, [])
+        self._cfg.override({"scheduler": {"container_backend": "recording_test"}})
+        WDL.runtime.task_container._backends["recording_test"] = self.RecordingContainer
+        self.addCleanup(WDL.runtime.task_container._backends.pop, "recording_test", None)
+
+    def tearDown(self):
+        shutil.rmtree(self._dir)
+
+    def _run_task(self, wdl, inputs_json=None):
+        doc = WDL.parse_document(wdl)
+        doc.typecheck()
+        task = doc.tasks[0]
+        inputs = WDL.values_from_json(
+            inputs_json or {}, task.available_inputs, task.required_inputs, namespace=task.name
+        )
+        _, outputs = WDL.runtime.run_local_task(
+            self._cfg, task, inputs, run_dir=self._dir, logger_prefix=[self.id()]
+        )
+        return WDL.values_to_json(outputs)
+
+    def test_process_hints_stores_values(self):
+        # the base implementation stores the given dict (as a copy) in hints_values
+        container = self.RecordingContainer(
+            self._cfg, "test-run", os.path.join(self._dir, "run")
+        )
+        self.assertEqual(container.hints_values, {})
+        hints = {"max_cpu": WDL.Value.Int(8)}
+        container.process_hints(self._logger, hints)
+        self.assertEqual(container.hints_values, hints)
+        self.assertIsNot(container.hints_values, hints)
+
+    def test_run_delivers_evaluated_hints_with_override(self):
+        outputs = self._run_task(
+            """version 1.2
+            task hinted {
+                input { Int n = 4 }
+                command <<< echo hello >>>
+                output { String out = "done" }
+                hints {
+                    max_cpu: n * 2
+                    short_task: true
+                }
+            }
+            """,
+            {"hinted.hints.max_cpu": 12},
+        )
+        self.assertEqual(outputs, {"out": "done"})
+        # exactly one delivery; the input JSON override (12) supplants the declared
+        # expression (n * 2 = 8), while the other declared hint is evaluated as-is
+        container = self.RecordingContainer.last_instance
+        self.assertIsNotNone(container)
+        self.assertEqual(container.hints_calls, 1)
+        self.assertEqual(
+            container.hints_values,
+            {"max_cpu": WDL.Value.Int(12), "short_task": WDL.Value.Boolean(True)},
+        )
+
+    def test_run_without_hints_delivers_empty(self):
+        outputs = self._run_task(
+            """version 1.2
+            task unhinted {
+                command <<< echo hello >>>
+                output { String out = "done" }
+            }
+            """
+        )
+        self.assertEqual(outputs, {"out": "done"})
+        # process_hints() is invoked on every task run, with {} when the task
+        # declares no hints and no overrides were supplied
+        container = self.RecordingContainer.last_instance
+        self.assertIsNotNone(container)
+        self.assertEqual(container.hints_calls, 1)
+        self.assertEqual(container.hints_values, {})
+
+    def test_run_with_unevaluable_hint_still_succeeds(self):
+        # a hint expression that typechecks but fails to evaluate at run time
+        # (division by zero) must not fail the task; no hints are delivered
+        outputs = self._run_task(
+            """version 1.2
+            task bad_hint {
+                input { Int n = 0 }
+                command <<< echo hello >>>
+                output { String out = "done" }
+                hints {
+                    max_cpu: 10 / n
+                }
+            }
+            """
+        )
+        self.assertEqual(outputs, {"out": "done"})
+        container = self.RecordingContainer.last_instance
+        self.assertIsNotNone(container)
+        self.assertEqual(container.hints_calls, 1)
+        self.assertEqual(container.hints_values, {})
+
+
 class TestSwarmMiscConfigUidGid(unittest.TestCase):
     """Test that SwarmContainer.misc_config handles out-of-range uid/gid values."""
 

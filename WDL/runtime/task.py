@@ -221,6 +221,23 @@ def run_local_task(  # type: ignore[return]
                 _eval_task_runtime(
                     cfg, logger, run_id, task, posix_inputs, container, container_env, stdlib
                 )
+
+                # evaluate hints{} and hand the plain values to the container, which
+                # may use or ignore them (see TaskContainer.process_hints). A hint
+                # evaluation error must not fail the task run, so log a warning and
+                # deliver no hints in that case.
+                try:
+                    hints_values = eval_task_hints(task, posix_inputs, container_env, stdlib)
+                except Exception as exn:
+                    logger.warning(
+                        _(
+                            "task hints could not be evaluated; proceeding without them",
+                            error=str(exn),
+                        )
+                    )
+                    hints_values = {}
+                container.process_hints(logger, hints_values)
+
                 if wdl_version_geq(task.effective_wdl_version, WDLVersion.V1_2):
                     container.build_task_runtime_info_struct(logger, run_id, task)
                     assert container.task_runtime_info_struct is not None
@@ -792,6 +809,9 @@ def eval_task_hints(
     expressions become :class:`WDL.Value.Base` instances, nested
     ``hints{...}`` objects become plain dicts of the same shape, and
     ``input{...}``/``output{...}`` blocks become :class:`IOHintsValue`.
+
+    During a task run, the core task runner delivers the result to the task's
+    container via :meth:`WDL.runtime.task_container.TaskContainer.process_hints`.
     """
     overrides: dict[str, Any] = {}
     for b in inputs.enter_namespace("hints"):
