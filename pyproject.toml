@@ -49,9 +49,10 @@ dev = [
     "twine",
     "sphinx",
     "sphinx-autobuild",
-    "sphinx_rtd_theme",
+    "furo",
     "sphinx-argparse",
-    "recommonmark",
+    "myst-parser",
+    "sphinx-copybutton",
     "graphviz",
     "boto3"
 ]

@@ -1,8 +1,8 @@
 """
 `miniwdl <https://github.com/chanzuckerberg/miniwdl/>`_ is a developer toolkit and local runner for
-the bioinformatics-focused `Workflow Description Language (WDL) <http://openwdl.org/>`_. This
-documentation covers the Python3 ``WDL`` package facilitating parsing & static analysis of WDL
-documents. Simply ``import WDL`` once miniwdl has been installed.
+the bioinformatics-focused `Workflow Description Language (WDL) <https://openwdl.org/>`_. This
+documentation covers the Python ``WDL`` package, which provides parsing, static analysis, and
+execution of WDL documents. Simply ``import WDL`` once miniwdl has been installed.
 
 * `GitHub repo <https://github.com/chanzuckerberg/miniwdl/>`_ for installation and further background
 * `Codelabs <https://miniwdl.readthedocs.io/en/latest/WDL.html#python-codelabs>`_ on using this package
@@ -51,6 +51,8 @@ def load(
     """
     Parse a WDL document given filename/URI, recursively descend into imported documents, then typecheck the tasks and
     workflow.
+
+    :param uri: filename/URI of the WDL document to load
 
     :param path: local filesystem directories to search for imports, in addition to the current working directory
 
@@ -129,8 +131,8 @@ async def read_source_default(
     Callers may wish to override ``read_source`` with logic to download source code from network
     URIs, and for local filenames fall back to ``return await WDL.read_source_default(...)``.
 
-    Note: the synchronous :func:`load` merely calls :func:`load_async` on the current
-    ``asyncio.get_event_loop()`` and awaits the result.
+    Note: the synchronous :func:`load` merely runs :func:`load_async` in a new event loop (via
+    ``asyncio.run()``) and returns the result.
     """
     return await Tree.read_source_default(uri, path, importer)
 
@@ -139,7 +141,7 @@ async def resolve_file_import(uri: str, path: list[str], importer: Document | No
     """
     Exposes the logic by which :func:`read_source_default` resolves ``uri`` to the absolute path of
     an extant file. If ``uri`` is already an absolute path, it's normalized and returned. A
-    relative ``uri`` is resolved by first joining it to either, the directory of the importer
+    relative ``uri`` is resolved by first joining it to either the directory of the importer
     document (if any), or the process current working directory (otherwise). Failing that, it's
     searched in the ``path`` directories (in reverse order).
 

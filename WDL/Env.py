@@ -30,7 +30,7 @@ class Binding(Generic[T]):
     def name(self) -> str:
         """:type: str
 
-        Namedspaced names are flat, dot-separated strings.
+        Namespaced names are flat, dot-separated strings.
         """
         return self._name
 

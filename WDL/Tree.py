@@ -464,7 +464,7 @@ def _validate_hints_values(
 
 class Task(SourceNode):
     """
-    WDL Task
+    WDL task, with its input & output declarations, command, and requirements/runtime
     """
 
     name: str
@@ -490,15 +490,21 @@ class Task(SourceNode):
     runtime: dict[str, Expr.Base]
     """:type: dict[str,WDL.Expr.Base]
 
-    ``runtime{}`` section, with keys and corresponding expressions to be evaluated"""
-    # Original task section keyword, either "runtime" or "requirements"
+    ``requirements{}`` section (``runtime{}`` before WDL 1.2), with keys and corresponding
+    expressions to be evaluated"""
     runtime_section_name: str | None
+    """:type: str | None
+
+    Original keyword of the requirements/runtime section, either ``"requirements"`` or
+    ``"runtime"`` (None if absent)"""
     runtime_section_pos: SourcePosition | None
-    # Source position of the runtime/requirements section, if present
+    """:type: WDL.SourcePosition | None
+
+    Source position of the requirements/runtime section, if present"""
     requirements: dict[str, Expr.Base]
     """:type: dict[str,WDL.Expr.Base]
 
-    ``requirements{}`` section (for WDL 1.2+ tasks; refers to same dict as ``runtime``)"""
+    Alias of ``runtime`` (refers to the same dict)"""
     hints: dict[str, HintValue]
     """:type: dict[str, WDL.Tree.HintValue]
 
@@ -816,15 +822,15 @@ class Call(WorkflowNode):
     """
     :type: list[str]
 
-    The called task; either one string naming a task in the current document, or an import
-    namespace and task name.
+    The called task/workflow; either one string naming a task in the current document, or an
+    import namespace and task/workflow name.
     """
     name: str
-    """:type: string
+    """:type: str
 
     Call name, defaults to task/workflow name"""
     after: list[str]
-    """:type: string
+    """:type: list[str]
 
     Call names on which this call depends (even if none of their outputs are used in this call's
     inputs)
@@ -997,7 +1003,7 @@ class Call(WorkflowNode):
 
     @property
     def effective_outputs(self) -> Env.Bindings[Type.Base]:
-        """:type: WDL.Env.Bindings[WDL.Tree.Decl]
+        """:type: WDL.Env.Bindings[WDL.Type.Base]
 
         Yields the effective outputs of the callee Task or Workflow, in a
         namespace according to the call name.
@@ -1020,7 +1026,7 @@ class CallTry(Call):
 
     @property
     def effective_outputs(self) -> Env.Bindings[Type.Base]:
-        """:type: WDL.Env.Bindings[WDL.Tree.Decl]
+        """:type: WDL.Env.Bindings[WDL.Type.Base]
 
         Yields the effective outputs of the callee Task or Workflow, optionalized in a namespace
         according to the call name.
@@ -1119,6 +1125,7 @@ class WorkflowSection(WorkflowNode):
     _type_env: Env.Bindings[Type.Base] | None = None
     """
     After typechecking: the type environment, INSIDE the section, consisting of
+
     - everything available outside of the section
     - declarations and call outputs in the scatter (singletons)
     - declarations & outputs gathered from sub-sections (arrays/optionals)
@@ -1163,7 +1170,7 @@ class Scatter(WorkflowSection):
 
     variable: str
     """
-    :type: string
+    :type: str
 
     Scatter variable name"""
     expr: Expr.Base
@@ -1243,7 +1250,7 @@ class Conditional(WorkflowSection):
 
     expr: Expr.Base
     """
-    :tree: WDL.Expr.Base
+    :type: WDL.Expr.Base
 
     Boolean expression"""
 
@@ -1303,6 +1310,11 @@ class Conditional(WorkflowSection):
 
 
 class Workflow(SourceNode):
+    """
+    WDL workflow, with its input & output declarations and body of calls, declarations, and
+    ``scatter``/``if`` sections
+    """
+
     name: str
     ":type: str"
     inputs: list[Decl] | None
@@ -1343,8 +1355,9 @@ class Workflow(SourceNode):
     _type_env: Env.Bindings[Type.Base] | None = None
     """
     After typechecking: the type environment in the main workflow body,
+
     - declarations at the top level of the workflow body
-    - outputs of calls at the top level the workflow body
+    - outputs of calls at the top level of the workflow body
     - declarations & outputs inside scatter sections (as arrays)
     - declarations & outputs inside conditional sections (as optionals)
     """
@@ -1459,7 +1472,7 @@ class Workflow(SourceNode):
 
     @property
     def effective_outputs(self) -> Env.Bindings[Type.Base]:
-        """:type: WDL.Env.Bindings[Decl]
+        """:type: WDL.Env.Bindings[WDL.Type.Base]
 
         If the ``output{}`` workflow section is present, yields the names and
         types therein, at the top level of the Env. Otherwise, yield all the
@@ -1666,28 +1679,26 @@ class Workflow(SourceNode):
 
 
 class SourceComment(NamedTuple):
+    """
+    Position and text of a comment. The text includes the ``#`` and any preceding or trailing
+    spaces/tabs.
+    """
+
     pos: Error.SourcePosition
     text: str
 
 
-"""
-Position and text of a comment. The text includes the ``#`` and any preceding or trailing
-spaces/tabs.
-"""
-
-
 class DocImport(NamedTuple):
+    """
+    Represents one imported document, with position of the import statement, import URI, namespace,
+    struct type aliases, and (after typechecking) the ``Document`` object.
+    """
+
     pos: Error.SourcePosition
     uri: str
     namespace: str
     aliases: list[tuple[str, str]]
     doc: "Document | None"
-
-
-"""
-Represents one imported document, with position of the import statement, import URI, namespace,
-struct type aliases, and (after typechecking) the ``Document`` object.
-"""
 
 
 class Document(SourceNode):
@@ -1729,7 +1740,7 @@ class Document(SourceNode):
 
     effective_wdl_version: str
     """
-    :type"
+    :type: str
 
     ``wdl_version if wdl_version is not None else "draft-2"``
     """
@@ -1861,6 +1872,11 @@ async def resolve_file_import(uri: str, path: list[str], importer: Document | No
 
 
 class ReadSourceResult(NamedTuple):
+    """
+    Result of a ``read_source`` routine (see :func:`WDL.read_source_default`): the WDL source text,
+    and the absolute filename/URI from which it was read.
+    """
+
     source_text: str
     abspath: str
 
