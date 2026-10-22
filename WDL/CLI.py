@@ -1158,18 +1158,48 @@ def runner_input_json_file(available_inputs, namespace, input_file, downloadable
 
         fallback_paths = []
         ambiguous_paths = []
-        ans = Value.rewrite_env_paths(
-            ans,
-            lambda v: validate_input_path(
-                v.value,
-                isinstance(v, Value.Directory),
-                downloadable,
-                root,
-                input_dir,
-                fallback_paths,
-                ambiguous_paths,
-            ),
-        )
+
+        def rewrite_input_path(v):
+            # Resolve a relative path from the input JSON against the directory
+            # containing the input file (as the WDL spec suggests), by rewriting it
+            # before the usual validation. A candidate location counts only if it
+            # holds an entry of the expected kind (file vs. directory); an entry of
+            # the wrong kind doesn't shadow the other candidate.
+            # - found (only) relative to the input file: use it
+            # - found only relative to the working directory: use it, but record a
+            #   deprecation fallback warning
+            # - found in both places, as different files: use the input file's,
+            #   and record an ambiguity warning
+            # - found in neither: validate the input-file path, so the resulting
+            #   not-found error names it
+            path = v.value
+            directory = isinstance(v, Value.Directory)
+            if (
+                input_dir
+                and not os.path.isabs(path)
+                and not (downloadable and downloadable(path, directory))
+            ):
+                rebased_path = os.path.join(input_dir, path)
+
+                def has_expected_kind(p):
+                    return os.path.isdir(p) if directory else os.path.isfile(p)
+
+                if has_expected_kind(rebased_path):
+                    if has_expected_kind(path):
+                        try:
+                            same_file = os.path.samefile(rebased_path, path)
+                        except OSError:
+                            same_file = False
+                        if not same_file:
+                            ambiguous_paths.append(path)
+                    path = rebased_path
+                elif has_expected_kind(path):
+                    fallback_paths.append(path)
+                else:
+                    path = rebased_path
+            return validate_input_path(path, directory, downloadable, root)
+
+        ans = Value.rewrite_env_paths(ans, rewrite_input_path)
         # warn once per input file rather than per path (lists stay empty without input_dir)
         logger = logging.getLogger("miniwdl-run")
         if fallback_paths:
@@ -1325,50 +1355,15 @@ def runner_input_value(s_value, ty, downloadable, root):
     )
 
 
-def validate_input_path(
-    path, directory, downloadable, root, base_dir=None, fallback_paths=None, ambiguous_paths=None
-):
+def validate_input_path(path, directory, downloadable, root):
     """
     If the path is downloadable, return it back. Otherwise, return the absolute path after checking
     1. exists and is a file or directory (according to directory: bool)
     2. resides within root
     3. contains no symlinks pointing outside or to absolute paths
-
-    A relative path resolves against base_dir, if given, with these special cases:
-    - exists only relative to the working directory: use that (deprecated fallback)
-    - exists relative to both, as different files: use the base_dir one
-    - exists in neither: the not-found error names the base_dir path
-    The first two cases are appended to fallback_paths / ambiguous_paths if supplied, for
-    the caller to summarize; otherwise each is logged as a warning.
     """
     if downloadable and downloadable(path, directory):
         return path
-
-    if base_dir and not os.path.isabs(path):
-        logger = logging.getLogger("miniwdl-run")
-        rebased_path = os.path.join(base_dir, path)
-        if os.path.exists(rebased_path):
-            if os.path.exists(path) and os.path.realpath(rebased_path) != os.path.realpath(path):
-                if ambiguous_paths is not None:
-                    ambiguous_paths.append(path)
-                else:
-                    logger.warning(
-                        f"{path} exists relative to both the input file's directory {base_dir} "
-                        "and the working directory; using the former"
-                    )
-            path = rebased_path
-        elif os.path.exists(path):
-            # deprecated fallback to the old behavior: resolve against the working directory
-            if fallback_paths is not None:
-                fallback_paths.append(path)
-            else:
-                logger.warning(
-                    f"{path} resolved relative to the working directory, not the input file's "
-                    f"directory {base_dir}; this fallback is deprecated, since relative paths "
-                    "in an input file should be relative to that file (or absolute)"
-                )
-        else:
-            path = rebased_path
 
     if not ((directory and os.path.isdir(path)) or (not directory and os.path.isfile(path))):
         raise Error.InputError(("Directory" if directory else "File") + " not found: " + path)
