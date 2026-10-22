@@ -480,6 +480,41 @@ def _validate_hints_values(
             )
 
 
+def _check_hint_override_name(name: str) -> None:
+    # Reject a hint override name (the part after "hints" in an input key,
+    # e.g. "aws.instance_type") addressing a value below the top-level hint
+    # key. The WDL specification is ambiguous about nested hint overrides,
+    # so miniwdl does not commit to a reading while openwdl/wdl#773 is
+    # unresolved. This check needs no task AST, so it runs while inputs are
+    # parsed (WDL.values_from_json, WDL.CLI.runner_input).
+    if "." in name:
+        raise Error.InputError(
+            f"unsupported hint override '{name}': hint overrides address"
+            " top-level hint keys only; overriding a value within a hint is"
+            " not supported yet (see openwdl/wdl#773)"
+        )
+
+
+def _validate_hint_override_names(
+    task_hints: dict[str, HintValue], override_names: Iterable[str]
+) -> None:
+    # Validate launch-input hint override names against a task's declared
+    # hints: each name must address a top-level hint key (see
+    # _check_hint_override_name), and it may not target a key declared with
+    # a hints{...}/input{...}/output{...} block (the whole block would have
+    # to be replaced, which is likewise unsettled in openwdl/wdl#773).
+    for name in override_names:
+        _check_hint_override_name(name)
+        declared = task_hints.get(name)
+        if isinstance(declared, (HintsObject, IOHints)):
+            kind = "hints" if isinstance(declared, HintsObject) else declared.kind
+            raise Error.InputError(
+                f"unsupported hint override '{name}': the '{name}' hint is declared"
+                f" with a {kind} {{ ... }} block, which cannot be overridden yet"
+                " (see openwdl/wdl#773)"
+            )
+
+
 class Task(SourceNode):
     """
     WDL task, with its input & output declarations, command, and requirements/runtime
@@ -701,7 +736,7 @@ class Task(SourceNode):
         # both runtime and requirements sections (they share one section dict,
         # and the parser rejects redundant sections), so runtime+hints is the
         # combination to check here.
-        if self.runtime_section_name == "runtime" and self.hints:
+        if self.runtime_section_name == "runtime" and self.hints_section_pos is not None:
             raise Error.ValidationError(
                 self,
                 "task has both runtime and hints sections; in WDL 1.2, the runtime"
@@ -750,14 +785,13 @@ class Task(SourceNode):
             if self.hints:
                 # Strict validation of the hints structure: reserved keys must
                 # have spec-accepted types, and input/output blocks may only
-                # name the task's actual inputs/outputs.
+                # name the task's actual inputs/outputs. Per the spec, the
+                # inputs block keys name parameters in the task's input{}
+                # section (private/postinput declarations don't qualify).
                 errors.try1(
                     _validate_hints_values,
                     self.hints,
-                    {
-                        decl.name: type_env[decl.name]
-                        for decl in (self.inputs or []) + self.postinputs
-                    },
+                    {decl.name: type_env[decl.name] for decl in self.inputs or []},
                     {decl.name: decl.type for decl in self.outputs},
                     struct_types,
                     check_quant=check_quant,
@@ -1560,6 +1594,19 @@ class Workflow(SourceNode):
                 self.complete_calls = False
             for b in self.available_inputs:
                 errors.try1(_check_serializable_map_keys, b.value.type, b.name, b.value)
+            # Infer the types of the workflow hints expressions, using an
+            # empty type environment (workflow hint values are literals,
+            # validated at parse time). This populates Expr.type for
+            # downstream consumers (e.g. Lint rules, and a future runtime
+            # consumer such as allow_nested_inputs).
+            for hint_expr in _hint_exprs(self.hints):
+                errors.try1(
+                    hint_expr.infer_type,
+                    Env.Bindings(),
+                    stdlib,
+                    check_quant=check_quant,
+                    struct_types=doc._struct_types,
+                )
             # 4. convert deprecated output_idents, if any, to output declarations
             if self._output_idents:
                 self._rewrite_output_idents()

@@ -1,9 +1,11 @@
 import logging
 import unittest
 
-from .context import WDL
+import WDL.Lint
 from WDL import Env, StdLib, Tree, Type, Value
 from WDL.runtime.task import _eval_task_hints
+
+from .context import WDL
 
 # The two task examples from the WDL 1.2 spec's Hints section, verbatim
 SPEC_TEST_HINTS = """version 1.2
@@ -156,6 +158,89 @@ class TestWorkflowHintsAST(unittest.TestCase):
         """
         with self.assertRaises(WDL.Error.SyntaxError):
             WDL.parse_document(doc)
+
+    def test_hints_node_parents(self):
+        # SetParents links HintsObject/IOHints nodes (and the expressions
+        # within them) to their containing node, not clear up to the
+        # Task/Workflow
+        doc = WDL.parse_document(
+            """version 1.2
+            task t {
+                input {
+                    File f
+                }
+                command <<< true >>>
+                hints {
+                    aws: hints {
+                        instance_type: "p5.48xlarge"
+                    }
+                    inputs: input {
+                        f: hints {
+                            localization_optional: true
+                        }
+                    }
+                }
+            }
+            workflow w {
+                hints {
+                    group: hints {
+                        contact: "ops@example.org"
+                    }
+                }
+            }
+            """
+        )
+        task = doc.tasks[0]
+        aws = task.hints["aws"]
+        self.assertIsInstance(aws, Tree.HintsObject)
+        self.assertIs(aws.parent, task)
+        self.assertIs(aws.values["instance_type"].parent, aws)
+        inputs = task.hints["inputs"]
+        self.assertIsInstance(inputs, Tree.IOHints)
+        self.assertIs(inputs.parent, task)
+        f_hints = inputs.values["f"]
+        self.assertIsInstance(f_hints, Tree.HintsObject)
+        self.assertIs(f_hints.parent, inputs)
+        self.assertIs(f_hints.values["localization_optional"].parent, f_hints)
+        wf = doc.workflow
+        group = wf.hints["group"]
+        self.assertIsInstance(group, Tree.HintsObject)
+        self.assertIs(group.parent, wf)
+        self.assertIs(group.values["contact"].parent, group)
+
+
+class TestWorkflowHintsLint(unittest.TestCase):
+    def test_lint_workflow_hints_with_array_and_map(self):
+        # regression: workflow hint expressions must have their types
+        # inferred during typecheck, or Lint rules reading Expr.type crash
+        # with AssertionError (e.g. on an array literal)
+        doc = WDL.parse_document(
+            """version 1.2
+            workflow w {
+                hints {
+                    tags: ["a", "b"]
+                    counts: [1, 2, 3]
+                    labels: {"team": "genomics", "org": "czi"}
+                    group: hints {
+                        contact: "ops@example.org"
+                    }
+                }
+            }
+            """
+        )
+        doc.typecheck()
+        tags_ty = doc.workflow.hints["tags"].type
+        self.assertIsInstance(tags_ty, Type.Array)
+        self.assertIsInstance(tags_ty.item_type, Type.String)
+        counts_ty = doc.workflow.hints["counts"].type
+        self.assertIsInstance(counts_ty, Type.Array)
+        self.assertIsInstance(counts_ty.item_type, Type.Int)
+        labels_ty = doc.workflow.hints["labels"].type
+        self.assertIsInstance(labels_ty, Type.Map)
+        self.assertIsInstance(labels_ty.item_type[0], Type.String)
+        self.assertIsInstance(labels_ty.item_type[1], Type.String)
+        # runs to completion (previously: AssertionError in Lint)
+        WDL.Lint.collect(WDL.Lint.lint(doc, descend_imports=False))
 
     def test_duplicate_keys_io_block(self):
         txt = """
@@ -367,6 +452,30 @@ class TestHintsTypecheck(unittest.TestCase):
         )
         doc.typecheck()
 
+    def test_io_block_rejects_private_declarations(self):
+        # the keys of an inputs hint block must name parameters in the task's
+        # input{} section; a private (postinput) declaration doesn't qualify
+        header = """version 1.2
+        task t {
+            input {
+                File data
+            }
+            File priv = data
+            command <<< true >>>
+            hints {
+                inputs: input {
+                    %s: hints { localization_optional: true }
+                }
+            }
+        }
+        """
+        doc = WDL.parse_document(header % "priv")
+        with self.assertRaises(WDL.Error.NoSuchMember):
+            doc.typecheck()
+        # a parameter in the input{} section is accepted
+        doc = WDL.parse_document(header % "data")
+        doc.typecheck()
+
     def test_runtime_hints_mutually_exclusive(self):
         # the runtime section is mutually exclusive with the requirements and
         # hints sections (WDL 1.2 spec, Runtime section)
@@ -379,6 +488,21 @@ class TestHintsTypecheck(unittest.TestCase):
                 }
                 hints {
                     short_task: true
+                }
+            }
+            """
+        )
+        with self.assertRaises(WDL.Error.ValidationError):
+            doc.typecheck()
+        # an empty hints{} section still counts as declaring hints
+        doc = WDL.parse_document(
+            """version 1.2
+            task t {
+                command <<< true >>>
+                runtime {
+                    docker: "ubuntu:latest"
+                }
+                hints {
                 }
             }
             """
@@ -649,23 +773,35 @@ class TestHintsEval(unittest.TestCase):
         # Overrides addressing a value below the top-level key, and overrides
         # of keys declared with hints/input/output blocks, are input errors
         # citing openwdl/wdl#773 (the spec is ambiguous about nested hint
-        # overrides; see the "Specifying / Overriding" spec section)
+        # overrides; see the "Specifying / Overriding" spec section). The
+        # dotted-path overrides are rejected while the inputs are parsed
+        # (values_from_json); the block-key overrides parse into bindings,
+        # and are rejected when the hints are evaluated (for workflow runs,
+        # once at workflow startup instead -- see TestProcessHints).
         _, task, wf, stdlib = self._fixture()
-        bad_overrides = [
-            # below the top-level key
+        base_json = {
+            "wf.p": {"name": "Joe", "cv": "data/cv.pdf"},
+            "wf.d": "data/reads.bam",
+            "wf.analyze.n_threads": 8,
+        }
+        dotted_overrides = [
             {"wf.analyze.hints.aws.instance_type": "p5.24xlarge"},
             {"wf.analyze.hints.inputs.data.localization_optional": True},
+        ]
+        for bad in dotted_overrides:
+            inputs_json = dict(base_json)
+            inputs_json.update(bad)
+            with self.assertRaises(WDL.Error.InputError, msg=str(bad)) as ctx:
+                self._call_env(task, wf, stdlib, inputs_json)
+            self.assertIn("openwdl/wdl#773", str(ctx.exception), msg=str(bad))
+        block_overrides = [
             # top-level key declared with a hints {} block
             {"wf.analyze.hints.aws": {"instance_type": "p5.24xlarge"}},
             # top-level key declared with an input {} block
             {"wf.analyze.hints.inputs": {"data": {"localization_optional": True}}},
         ]
-        for bad in bad_overrides:
-            inputs_json = {
-                "wf.p": {"name": "Joe", "cv": "data/cv.pdf"},
-                "wf.d": "data/reads.bam",
-                "wf.analyze.n_threads": 8,
-            }
+        for bad in block_overrides:
+            inputs_json = dict(base_json)
             inputs_json.update(bad)
             call_inputs, env = self._call_env(task, wf, stdlib, inputs_json)
             with self.assertRaises(WDL.Error.InputError, msg=str(bad)) as ctx:
@@ -675,8 +811,8 @@ class TestHintsEval(unittest.TestCase):
     def test_cli_hints_parity(self):
         # command-line t.hints.k=v inputs (WDL.CLI.runner_input) are handled
         # exactly like JSON input hints overrides: accepted against the
-        # task's _hints placeholder and applied/rejected identically by
-        # _eval_task_hints
+        # task's _hints placeholder, applied identically by _eval_task_hints,
+        # and rejected identically (at input-read time) when dotted
         doc = WDL.parse_document(
             """version 1.2
             task t {
@@ -735,15 +871,15 @@ class TestHintsEval(unittest.TestCase):
             Value.Int(32),
         )
 
-        # a dotted (below-top-level) override binds on both routes, and both
-        # are rejected identically by _eval_task_hints
-        json_inputs = json_call_inputs("t.hints.aws.instance_type", "p5.24xlarge")
-        cli_inputs = cli_call_inputs("t.hints.aws.instance_type=p5.24xlarge")
-        self.assertEqual(cli_inputs["hints.aws.instance_type"], Value.String("p5.24xlarge"))
-        for call_inputs in (json_inputs, cli_inputs):
-            with self.assertRaises(WDL.Error.InputError) as ctx:
-                _eval_task_hints(logger, task, call_inputs, env, stdlib)
-            self.assertIn("openwdl/wdl#773", str(ctx.exception))
+        # a dotted (below-top-level) override is rejected identically on
+        # both routes, while the inputs are being read: by values_from_json
+        # for JSON, and by runner_input for the command line
+        with self.assertRaises(WDL.Error.InputError) as ctx:
+            json_call_inputs("t.hints.aws.instance_type", "p5.24xlarge")
+        self.assertIn("openwdl/wdl#773", str(ctx.exception))
+        with self.assertRaises(WDL.Error.InputError) as ctx:
+            cli_call_inputs("t.hints.aws.instance_type=p5.24xlarge")
+        self.assertIn("openwdl/wdl#773", str(ctx.exception))
 
     def test_eval_per_key_drop(self):
         # a hint that typechecks but fails to evaluate at runtime (division

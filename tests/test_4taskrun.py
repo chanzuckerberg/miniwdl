@@ -1658,6 +1658,8 @@ class TestProcessHints(unittest.TestCase):
         # most recent instance, kept on the class because run_local_task
         # instantiates the container itself
         last_instance = None
+        # number of task commands actually run, across all instances
+        run_count = 0
 
         @classmethod
         def global_init(cls, cfg, logger):
@@ -1677,12 +1679,14 @@ class TestProcessHints(unittest.TestCase):
             self.hints_calls += 1
 
         def _run(self, logger, terminating, command):
+            type(self).run_count += 1
             return 0
 
     def setUp(self):
         self._dir = tempfile.mkdtemp(prefix="miniwdl_test_hints_")
         self._logger = logging.getLogger(self.id())
         self.RecordingContainer.last_instance = None
+        self.RecordingContainer.run_count = 0
         self._cfg = WDL.runtime.config.Loader(self._logger, [])
         self._cfg.override({"scheduler": {"container_backend": "recording_test"}})
         WDL.runtime.task_container._backends["recording_test"] = self.RecordingContainer
@@ -1785,14 +1789,19 @@ class TestProcessHints(unittest.TestCase):
 
     def test_consumer_subclass_uses_hint(self):
         # a TaskContainer subclass can consume hints through process_hints():
-        # here a test-only backend sets its memory limit from the max_memory
-        # hint, showing the interface suffices for a real consumer
+        # the documented promise is that process_hints() runs after
+        # process_runtime(), so the subclass can adjust runtime_values based
+        # on the hints -- here it sets the memory limit from the max_memory
+        # hint, having found process_runtime()'s output already in place
         class MemoryHintContainer(self.RecordingContainer):
             def process_hints(self, logger, hints_eval):
                 super().process_hints(logger, hints_eval)
+                # record process_runtime()'s output as it stood when
+                # process_hints() was invoked
+                self.docker_at_hints_time = self.runtime_values.get("docker")
                 max_memory = self.hints_values.get("max_memory")
                 if isinstance(max_memory, WDL.Value.Int):
-                    self.memory_limit_bytes = max_memory.value
+                    self.runtime_values["memory_limit"] = max_memory.value
 
         WDL.runtime.task_container._backends["memory_hint_test"] = MemoryHintContainer
         self.addCleanup(
@@ -1806,6 +1815,9 @@ class TestProcessHints(unittest.TestCase):
             task hinted {
                 command <<< echo hello >>>
                 output { String out = "done" }
+                requirements {
+                    container: "ubuntu:latest"
+                }
                 hints {
                     max_memory: 17179869184
                     max_cpu: 4
@@ -1824,10 +1836,67 @@ class TestProcessHints(unittest.TestCase):
         self.assertEqual(WDL.values_to_json(outputs), {"out": "done"})
         container = MemoryHintContainer.last_instance
         self.assertIsNotNone(container)
-        # the full evaluated hints were delivered, and the subclass acted on
-        # the one it consumes
+        # the full evaluated hints were delivered
         self.assertEqual(container.hints_values["max_cpu"], WDL.Value.Int(4))
-        self.assertEqual(container.memory_limit_bytes, 17179869184)
+        # process_runtime() had already populated runtime_values (from the
+        # task's container requirement) when process_hints() ran...
+        self.assertEqual(container.docker_at_hints_time, "ubuntu:latest")
+        self.assertEqual(container.runtime_values["docker"], "ubuntu:latest")
+        # ...and the subclass's hint-driven adjustment is in place
+        self.assertEqual(container.runtime_values["memory_limit"], 17179869184)
+
+    WORKFLOW_WDL = """version 1.2
+    task t1 {
+        command <<< echo one >>>
+        output { String out = "one" }
+    }
+    task t2 {
+        input { String s }
+        command <<< echo ~{s} >>>
+        output { String out = s }
+        hints {
+            aws: hints {
+                instance_type: "p5.48xlarge"
+            }
+        }
+    }
+    workflow wf {
+        call t1
+        call t2 {
+            input: s = t1.out
+        }
+        output {
+            String out = t2.out
+        }
+    }
+    """
+
+    def _run_workflow(self, inputs_json):
+        doc = WDL.parse_document(self.WORKFLOW_WDL)
+        doc.typecheck()
+        wf = doc.workflow
+        inputs = WDL.values_from_json(
+            inputs_json, wf.available_inputs, wf.required_inputs, namespace="wf"
+        )
+        return WDL.runtime.workflow.run_local_workflow(self._cfg, wf, inputs, run_dir=self._dir)
+
+    def test_block_hint_override_rejected_at_workflow_start(self):
+        # t2 depends on t1; an override of t2's block-declared "aws" hint is
+        # rejected at workflow startup, before t1 (or any task) runs --
+        # previously it surfaced only when t2 was reached, after t1 had
+        # already run to completion
+        with self.assertRaises(WDL.Error.InputError) as ctx:
+            self._run_workflow({"wf.t2.hints.aws": {"instance_type": "m5.large"}})
+        self.assertIn("openwdl/wdl#773", str(ctx.exception))
+        self.assertIsNone(self.RecordingContainer.last_instance)
+        self.assertEqual(self.RecordingContainer.run_count, 0)
+
+    def test_workflow_run_with_ordinary_hint_override(self):
+        # positive control: an ordinary (top-level, undeclared) hint override
+        # doesn't trip the startup validation, and the workflow runs through
+        _, outputs = self._run_workflow({"wf.t2.hints.max_cpu": 8})
+        self.assertEqual(WDL.values_to_json(outputs), {"out": "one"})
+        self.assertEqual(self.RecordingContainer.run_count, 2)
 
 
 class TestSwarmMiscConfigUidGid(unittest.TestCase):

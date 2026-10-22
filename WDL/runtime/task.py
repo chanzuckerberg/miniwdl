@@ -781,30 +781,21 @@ def _eval_task_hints(
     ``aws.instance_type``), or targeting a key declared with a
     ``hints{...}``/``input{...}``/``output{...}`` block, are input errors:
     the spec is ambiguous about nested hint overrides and miniwdl does not
-    commit to a reading while openwdl/wdl#773 is unresolved.
+    commit to a reading while openwdl/wdl#773 is unresolved. The dotted-path
+    case is normally rejected while the inputs are parsed (see
+    WDL.values_from_json and WDL.CLI.runner_input), and workflow runs
+    validate the block case once at startup (see
+    WDL.runtime.workflow.run_local_workflow); both are re-checked here for
+    programmatically-constructed inputs.
 
     A hint whose expression fails to evaluate at runtime is dropped
     individually, with a logged warning naming the key: a task execution
     never fails due to a hint (WDL 1.2 spec, Hints section). Typechecking
     errors in hint expressions remain strict errors, raised earlier.
     """
-    overrides: dict[str, Value.Base] = {}
-    for b in inputs.enter_namespace("hints"):
-        if "." in b.name:
-            raise Error.InputError(
-                f"unsupported hint override '{b.name}': hint overrides address"
-                " top-level hint keys only; overriding a value within a hint is"
-                " not supported yet (see openwdl/wdl#773)"
-            )
-        declared = task.hints.get(b.name)
-        if isinstance(declared, (Tree.HintsObject, Tree.IOHints)):
-            kind = "hints" if isinstance(declared, Tree.HintsObject) else declared.kind
-            raise Error.InputError(
-                f"unsupported hint override '{b.name}': the '{b.name}' hint is declared"
-                f" with a {kind} {{ ... }} block, which cannot be overridden yet"
-                " (see openwdl/wdl#773)"
-            )
-        overrides[b.name] = b.value
+    hint_bindings = list(inputs.enter_namespace("hints"))
+    Tree._validate_hint_override_names(task.hints, [b.name for b in hint_bindings])
+    overrides: dict[str, Value.Base] = {b.name: b.value for b in hint_bindings}
 
     ans: dict[str, Value.Base] = {}
     for key, v in task.hints.items():

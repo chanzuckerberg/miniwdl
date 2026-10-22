@@ -30,6 +30,7 @@ from . import (
     ReadSourceResult,
     Scatter,
     Task,
+    Tree,
     Type,
     Value,
     Workflow,
@@ -1059,6 +1060,10 @@ def runner_input(
                         )
                     )
                 ):
+                    if override == "hints":
+                        # as in values_from_json: hint overrides may only
+                        # address top-level hint keys
+                        Tree._check_hint_override_name(".".join(nmparts[runtime_idx + 1 :]))
                     break
 
         if not decl:

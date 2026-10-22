@@ -339,6 +339,10 @@ class TaskContainer(ABC):
         Subclasses may override this to consume custom hints (before or after invoking
         this base version).
 
+        Hint values supplied as overrides in the input JSON or on the command line
+        arrive untyped (they aren't checked against the declared hints' types), so
+        consumers should coerce and validate them defensively.
+
         TODO: compute environments (WDL 1.2 spec, Hints Section > Compute
         Environments): let a backend declare the environment names it represents
         (e.g. "aws") and merge hints[env] over the top-level hints, since reserved

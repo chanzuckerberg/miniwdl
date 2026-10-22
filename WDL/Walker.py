@@ -193,7 +193,11 @@ class SetParents(Base):
 
     On Decl, the contaning Task, Workflow, Scatter, or Conditional.
 
-    On each Expr, the containing Expr, Decl, Call, Scatter, Conditional, Task.
+    On HintsObject and IOHints, the containing Task, Workflow, HintsObject,
+    or IOHints.
+
+    On each Expr, the containing Expr, Decl, Call, Scatter, Conditional,
+    HintsObject, IOHints, or Task.
     """
 
     def __init__(self) -> None:
@@ -254,6 +258,18 @@ class SetParents(Base):
         self._parent_stack.append(obj)
         super().decl(obj)
         self._parent_stack.pop()
+
+    def hints_object(self, obj: Tree.HintsObject) -> None:
+        self._parent_stack.append(obj)
+        super().hints_object(obj)
+        self._parent_stack.pop()
+        obj.parent = self._parent_stack[-1]
+
+    def io_hints(self, obj: Tree.IOHints) -> None:
+        self._parent_stack.append(obj)
+        super().io_hints(obj)
+        self._parent_stack.pop()
+        obj.parent = self._parent_stack[-1]
 
     def expr(self, obj: Expr.Base) -> None:
         self._parent_stack.append(obj)
