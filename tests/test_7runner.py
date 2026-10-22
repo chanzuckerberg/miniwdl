@@ -1645,6 +1645,136 @@ class TestDirectoryIO(RunnerTestCase):
         got = {b.name: b.value for b in env}
         assert got["plain"].value == os.path.join(self._dir, "inputs", "data", "plain.txt")
 
+    def test_input_json_file_relative_path_file_shadowed_by_directory(self):
+        # a same-named *directory* relative to the input file doesn't count as a
+        # candidate for a File input, so the valid file relative to the working
+        # directory is used instead (with the consolidated fallback warning)
+        target = self._input_json_fixture()
+        os.remove(os.path.join(self._dir, "inputs", "data", "plain.txt"))
+        os.makedirs(os.path.join(self._dir, "inputs", "data", "plain.txt"))
+        os.makedirs(os.path.join(self._dir, "cwd", "data"))
+        with open(os.path.join(self._dir, "cwd", "data", "plain.txt"), mode="w") as outfile:
+            print("real file", file=outfile)
+        with open(os.path.join(self._dir, "inputs", "shadow.json"), mode="w") as outfile:
+            json.dump({"w.plain": "data/plain.txt"}, outfile)
+
+        old_cwd = os.getcwd()
+        try:
+            os.chdir(os.path.join(self._dir, "cwd"))
+            with self.assertLogs("miniwdl-run", level="WARNING") as logs:
+                env = WDL.CLI.runner_input_json_file(
+                    target.available_inputs,
+                    target.name,
+                    os.path.join(self._dir, "inputs", "shadow.json"),
+                    None,
+                    "/",
+                )
+        finally:
+            os.chdir(old_cwd)
+        assert len(logs.records) == 1
+        msg = logs.records[0].getMessage()
+        assert "1 relative paths in" in msg
+        assert "resolved relative to the working directory" in msg
+        assert "deprecated" in msg
+        assert "data/plain.txt" in msg
+        got = {b.name: b.value for b in env}
+        assert os.path.realpath(got["plain"].value) == os.path.realpath(
+            os.path.join(self._dir, "cwd", "data", "plain.txt")
+        )
+
+    def test_input_json_file_relative_path_directory_shadowed_by_file(self):
+        # a same-named *file* relative to the input file doesn't count as a
+        # candidate for a Directory input, so the valid directory relative to the
+        # working directory is used instead (with the consolidated fallback warning)
+        target = self._input_json_fixture()
+        os.rmdir(os.path.join(self._dir, "inputs", "data", "subdir"))
+        with open(os.path.join(self._dir, "inputs", "data", "subdir"), mode="w") as outfile:
+            print("not a directory", file=outfile)
+        os.makedirs(os.path.join(self._dir, "cwd", "data", "subdir"))
+        with open(os.path.join(self._dir, "inputs", "shadow.json"), mode="w") as outfile:
+            json.dump({"w.d": "data/subdir"}, outfile)
+
+        old_cwd = os.getcwd()
+        try:
+            os.chdir(os.path.join(self._dir, "cwd"))
+            with self.assertLogs("miniwdl-run", level="WARNING") as logs:
+                env = WDL.CLI.runner_input_json_file(
+                    target.available_inputs,
+                    target.name,
+                    os.path.join(self._dir, "inputs", "shadow.json"),
+                    None,
+                    "/",
+                )
+        finally:
+            os.chdir(old_cwd)
+        assert len(logs.records) == 1
+        msg = logs.records[0].getMessage()
+        assert "1 relative paths in" in msg
+        assert "resolved relative to the working directory" in msg
+        assert "deprecated" in msg
+        assert "data/subdir" in msg
+        got = {b.name: b.value for b in env}
+        assert os.path.realpath(got["d"].value) == os.path.realpath(
+            os.path.join(self._dir, "cwd", "data", "subdir")
+        )
+
+    def test_input_json_file_relative_path_wrong_kind_not_found(self):
+        # no candidate of the expected kind in either place: the not-found error
+        # names the path relative to the input file's directory
+        target = self._input_json_fixture()
+        os.makedirs(os.path.join(self._dir, "inputs", "data", "missing.txt"))
+        os.makedirs(os.path.join(self._dir, "elsewhere"))
+        with open(os.path.join(self._dir, "inputs", "wrongkind.json"), mode="w") as outfile:
+            json.dump({"w.plain": "data/missing.txt"}, outfile)
+
+        old_cwd = os.getcwd()
+        try:
+            os.chdir(os.path.join(self._dir, "elsewhere"))
+            with self.assertRaises(WDL.Error.InputError) as ctx:
+                WDL.CLI.runner_input_json_file(
+                    target.available_inputs,
+                    target.name,
+                    os.path.join(self._dir, "inputs", "wrongkind.json"),
+                    None,
+                    "/",
+                )
+        finally:
+            os.chdir(old_cwd)
+        assert "File not found: " + os.path.join(self._dir, "inputs", "data", "missing.txt") in str(
+            ctx.exception
+        )
+
+    def test_input_json_file_relative_path_same_file(self):
+        # the same file reachable relative to both the input file and the working
+        # directory (here, via a hard link): the input file's directory is used,
+        # with no ambiguity warning
+        target = self._input_json_fixture()
+        os.makedirs(os.path.join(self._dir, "cwd", "data"))
+        os.link(
+            os.path.join(self._dir, "inputs", "data", "plain.txt"),
+            os.path.join(self._dir, "cwd", "data", "plain.txt"),
+        )
+        with open(os.path.join(self._dir, "inputs", "same.json"), mode="w") as outfile:
+            json.dump({"w.plain": "data/plain.txt"}, outfile)
+
+        old_cwd = os.getcwd()
+        try:
+            os.chdir(os.path.join(self._dir, "cwd"))
+            with LogCapture("miniwdl-run", level=logging.WARNING) as capture:
+                env = WDL.CLI.runner_input_json_file(
+                    target.available_inputs,
+                    target.name,
+                    os.path.join(self._dir, "inputs", "same.json"),
+                    None,
+                    "/",
+                )
+        finally:
+            os.chdir(old_cwd)
+        assert not any("exist relative to both" in rec.getMessage() for rec in capture.records)
+        assert not any("working directory" in rec.getMessage() for rec in capture.records)
+        got = {b.name: b.value for b in env}
+        assert got["plain"].value == os.path.join(self._dir, "inputs", "data", "plain.txt")
+
 
 class TestNoneLiteral(RunnerTestCase):
     def test_none_eval(self):
