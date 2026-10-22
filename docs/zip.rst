@@ -10,7 +10,24 @@
 
 Optionally, you can also include a JSON file with default workflow inputs. Any command-line arguments provided at runtime are merged into (override) these defaults. The ZIP file includes a ``MANIFEST.json`` identifying the top-level WDL and inputs JSON, if present.
 
-The embedded default inputs JSON is stored at the root of the ZIP as ``default_input.json``, with its contents unchanged. When the archive is run, relative File/Directory paths in that JSON therefore resolve relative to the archive root (the directory where the ZIP is unpacked for the run) -- not the folder the JSON originally lived in, whose base does not carry into the archive. Bundled files must consequently be stored in the ZIP at locations matching the JSON's relative references: for example, an inputs JSON at ``inputs/inputs.json`` referring to ``data/f.txt`` does *not* match the file stored by ``--add inputs/data/f.txt`` (at ``inputs/data/f.txt`` in the ZIP), even though a direct ``miniwdl run --input inputs/inputs.json`` resolves the same reference correctly. Lay out the ZIP so each referenced file lands at the path the JSON expects, e.g. by running ``miniwdl zip`` from within ``inputs/``, or by adding files under paths relative to the JSON's folder. Relative paths to data outside the archive still resolve against the working directory as a deprecated fallback (with a warning), e.g. when running the archive from the original project directory; prefer bundling such data with ``--add``, or use absolute paths for it.
+``miniwdl zip`` copies the default inputs JSON to the archive root as ``default_input.json``, without rewriting its contents. When the archive runs, relative ``File`` and ``Directory`` paths in that JSON resolve against the unpacked archive root.
+
+To keep paths consistent between direct and archived runs, place the inputs JSON beside the main WDL file and write paths relative to their shared directory. For example, a JSON value of ``data/f.txt`` works with this layout:
+
+.. code-block:: text
+
+   project/
+     main.wdl
+     inputs.json
+     data/f.txt
+
+From ``project/``, bundle the data with:
+
+.. code-block:: bash
+
+   miniwdl zip main.wdl --input inputs.json --add data/f.txt
+
+If a relative path isn't found in the archive, miniwdl also checks the working directory and logs a deprecation warning when that fallback succeeds. Prefer bundling the data with ``--add``, or use absolute paths for external data.
 
 Use ``--additional``/``--add`` to include other files, directories, or glob patterns; they'll be stored in the ZIP at the same relative location to the WDL source files. Importantly, be sure to add any files/directories needed for WDL 1.2+ source-relative inputs.
 
