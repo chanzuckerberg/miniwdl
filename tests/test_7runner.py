@@ -1539,9 +1539,9 @@ class TestDirectoryIO(RunnerTestCase):
             os.chdir(old_cwd)
         assert len(logs.records) == 1
         msg = logs.records[0].getMessage()
-        assert "1 relative paths in" in msg
+        assert "count: 1" in msg
         assert os.path.join(self._dir, "inputs", "fallback.json") in msg
-        assert "resolved relative to the working directory" in msg
+        assert "resolved against the working directory" in msg
         assert "data/only_cwd.txt" in msg
         assert "deprecated" in msg
         got = {b.name: b.value for b in env}
@@ -1577,7 +1577,7 @@ class TestDirectoryIO(RunnerTestCase):
             os.chdir(old_cwd)
         assert len(logs.records) == 1
         msg = logs.records[0].getMessage()
-        assert "3 relative paths in" in msg
+        assert "count: 3" in msg
         assert "data/c1.txt" in msg and "data/c2.txt" in msg
         assert "deprecated" in msg
         got = {b.name: b.value for b in env}
@@ -1612,10 +1612,10 @@ class TestDirectoryIO(RunnerTestCase):
             os.chdir(old_cwd)
         assert len(logs.records) == 1
         msg = logs.records[0].getMessage()
-        assert "1 relative paths in" in msg
+        assert "count: 1" in msg
         assert os.path.join(self._dir, "inputs", "both.json") in msg
         assert "exist relative to both" in msg
-        assert "using the former" in msg
+        assert "using the ones relative to the input file" in msg
         assert "data/plain.txt" in msg
         got = {b.name: b.value for b in env}
         assert got["plain"].value == os.path.join(self._dir, "inputs", "data", "plain.txt")
@@ -1673,8 +1673,8 @@ class TestDirectoryIO(RunnerTestCase):
             os.chdir(old_cwd)
         assert len(logs.records) == 1
         msg = logs.records[0].getMessage()
-        assert "1 relative paths in" in msg
-        assert "resolved relative to the working directory" in msg
+        assert "count: 1" in msg
+        assert "resolved against the working directory" in msg
         assert "deprecated" in msg
         assert "data/plain.txt" in msg
         got = {b.name: b.value for b in env}
@@ -1709,8 +1709,8 @@ class TestDirectoryIO(RunnerTestCase):
             os.chdir(old_cwd)
         assert len(logs.records) == 1
         msg = logs.records[0].getMessage()
-        assert "1 relative paths in" in msg
-        assert "resolved relative to the working directory" in msg
+        assert "count: 1" in msg
+        assert "resolved against the working directory" in msg
         assert "deprecated" in msg
         assert "data/subdir" in msg
         got = {b.name: b.value for b in env}

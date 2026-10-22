@@ -49,9 +49,14 @@ The default local scheduler observes these task `requirements {}` attributes (in
 * `docker_network` (String): name of a Docker network to which to attach the container, e.g. "host"; the network name must also appear in the configuration option `[docker_swarm] allow_networks` JSON list.
 * `privileged` (Boolean): if true, *and* configuration option `[task_runtime] allow_privileged = true`, then run task containers with privileged capabilities. (Not recommended, for security & portability reasons.)
 
-## Relative paths in inputs JSON
+## Relative paths in input files
 
-Relative `File` and `Directory` paths in an inputs JSON file (`--input inputs.json`) resolve first relative to the directory containing that file, as suggested by the WDL specification. If a path isn't found there but exists relative to the working directory, it's resolved relative to the working directory and a deprecation warning is logged (one consolidated warning per inputs file); prefer paths relative to the inputs file, or absolute paths. If the path exists in both places as different files, the inputs file's directory wins and a warning is logged. Input JSON supplied inline or on standard input has no containing file, so its relative paths resolve relative to the working directory.
+Relative `File` and `Directory` paths in an input file (`--input inputs.json`, JSON or YAML) are resolved against the directory containing that file, as the WDL specification suggests. For compatibility with earlier miniwdl versions:
+
+* If a path doesn't exist relative to the input file but does exist relative to the working directory, miniwdl uses the latter and logs a warning (once per input file). This fallback is deprecated; write such paths relative to the input file, or as absolute paths.
+* If a path exists relative to both, as different files, miniwdl uses the one relative to the input file and logs a warning.
+
+Inputs supplied inline (`--input '{...}'`), on standard input (`--input -`), or as `name=value` command-line arguments have no containing file, so their relative paths are resolved against the working directory. URIs are used as given.
 
 ## File & Directory URI downloads
 

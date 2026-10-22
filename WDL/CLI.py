@@ -1204,17 +1204,27 @@ def runner_input_json_file(available_inputs, namespace, input_file, downloadable
         logger = logging.getLogger("miniwdl-run")
         if fallback_paths:
             logger.warning(
-                f"{len(fallback_paths)} relative paths in {input_file} resolved relative to "
-                f"the working directory rather than that file's directory {input_dir} "
-                f"(e.g. {', '.join(fallback_paths[:2])}); this fallback is deprecated, "
-                "since relative paths in an input file should be relative to that file "
-                "(or absolute)"
+                _(
+                    "relative paths in input file not found relative to its directory, so"
+                    " resolved against the working directory instead; this fallback is"
+                    " deprecated (make paths relative to the input file, or absolute)",
+                    input_file=input_file,
+                    input_dir=input_dir,
+                    count=len(fallback_paths),
+                    examples=fallback_paths[:2],
+                )
             )
         if ambiguous_paths:
             logger.warning(
-                f"{len(ambiguous_paths)} relative paths in {input_file} exist relative to "
-                f"both that file's directory {input_dir} and the working directory; using "
-                f"the former (e.g. {', '.join(ambiguous_paths[:2])})"
+                _(
+                    "relative paths in input file exist relative to both its directory and"
+                    " the working directory, as different files; using the ones relative to"
+                    " the input file",
+                    input_file=input_file,
+                    input_dir=input_dir,
+                    count=len(ambiguous_paths),
+                    examples=ambiguous_paths[:2],
+                )
             )
 
     return ans
