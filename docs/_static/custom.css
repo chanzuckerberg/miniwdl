@@ -1,0 +1,7 @@
+/* Leave room at the bottom of the sidebars and page footer so their last entries can scroll clear
+   of the fixed-position ad that Read the Docs may overlay along the bottom of the viewport. */
+.sidebar-scroll,
+.toc-scroll,
+.content > footer {
+  padding-bottom: 6rem;
+}

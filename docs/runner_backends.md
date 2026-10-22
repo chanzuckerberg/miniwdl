@@ -1,6 +1,6 @@
 # `miniwdl run` container runtimes
 
-miniwdl's default Docker task runtime is recommended for production use. Users unable to employ the Docker daemon may configure miniwdl to use [Podman](https://podman.io/), [Singularity](https://sylabs.io/singularity/), or [udocker](https://indigo-dc.github.io/udocker/) instead (locally on Linux hosts only). Podman is the most compatible with Docker, but also typically requires root privileges. Singularity and udocker don't need to run as root, but impose a few other limitations.
+miniwdl's default Docker task runtime is recommended for production use. Users unable to employ the Docker daemon may configure miniwdl to use [Podman](https://podman.io/), [Apptainer](https://apptainer.org/) (formerly Singularity), or [udocker](https://indigo-dc.github.io/udocker/) instead (locally on Linux hosts only). Podman is the most compatible with Docker, but also typically requires root privileges. Apptainer and udocker don't need to run as root, but impose a few other limitations.
 
 ## Podman (BETA)
 
@@ -10,12 +10,12 @@ To configure miniwdl to use `sudo podman` instead of Docker:
 
 1. Allow relevant user(s) to `sudo podman` without password entry using [this procedure](https://minikube.sigs.k8s.io/docs/drivers/podman/#known-issues).
 2. Run the following command to sanity-check Podman: `sudo -kn podman run ubuntu:20.04 cat /etc/issue`
-3. Set the environment variable `MINIWDL__SCHEDULER__CONTAINER_BACKEND=podman` or the equivalent [configuration file](https://miniwdl.readthedocs.io/en/latest/runner_reference.html#configuration) option `[scheduler] container_backend=podman`
+3. Set the environment variable `MINIWDL__SCHEDULER__CONTAINER_BACKEND=podman` or the equivalent [configuration file](runner_reference.md#configuration) option `[scheduler] container_backend=podman`
 4. Test the configuration with `miniwdl run_self_test`
 
-If your podman installation is configured such that you [needn't/can't run it with `sudo`](https://github.com/containers/podman/blob/main/docs/tutorials/rootless_tutorial.md), then override `MINIWDL__PODMAN__EXE='["podman"]'` or set `[podman] exe = ["podman"]`, and proceed with step 3 above.
+If your Podman installation is configured such that you [needn't/can't run it with `sudo`](https://github.com/podman-container-tools/podman/blob/main/docs/tutorials/rootless_tutorial.md), then override `MINIWDL__PODMAN__EXE='["podman"]'` or set `[podman] exe = ["podman"]`, and proceed with step 3 above.
 
-If podman seems unable to pull Docker Hub images by "short-name": see [this thread](https://github.com/containers/podman/issues/9390#issuecomment-970305169)
+If Podman seems unable to pull Docker Hub images by "short-name," see [this thread](https://github.com/podman-container-tools/podman/issues/9390#issuecomment-970305169).
 
 Limitations:
 
@@ -23,21 +23,22 @@ Limitations:
   * Alternatives to the passwordless configuration include [increasing the timeout](https://unix.stackexchange.com/questions/382060/change-default-sudo-password-timeout), using a background script to [refresh it temporarily](https://serverfault.com/a/702019), or running miniwdl itself as root.
 * Unlike with the Docker daemon, separate `miniwdl run` processes using the Podman runtime don't coordinate their CPU/memory reservations for container scheduling. Running multiple resource-intensive workflows concurrently (with separate `miniwdl run` invocations) is liable to overload the host.
 
-## Singularity (BETA)
+(singularity-beta)=
+## Apptainer (BETA)
 
-Once a system administrator [installs Singularity](https://sylabs.io/guides/master/admin-guide/installation.html), it's usually operated without root privileges. To configure miniwdl to use Singularity instead of Docker:
+Once a system administrator [installs Apptainer](https://apptainer.org/docs/admin/main/installation.html), it's usually operated without root privileges. Apptainer is the successor to Singularity, and miniwdl's backend for it is still named `singularity`. It invokes the `singularity` command, which Apptainer [provides for compatibility](https://apptainer.org/docs/user/main/singularity_compatibility.html). (Sylabs' SingularityCE, a separately maintained fork, may also work, but isn't covered by miniwdl's CI.) To configure miniwdl to use Apptainer instead of Docker:
 
-1. Run the following command to sanity-check Singularity: `singularity run --fakeroot docker://ubuntu:20.04 cat /etc/issue`
-2. Set the environment variable `MINIWDL__SCHEDULER__CONTAINER_BACKEND=singularity` or the equivalent [configuration file](https://miniwdl.readthedocs.io/en/latest/runner_reference.html#configuration) option `[scheduler] container_backend=singularity`
+1. Run the following command to sanity-check Apptainer: `singularity run --fakeroot docker://ubuntu:22.04 cat /etc/issue`
+2. Set the environment variable `MINIWDL__SCHEDULER__CONTAINER_BACKEND=singularity` or the equivalent [configuration file](runner_reference.md#configuration) option `[scheduler] container_backend=singularity`
 3. Test the configuration with `miniwdl run_self_test`
 
 Limitations:
 
-* Inside a Singularity container, only the working directory and /tmp are writable, while the rest of the file system is read-only. Task commands that attempt to write elsewhere (e.g. installing software/libraries at runtime) will fail.
-* Tasks' `runtime.docker` declarations are used as Docker (OCI) image tags with [Singularity's Docker image import features](https://sylabs.io/guides/2.6/user-guide/singularity_and_docker.html); SIF image files cannot yet be used directly.
-* Task containers aren't actually restricted to use only their declared `runtime.cpu` and `runtime.memory` resources once they start, although those reservations are considered for parallel scheduling.
+* Inside an Apptainer container, only the working directory and /tmp are writable, while the rest of the file system is read-only. Task commands that attempt to write elsewhere (e.g. installing software/libraries at runtime) will fail.
+* Tasks' `docker`/`container` declarations are used as Docker (OCI) image tags with [Apptainer's Docker/OCI image import features](https://apptainer.org/docs/user/main/docker_and_oci.html); SIF image files cannot yet be used directly.
+* Task containers aren't actually restricted to use only their declared `cpu` and `memory` resources once they start, although those reservations are considered for parallel scheduling.
   * If parallel container scheduling causes problems, then it can be disabled (serializing the workflow) by setting the environment variable `MINIWDL__SCHEDULER__TASK_CONCURRENCY=1` or the equivalent configuration file option `[scheduler] task_concurrency=1`.
-* Unlike with the Docker daemon, separate `miniwdl run` processes using the Singularity runtime don't coordinate their CPU/memory reservations for container scheduling. Running multiple resource-intensive workflows concurrently (with separate `miniwdl run` invocations) is liable to overload the host.
+* Unlike with the Docker daemon, separate `miniwdl run` processes using the Apptainer runtime don't coordinate their CPU/memory reservations for container scheduling. Running multiple resource-intensive workflows concurrently (with separate `miniwdl run` invocations) is liable to overload the host.
 
 ## udocker (BETA)
 
@@ -46,19 +47,19 @@ udocker typically doesn't require root privileges to operate nor even [install](
 To configure miniwdl to use udocker:
 
 1. Run the following command to sanity-check udocker: `udocker run ubuntu:20.04 cat /etc/issue`
-2. Set the environment variable `MINIWDL__SCHEDULER__CONTAINER_BACKEND=udocker` or the equivalent [configuration file](https://miniwdl.readthedocs.io/en/latest/runner_reference.html#configuration) option `[scheduler] container_backend=udocker`
+2. Set the environment variable `MINIWDL__SCHEDULER__CONTAINER_BACKEND=udocker` or the equivalent [configuration file](runner_reference.md#configuration) option `[scheduler] container_backend=udocker`
 3. Test the configuration with `miniwdl run_self_test`
 
 Limitations:
 
 * Tasks running in udocker are able to overwrite their input files (unlike Docker which mounts them read-only). Doing so may have undefined effects on other tasks and the workflow as a whole.
-* Task containers aren't actually restricted to use only their declared `runtime.cpu` and `runtime.memory` resources once they start, although those reservations are considered for parallel scheduling.
+* Task containers aren't actually restricted to use only their declared `cpu` and `memory` resources once they start, although those reservations are considered for parallel scheduling.
   * If parallel container scheduling causes problems, then it can be disabled (serializing the workflow) by setting the environment variable `MINIWDL__SCHEDULER__TASK_CONCURRENCY=1` or the equivalent configuration file option `[scheduler] task_concurrency=1`.
 * Unlike with the Docker daemon, separate `miniwdl run` processes using the udocker runtime don't coordinate their CPU/memory reservations for container scheduling. Running multiple resource-intensive workflows concurrently (with separate `miniwdl run` invocations) is liable to overload the host.
 
 ## External plugins
 
-* [miniwdl-omics-run](https://github.com/miniwdl-ext/miniwdl-omics-run) tool for the [Amazon Omics](https://aws.amazon.com/omics/) workflow service
+* [miniwdl-omics-run](https://github.com/miniwdl-ext/miniwdl-omics-run) tool for the [AWS HealthOmics](https://aws.amazon.com/healthomics/) workflow service
 * [AWS Batch](https://github.com/miniwdl-ext/miniwdl-aws)
 * [SLURM](https://github.com/miniwdl-ext/miniwdl-slurm)
 

@@ -16,13 +16,13 @@ workflow div {
 }
 ```
 
-We'll cover how to add the new construct to the language grammar and syntax tree, implementing the runtime assertion checking for tasks and workflows, and adding appropriate cases to the unit test suite. This builds on the basic miniwdl development process introduced in the previous codelab on [adding library functions](https://miniwdl.readthedocs.io/en/latest/add_functions.html).
+We'll cover how to add the new construct to the language grammar and syntax tree, implementing the runtime assertion checking for tasks and workflows, and adding appropriate cases to the unit test suite. This builds on the basic miniwdl development process introduced in the previous codelab on [adding library functions](add_functions.md).
 
 **Refer to the complete git diff for this example on the [codelab-assert](https://github.com/chanzuckerberg/miniwdl/pull/319/files) branch.**
 
 ## Syntax tree model
 
-Among existing language constructs, the new assertion statement is most similar to a value declaration ([`WDL.Decl`](https://miniwdl.readthedocs.io/en/latest/WDL.html#WDL.Tree.Decl)), insofar as it entails evaluation of a single WDL expression after any dependencies it refers to. Imagine the statement `assert :expr:` translating to the declaration `Boolean some_unique_name = :expr:`, with the special behavior that the runner should raise an error if it evaluates to false.
+Among existing language constructs, the new assertion statement is most similar to a value declaration ({py:obj}`WDL.Decl <WDL.Tree.Decl>`), insofar as it entails evaluation of a single WDL expression after any dependencies it refers to. Imagine the statement `assert :expr:` translating to the declaration `Boolean some_unique_name = :expr:`, with the special behavior that the runner should raise an error if it evaluates to false.
 
 We'll introduce the new statement to the syntax tree model by subclassing `WDL.Decl` in `WDL/Tree.py`,
 
@@ -35,7 +35,7 @@ class Assertion(Decl):
         self.message = f"assertion failed: {str(expr)} ({pos.uri} Ln {pos.line} Col {pos.column})"
 ```
 
-The new subclass initializes its [`WDL.Decl` base](https://miniwdl.readthedocs.io/en/latest/WDL.html#WDL.Tree.Decl) with the boolean type, an arbitrary unique name, and the WDL expression to be evaluated. Actual WDL declaration names can't start with an underscore, so we can be sure this name won't cause collisions.
+The new subclass initializes its {py:obj}`WDL.Decl <WDL.Tree.Decl>` base with the boolean type, an arbitrary unique name, and the WDL expression to be evaluated. Actual WDL declaration names can't start with an underscore, so we can be sure this name won't cause collisions.
 
 A major advantage of this approach is that the workflow runner "sees" the new construct as a declaration, inheriting all the existing logic for analyzing the expression's dependencies and scheduling its evaluation. It also inherits the static type-checking logic to verify that the expression can only evaluate to a boolean value.
 
@@ -59,7 +59,7 @@ assertion: "assert" expr
 
 Reusing the existing `expr` production. Then we can let the statement appear in the body of a task, alongside any of its "non-input" declarations.
 
-```
+```text
 task: "task" CNAME "{" task_section* command task_section* "}"
 ?task_section: input_decls
              | output_decls
@@ -133,7 +133,7 @@ By this point the subroutine has already sorted the declarations in order of the
 
 Now we can add to our `TestAssert` class a new case checking that the assertion causes the task to fail:
 
-```
+```python3
 class TestAssert(RunnerTestCase):
     ...
     def test_negative(self):
@@ -144,7 +144,7 @@ class TestAssert(RunnerTestCase):
 
 Finally we can enable exceptions in workflows as well as tasks. Add our `assertion` production to the grammar for workflow bodies (and scatter/if section bodies):
 
-```
+```text
 workflow: "workflow" CNAME "{" workflow_element* "}"
 ?workflow_element: input_decls | any_decl | call | scatter | conditional | workflow_outputs | meta_section | assertion
 
@@ -171,7 +171,7 @@ class StateMachine:
 
 And add tests,
 
-```
+```python3
 class TestAssert(RunnerTestCase):
     ...
     wf1 = R"""

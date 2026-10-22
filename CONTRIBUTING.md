@@ -60,7 +60,7 @@ miniwdl is structured around a few key components:
 1.  **Runtime (`WDL/runtime/`):** The core execution engine.  It includes logic for task scheduling, resource management, input/output handling, and containerization.  Key submodules here include:
     *   `task.py`: Handles execution of individual WDL tasks.
     *   `workflow.py`: Manages workflow-level execution, including scatter and conditional sections.
-    *   `backend/`:  Contains different containerization backends (Docker Swarm, Singularity, Podman, udocker).
+    *   `backend/`:  Contains different containerization backends (Docker Swarm, Apptainer/Singularity, Podman, udocker).
     *   `cache.py`: Checks if the outputs of a task call, given its specific inputs, have already been computed; if so, reuse the cached outputs instead of re-running the task.
     *   `download.py`: Handles downloading input files from URIs.
 1.  **Command Line Interface (`WDL/CLI.py`, `WDL/__main__.py`):** Provides the command-line interface for interacting with miniwdl (e.g., `miniwdl run`, `miniwdl check`).
@@ -96,10 +96,10 @@ This directory contains the runtime implementation for executing WDL tasks and w
 *   **`__init__.py`:** Provides the `run()` function, the main entry point for executing a WDL task or workflow.
 *   **`_statusbar.py`:**  Implements the status bar displayed during workflow execution (showing progress, resource usage, etc.).
 *   **`backend/`:**  This subdirectory contains implementations of different containerization backends.
-    *   **`cli_subprocess.py`:**  Abstract base class for container backends that use command-line subprocesses (Docker Swarm, Singularity, Podman, udocker).
+    *   **`cli_subprocess.py`:**  Abstract base class for container backends that use command-line subprocesses (Docker Swarm, Apptainer/Singularity, Podman, udocker).
     *   **`docker_swarm.py`:**  Implementation using Docker Swarm.
     *   **`podman.py`:** Implementation using Podman.
-    *   **`singularity.py`:** Implementation using Singularity.
+    *   **`singularity.py`:** Implementation using Apptainer (formerly Singularity).
     *   **`udocker.py`:** Implementation using udocker.
 *   **`cache.py`:**  Implements call caching logic.
 *   **`config.py`:** Handles loading and parsing of the configuration file (`miniwdl.cfg`).

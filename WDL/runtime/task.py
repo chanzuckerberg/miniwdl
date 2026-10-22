@@ -81,7 +81,7 @@ def run_local_task(  # type: ignore[return]
     Inputs shall have been typechecked already. File inputs are presumed to be local POSIX file
     paths that can be mounted into a container.
 
-    :param run_id: unique ID for the run, defaults to workflow name
+    :param run_id: unique ID for the run, defaults to task name
     :param run_dir: directory under which to create a timestamp-named subdirectory for this run
                     (defaults to current working directory).
                     If the final path component is ".", then operate in run_dir directly.
