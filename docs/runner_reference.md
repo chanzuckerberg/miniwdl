@@ -49,6 +49,10 @@ The default local scheduler observes these task `requirements {}` attributes (in
 * `docker_network` (String): name of a Docker network to which to attach the container, e.g. "host"; the network name must also appear in the configuration option `[docker_swarm] allow_networks` JSON list.
 * `privileged` (Boolean): if true, *and* configuration option `[task_runtime] allow_privileged = true`, then run task containers with privileged capabilities. (Not recommended, for security & portability reasons.)
 
+## Relative paths in inputs JSON
+
+Relative `File` and `Directory` paths in an inputs JSON file (`--input inputs.json`) resolve first relative to the directory containing that file, as suggested by the WDL specification. If a path isn't found there but exists relative to the working directory, it's resolved relative to the working directory and a deprecation warning is logged (one consolidated warning per inputs file); prefer paths relative to the inputs file, or absolute paths. If the path exists in both places as different files, the inputs file's directory wins and a warning is logged. Input JSON supplied inline or on standard input has no containing file, so its relative paths resolve relative to the working directory.
+
 ## File & Directory URI downloads
 
 Instead of local paths for File and Directory inputs, miniwdl can accept URIs and download them automatically on run start. Directory URIs should be distinguished by affixing a trailing slash. The following URI schemes have built-in support, which can be extended with plugins:
