@@ -1,8 +1,9 @@
+import logging
 import unittest
 
 from .context import WDL
-from WDL import Env, StdLib, Tree, Value
-from WDL.runtime.task import IOHintsValue, eval_task_hints
+from WDL import Env, StdLib, Tree, Type, Value
+from WDL.runtime.task import _eval_task_hints
 
 # The two task examples from the WDL 1.2 spec's Hints section, verbatim
 SPEC_TEST_HINTS = """version 1.2
@@ -79,33 +80,60 @@ task input_hint {
 """
 
 
-class TestWorkflowHintsFold(unittest.TestCase):
-    def test_bare_key_objects(self):
-        # bare identifiers in key position fold to their names, equivalently
-        # to quoted keys, at any nesting depth
+class TestWorkflowHintsAST(unittest.TestCase):
+    def test_ast_representation(self):
+        # workflow hints are retained as ASTs in the same representation as
+        # task hints (no conversion to plain values at parse time)
         doc = WDL.parse_document(
             """version 1.2
             workflow w {
                 hints {
                     allow_nested_inputs: true
-                    labels: {team: "genomics", "priority": 3}
-                    config: {limits: {cpu: 4}}
+                    labels: {"team": "genomics", "priority": 3}
+                    retry_backoff_sec: [1, 2, 4]
+                    group: hints { contact: "ops@example.org" }
                 }
             }
             """
         )
+        hints = doc.workflow.hints
         self.assertEqual(
-            doc.workflow.hints,
-            {
-                "allow_nested_inputs": True,
-                "labels": {"team": "genomics", "priority": 3},
-                "config": {"limits": {"cpu": 4}},
-            },
+            set(hints), {"allow_nested_inputs", "labels", "retry_backoff_sec", "group"}
         )
+        self.assertIsInstance(hints["allow_nested_inputs"], WDL.Expr.Boolean)
+        self.assertTrue(hints["allow_nested_inputs"].value)
+        self.assertIsInstance(hints["labels"], WDL.Expr.Map)
+        self.assertIsInstance(hints["retry_backoff_sec"], WDL.Expr.Array)
+        group = hints["group"]
+        self.assertIsInstance(group, Tree.HintsObject)
+        self.assertIsInstance(group.values["contact"], WDL.Expr.String)
+        self.assertIsNotNone(doc.workflow.hints_section_pos)
+        # the AST nodes are linked into the tree (parents set by the parser)
+        self.assertIsNotNone(hints["allow_nested_inputs"].parent)
+
+    def test_nonliteral_values(self):
+        # expressions of any kind are rejected in workflow hints, including
+        # function calls, name lookups, arithmetic, and string interpolation
+        for value in ('length(names) > 0', "names", "1 + 2", '"hello ~{names[0]}"'):
+            doc = """version 1.2
+            workflow w {
+                input {
+                    Array[String] names
+                }
+                hints {
+                    allow_nested_inputs: %s
+                }
+            }
+            """ % (
+                value,
+            )
+            with self.assertRaises(WDL.Error.SyntaxError, msg=value):
+                WDL.parse_document(doc)
 
     def test_nonliteral_key(self):
-        # a dotted name or a compound value is not a plain key name/literal
-        for key in ("a.b", "[1]"):
+        # map keys are expressions too: a bare identifier is a name lookup (it
+        # does NOT fold to its name), and compound keys are not literals
+        for key in ("team", "a.b", "[1]"):
             doc = """version 1.2
             workflow w {
                 hints {
@@ -115,8 +143,19 @@ class TestWorkflowHintsFold(unittest.TestCase):
             """ % (
                 key,
             )
-            with self.assertRaises(WDL.Error.SyntaxError):
+            with self.assertRaises(WDL.Error.SyntaxError, msg=key):
                 WDL.parse_document(doc)
+
+    def test_io_block_rejected(self):
+        doc = """version 1.2
+        workflow w {
+            hints {
+                inputs: input { x: hints { } }
+            }
+        }
+        """
+        with self.assertRaises(WDL.Error.SyntaxError):
+            WDL.parse_document(doc)
 
     def test_duplicate_keys_io_block(self):
         txt = """
@@ -328,8 +367,103 @@ class TestHintsTypecheck(unittest.TestCase):
         )
         doc.typecheck()
 
+    def test_runtime_hints_mutually_exclusive(self):
+        # the runtime section is mutually exclusive with the requirements and
+        # hints sections (WDL 1.2 spec, Runtime section)
+        doc = WDL.parse_document(
+            """version 1.2
+            task t {
+                command <<< true >>>
+                runtime {
+                    docker: "ubuntu:latest"
+                }
+                hints {
+                    short_task: true
+                }
+            }
+            """
+        )
+        with self.assertRaises(WDL.Error.ValidationError):
+            doc.typecheck()
+        # requirements + hints together are fine, as is runtime alone
+        for sections in (
+            'requirements { container: "ubuntu:latest" } hints { short_task: true }',
+            'runtime { docker: "ubuntu:latest" }',
+        ):
+            doc = WDL.parse_document(
+                """version 1.2
+                task t {
+                    command <<< true >>>
+                    %s
+                }
+                """
+                % sections
+            )
+            doc.typecheck()
+
+    def test_nested_hints_rejected(self):
+        # the hints type cannot be nested (WDL 1.2 spec, Hints section): a
+        # hints object may appear at the top level of the hints section
+        # (compute environments) and as an input/output entry's value, but a
+        # member of a hints object may not itself have a hints value
+        header = """version 1.2
+        task t {
+            input {
+                File data
+            }
+            command <<< true >>>
+            hints {
+                %s
+            }
+        }
+        """
+        for bad in (
+            # nested within a compute-environment block
+            "aws: hints { nested: hints { x: 1 } }",
+            # nested within an input hints entry
+            "inputs: input { data: hints { nested: hints { x: 1 } } }",
+        ):
+            doc = WDL.parse_document(header % bad)
+            with self.assertRaises(WDL.Error.ValidationError, msg=bad):
+                doc.typecheck()
+        # the non-nested forms remain legal
+        for good in (
+            "aws: hints { instance_type: \"p5.48xlarge\" }",
+            "inputs: input { data: hints { localization_optional: true } }",
+        ):
+            doc = WDL.parse_document(header % good)
+            doc.typecheck()
+
+    def test_io_block_only_under_inputs_outputs(self):
+        # input/output blocks are accepted only under the inputs/outputs
+        # keys (the block kind follows from the key); anywhere else -- under
+        # another top-level key, or nested within an io block entry -- is an
+        # error
+        header = """version 1.2
+        task t {
+            input {
+                File data
+            }
+            command <<< true >>>
+            hints {
+                %s
+            }
+        }
+        """
+        for bad in (
+            "aws: input { data: hints { localization_optional: true } }",
+            "aws: output { }",
+            "inputs: input { data: output { } }",
+        ):
+            doc = WDL.parse_document(header % bad)
+            with self.assertRaises(WDL.Error.ValidationError, msg=bad):
+                doc.typecheck()
+
 
 class TestHintsEval(unittest.TestCase):
+    def _eval(self, task, inputs, env, stdlib):
+        return _eval_task_hints(logging.getLogger(self.id()), task, inputs, env, stdlib)
+
     def test_spec_example_end_to_end(self):
         # spec test_hints task: evaluate the hints, with a JSON override
         doc = WDL.parse_document(SPEC_TEST_HINTS)
@@ -346,16 +480,18 @@ class TestHintsEval(unittest.TestCase):
         )
         env: Env.Bindings[Value.Base] = Env.Bindings()
         env = env.bind("foo", inputs["foo"])
-        ans = eval_task_hints(task, inputs, env, StdLib.Base(task.effective_wdl_version))
+        ans = self._eval(task, inputs, env, StdLib.Base(task.effective_wdl_version))
         self.assertEqual(ans["max_cpu"], Value.Int(12))  # override superseded 24
         self.assertEqual(ans["max_memory"], Value.String("36 GB"))
         self.assertEqual(ans["short_task"], Value.Boolean(True))
         self.assertEqual(ans["localization_optional"], Value.Boolean(False))
+        # the inputs block evaluates to a Struct of Object; its kind follows
+        # from the "inputs" key
         inputs_val = ans["inputs"]
-        self.assertIsInstance(inputs_val, IOHintsValue)
-        self.assertEqual(inputs_val.kind, "input")
+        self.assertIsInstance(inputs_val, Value.Struct)
+        self.assertIsInstance(inputs_val.type, Type.Object)
         self.assertEqual(
-            inputs_val.entries, {"foo": {"localization_optional": Value.Boolean(True)}}
+            inputs_val.value["foo"].value, {"localization_optional": Value.Boolean(True)}
         )
 
     def _fixture(self):
@@ -451,30 +587,34 @@ class TestHintsEval(unittest.TestCase):
                 "wf.analyze.n_threads": 8,
             },
         )
-        ans = eval_task_hints(task, call_inputs, env, stdlib)
+        ans = self._eval(task, call_inputs, env, stdlib)
         self.assertEqual(ans["max_cpu"], Value.Int(16))
         self.assertEqual(ans["max_memory"], Value.String("32 GB"))
+        aws_val = ans["aws"]
+        self.assertIsInstance(aws_val, Value.Struct)
+        self.assertIsInstance(aws_val.type, Type.Object)
         self.assertEqual(
-            ans["aws"],
+            aws_val.value,
             {"instance_type": Value.String("p5.48xlarge"), "max_cpu": Value.Int(96)},
         )
         inputs_val = ans["inputs"]
-        self.assertIsInstance(inputs_val, IOHintsValue)
-        self.assertEqual(inputs_val.kind, "input")
+        self.assertIsInstance(inputs_val, Value.Struct)
+        self.assertIsInstance(inputs_val.type, Type.Object)
         self.assertEqual(
-            inputs_val.entries["person.cv"], {"localization_optional": Value.Boolean(True)}
+            inputs_val.value["person.cv"].value,
+            {"localization_optional": Value.Boolean(True)},
         )
         self.assertEqual(
-            inputs_val.entries["data"]["streaming_min_size_mb"], Value.Int(10)
+            inputs_val.value["data"].value["streaming_min_size_mb"], Value.Int(10)
         )
         outputs_val = ans["outputs"]
-        self.assertIsInstance(outputs_val, IOHintsValue)
-        self.assertEqual(outputs_val.kind, "output")
-        self.assertEqual(outputs_val.entries, {"report": {"max_length": Value.Int(5)}})
+        self.assertIsInstance(outputs_val, Value.Struct)
+        self.assertEqual(outputs_val.value["report"].value, {"max_length": Value.Int(5)})
 
     def test_eval_overrides_replace(self):
         # JSON overrides replace the declared value of their top-level key
-        # wholesale (they do not deep-merge into it)
+        # wholesale (they do not deep-merge into it), and may supply hints
+        # the task doesn't declare
         _, task, wf, stdlib = self._fixture()
         call_inputs, env = self._call_env(
             task,
@@ -485,24 +625,169 @@ class TestHintsEval(unittest.TestCase):
                 "wf.d": "data/reads.bam",
                 "wf.analyze.n_threads": 8,
                 "wf.analyze.hints.max_cpu": 32,
-                "wf.analyze.hints.aws.instance_type": "p5.24xlarge",
-                "wf.analyze.hints.inputs.data.localization_optional": True,
+                "wf.analyze.hints.custom_new": "hello",
+                "wf.analyze.hints.disk_spec": {"/mnt/data": "SSD"},
             },
         )
-        ans = eval_task_hints(task, call_inputs, env, stdlib)
+        ans = self._eval(task, call_inputs, env, stdlib)
         self.assertEqual(ans["max_cpu"], Value.Int(32))
-        # the whole aws object was superseded: declared max_cpu is gone
-        self.assertEqual(ans["aws"], {"instance_type": Value.String("p5.24xlarge")})
-        # the whole inputs block was superseded: the person.cv entry is gone,
-        # but the kind tag is retained
-        inputs_val = ans["inputs"]
-        self.assertIsInstance(inputs_val, IOHintsValue)
-        self.assertEqual(inputs_val.kind, "input")
-        self.assertEqual(
-            inputs_val.entries, {"data": {"localization_optional": Value.Boolean(True)}}
-        )
+        self.assertEqual(ans["custom_new"], Value.String("hello"))
+        # an object-valued override arrives in the same Struct-of-Object
+        # shape as an evaluated declared hints object (cf. ans["aws"])
+        disk_spec = ans["disk_spec"]
+        self.assertIsInstance(disk_spec, Value.Struct)
+        self.assertIsInstance(disk_spec.type, Type.Object)
+        self.assertEqual(disk_spec.value, {"/mnt/data": Value.String("SSD")})
         # untouched keys still come from the WDL declarations
         self.assertEqual(ans["max_memory"], Value.String("32 GB"))
+        self.assertEqual(
+            ans["aws"].value,
+            {"instance_type": Value.String("p5.48xlarge"), "max_cpu": Value.Int(96)},
+        )
+
+    def test_eval_override_errors(self):
+        # Overrides addressing a value below the top-level key, and overrides
+        # of keys declared with hints/input/output blocks, are input errors
+        # citing openwdl/wdl#773 (the spec is ambiguous about nested hint
+        # overrides; see the "Specifying / Overriding" spec section)
+        _, task, wf, stdlib = self._fixture()
+        bad_overrides = [
+            # below the top-level key
+            {"wf.analyze.hints.aws.instance_type": "p5.24xlarge"},
+            {"wf.analyze.hints.inputs.data.localization_optional": True},
+            # top-level key declared with a hints {} block
+            {"wf.analyze.hints.aws": {"instance_type": "p5.24xlarge"}},
+            # top-level key declared with an input {} block
+            {"wf.analyze.hints.inputs": {"data": {"localization_optional": True}}},
+        ]
+        for bad in bad_overrides:
+            inputs_json = {
+                "wf.p": {"name": "Joe", "cv": "data/cv.pdf"},
+                "wf.d": "data/reads.bam",
+                "wf.analyze.n_threads": 8,
+            }
+            inputs_json.update(bad)
+            call_inputs, env = self._call_env(task, wf, stdlib, inputs_json)
+            with self.assertRaises(WDL.Error.InputError, msg=str(bad)) as ctx:
+                self._eval(task, call_inputs, env, stdlib)
+            self.assertIn("openwdl/wdl#773", str(ctx.exception), msg=str(bad))
+
+    def test_cli_hints_parity(self):
+        # command-line t.hints.k=v inputs (WDL.CLI.runner_input) are handled
+        # exactly like JSON input hints overrides: accepted against the
+        # task's _hints placeholder and applied/rejected identically by
+        # _eval_task_hints
+        doc = WDL.parse_document(
+            """version 1.2
+            task t {
+                input {
+                    Int n = 4
+                }
+                command <<< true >>>
+                hints {
+                    max_cpu: n * 2
+                    aws: hints {
+                        instance_type: "p5.48xlarge"
+                    }
+                }
+            }
+            workflow wf {
+                call t
+            }
+            """
+        )
+        doc.typecheck()
+        task = doc.tasks[0]
+        wf = doc.workflow
+        assert wf is not None
+        stdlib = StdLib.Base(task.effective_wdl_version)
+        env: Env.Bindings[Value.Base] = Env.Bindings()
+        env = env.bind("n", Value.Int(4))
+        logger = logging.getLogger(self.id())
+
+        def json_call_inputs(key, value):
+            inputs = WDL.values_from_json(
+                {"wf." + key: value}, wf.available_inputs, namespace="wf"
+            )
+            return inputs.enter_namespace("t")
+
+        def cli_call_inputs(arg):
+            _, input_env, _ = WDL.CLI.runner_input(doc, [arg], None, None, None)
+            return input_env.enter_namespace("t")
+
+        # an ordinary top-level override: same binding, same evaluated result
+        # (compared via JSON, as Struct-of-Object values have no equality)
+        json_inputs = json_call_inputs("t.hints.max_cpu", 32)
+        cli_inputs = cli_call_inputs("t.hints.max_cpu=32")
+        self.assertEqual(cli_inputs["hints.max_cpu"], Value.Int(32))
+        self.assertEqual(
+            {
+                k: v.json
+                for k, v in _eval_task_hints(logger, task, cli_inputs, env, stdlib).items()
+            },
+            {
+                k: v.json
+                for k, v in _eval_task_hints(logger, task, json_inputs, env, stdlib).items()
+            },
+        )
+        self.assertEqual(
+            _eval_task_hints(logger, task, cli_inputs, env, stdlib)["max_cpu"],
+            Value.Int(32),
+        )
+
+        # a dotted (below-top-level) override binds on both routes, and both
+        # are rejected identically by _eval_task_hints
+        json_inputs = json_call_inputs("t.hints.aws.instance_type", "p5.24xlarge")
+        cli_inputs = cli_call_inputs("t.hints.aws.instance_type=p5.24xlarge")
+        self.assertEqual(cli_inputs["hints.aws.instance_type"], Value.String("p5.24xlarge"))
+        for call_inputs in (json_inputs, cli_inputs):
+            with self.assertRaises(WDL.Error.InputError) as ctx:
+                _eval_task_hints(logger, task, call_inputs, env, stdlib)
+            self.assertIn("openwdl/wdl#773", str(ctx.exception))
+
+    def test_eval_per_key_drop(self):
+        # a hint that typechecks but fails to evaluate at runtime (division
+        # by zero) is dropped individually, with a warning naming the key;
+        # sibling hints are unaffected. A failure within a nested hints
+        # object drops that top-level key as a whole.
+        doc = WDL.parse_document(
+            """version 1.2
+            task t {
+                input {
+                    Int n = 0
+                }
+                command <<< true >>>
+                hints {
+                    max_cpu: 10 / n
+                    short_task: true
+                    bad_env: hints {
+                        instance_count: 1 / n
+                    }
+                    aws: hints {
+                        instance_type: "p5.48xlarge"
+                    }
+                }
+            }
+            """
+        )
+        doc.typecheck()
+        task = doc.tasks[0]
+        inputs = WDL.values_from_json(
+            {"t.n": 0}, task.available_inputs, task.required_inputs, namespace="t"
+        )
+        env: Env.Bindings[Value.Base] = Env.Bindings()
+        env = env.bind("n", inputs["n"])
+        logger = logging.getLogger(self.id())
+        with self.assertLogs(logger, level="WARNING") as logs:
+            ans = _eval_task_hints(
+                logger, task, inputs, env, StdLib.Base(task.effective_wdl_version)
+            )
+        self.assertEqual(set(ans), {"short_task", "aws"})
+        self.assertEqual(ans["short_task"], Value.Boolean(True))
+        self.assertEqual(ans["aws"].value, {"instance_type": Value.String("p5.48xlarge")})
+        warnings = "\n".join(logs.output)
+        self.assertIn("max_cpu", warnings)
+        self.assertIn("bad_env", warnings)
 
 
 if __name__ == "__main__":

@@ -47,43 +47,51 @@ def to_float(x):
     return float(x)
 
 
-def _workflow_hint_expr_to_literal(
+def _validate_workflow_hint_expr_literal(
     expr: Expr.Base, wdl_version: str | None, declared_version: str | None
-) -> Any:
-    # Constant-fold a literal expression into a plain JSON-like Python value.
-    # (Expr.Base.literal can't be used for composite literals here: the Array/Map/
-    # Struct implementations require type inference to have already run, but this
-    # conversion happens during parsing.)
-    if isinstance(expr, (Expr.Boolean, Expr.Int, Expr.Float)):
-        return expr.value
-    if isinstance(expr, Expr.Null):
-        return None
+) -> None:
+    # Check that an expression is a literal, as the WDL 1.2 spec requires of
+    # workflow hint values. Composite literals are checked recursively, so the
+    # error points at the specific non-literal subexpression. (Map keys are
+    # expressions, checked like values: unlike struct member names, a bare
+    # identifier in key position is a name lookup, not a literal.)
+    if isinstance(expr, (Expr.Boolean, Expr.Int, Expr.Float, Expr.Null)):
+        return
     if isinstance(expr, Expr.String):
-        lit = expr.literal
-        if lit is not None:
-            return lit.value
-    elif isinstance(expr, Expr.Array):
-        return [
-            _workflow_hint_expr_to_literal(item, wdl_version, declared_version)
-            for item in expr.items
-        ]
-    elif isinstance(expr, Expr.Pair):
-        return [
-            _workflow_hint_expr_to_literal(expr.left, wdl_version, declared_version),
-            _workflow_hint_expr_to_literal(expr.right, wdl_version, declared_version),
-        ]
-    elif isinstance(expr, Expr.Map):
-        return {
-            _workflow_hint_map_key_to_literal(k, wdl_version, declared_version): (
-                _workflow_hint_expr_to_literal(v, wdl_version, declared_version)
-            )
-            for k, v in expr.items
-        }
-    elif isinstance(expr, Expr.Struct):
-        return {
-            k: _workflow_hint_expr_to_literal(v, wdl_version, declared_version)
-            for k, v in expr.members.items()
-        }
+        # literal as long as it has no placeholders interpolating expressions
+        for part in expr.parts:
+            if isinstance(part, Expr.Placeholder):
+                raise Error.SyntaxError(
+                    part.expr.pos,
+                    "workflow hint values must be literals; expressions are not allowed",
+                    wdl_version or "",
+                    declared_version,
+                )
+        return
+    if isinstance(expr, Expr.Array):
+        for item in expr.items:
+            _validate_workflow_hint_expr_literal(item, wdl_version, declared_version)
+        return
+    if isinstance(expr, Expr.Pair):
+        _validate_workflow_hint_expr_literal(expr.left, wdl_version, declared_version)
+        _validate_workflow_hint_expr_literal(expr.right, wdl_version, declared_version)
+        return
+    if isinstance(expr, Expr.Map):
+        for k, v in expr.items:
+            if not isinstance(k, (Expr.Boolean, Expr.Int, Expr.Float, Expr.String)):
+                raise Error.SyntaxError(
+                    k.pos,
+                    "workflow hint object keys must be literal values",
+                    wdl_version or "",
+                    declared_version,
+                )
+            _validate_workflow_hint_expr_literal(k, wdl_version, declared_version)
+            _validate_workflow_hint_expr_literal(v, wdl_version, declared_version)
+        return
+    if isinstance(expr, Expr.Struct):
+        for v in expr.members.values():
+            _validate_workflow_hint_expr_literal(v, wdl_version, declared_version)
+        return
     raise Error.SyntaxError(
         expr.pos,
         "workflow hint values must be literals; expressions are not allowed",
@@ -92,38 +100,17 @@ def _workflow_hint_expr_to_literal(
     )
 
 
-def _workflow_hint_map_key_to_literal(
-    expr: Expr.Base, wdl_version: str | None, declared_version: str | None
-) -> Any:
-    # A bare identifier in key position folds to its name, so {"team": "x"} and
-    # {team: "x"} are equivalent in a workflow hints object; any other literal
-    # key folds as usual. A key that is neither a plain name nor a literal
-    # scalar is an error.
-    if isinstance(expr, Expr.Get) and expr.member is None and isinstance(expr.expr, Expr._LeftName):
-        return str(expr.expr.name)
-    key = _workflow_hint_expr_to_literal(expr, wdl_version, declared_version)
-    if not isinstance(key, (str, int, float, bool)):
-        raise Error.SyntaxError(
-            expr.pos,
-            "workflow hint object keys must be names or literal values",
-            wdl_version or "",
-            declared_version,
-        )
-    return key
-
-
-def _workflow_hint_value_to_literal(
-    node: Any, wdl_version: str | None, declared_version: str | None
-) -> Any:
-    # Convert a parsed hints value (from the grammar productions shared by task and
-    # workflow hints sections) into a plain JSON-like value for Tree.Workflow.hints,
-    # enforcing the WDL 1.2 spec rule that workflow hint values must be literals
-    # (unlike task hints, expressions are not allowed).
+def _validate_workflow_hint_literal(
+    node: Tree.HintValue, wdl_version: str | None, declared_version: str | None
+) -> None:
+    # Validate a parsed hints value (from the grammar productions shared by task
+    # and workflow hints sections) for a workflow hints section: the parsed AST
+    # is retained in Tree.Workflow.hints, in the same representation as task
+    # hints; only the spec's literal-values rule is enforced here.
     if isinstance(node, Tree.HintsObject):
-        return {
-            k: _workflow_hint_value_to_literal(v, wdl_version, declared_version)
-            for k, v in node.values.items()
-        }
+        for v in node.values.values():
+            _validate_workflow_hint_literal(v, wdl_version, declared_version)
+        return
     if isinstance(node, Tree.IOHints):
         raise Error.SyntaxError(
             node.pos,
@@ -131,8 +118,7 @@ def _workflow_hint_value_to_literal(
             wdl_version or "",
             declared_version,
         )
-    assert isinstance(node, Expr.Base)
-    return _workflow_hint_expr_to_literal(node, wdl_version, declared_version)
+    _validate_workflow_hint_expr_literal(node, wdl_version, declared_version)
 
 
 class _SourcePositionTransformerMixin:
@@ -773,12 +759,13 @@ class _DocTransformer(_ExprTransformer):
             else:
                 assert False
         self._check_keyword(self._sp(meta), items[0].value)
-        wf_hints: dict[str, Any] = {}
+        wf_hints: dict[str, Tree.HintValue] = {}
+        wf_hints_pos = None
         if hints_section is not None:
             assert isinstance(hints_section, Tree.HintsObject)
-            wf_hints = _workflow_hint_value_to_literal(
-                hints_section, self._version, self._declared_version
-            )
+            _validate_workflow_hint_literal(hints_section, self._version, self._declared_version)
+            wf_hints = hints_section.values
+            wf_hints_pos = hints_section.pos
         return Tree.Workflow(
             self._sp(meta),
             items[0].value,
@@ -790,6 +777,7 @@ class _DocTransformer(_ExprTransformer):
             output_idents,
             output_idents_pos,
             hints=wf_hints,
+            hints_section_pos=wf_hints_pos,
         )
 
     def struct(self, meta, items):

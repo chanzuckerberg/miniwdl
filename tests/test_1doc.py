@@ -2731,7 +2731,11 @@ class TestStruct(unittest.TestCase):
         """
         doc = WDL.parse_document(doc)
         doc.typecheck()
-        self.assertEqual(doc.workflow.hints, {"allow_nested_inputs": True})
+        self.assertEqual(set(doc.workflow.hints), {"allow_nested_inputs"})
+        allow_ni = doc.workflow.hints["allow_nested_inputs"]
+        self.assertIsInstance(allow_ni, WDL.Expr.Boolean)
+        self.assertTrue(allow_ni.value)
+        self.assertIsNotNone(doc.workflow.hints_section_pos)
 
         doc = r"""version 1.2
         workflow w {
@@ -2747,14 +2751,19 @@ class TestStruct(unittest.TestCase):
         """
         doc = WDL.parse_document(doc)
         doc.typecheck()
+        hints = doc.workflow.hints
+        self.assertEqual(set(hints), {"allow_nested_inputs", "labels", "retry_backoff_sec"})
+        self.assertIsInstance(hints["allow_nested_inputs"], WDL.Expr.Boolean)
+        self.assertTrue(hints["allow_nested_inputs"].value)
+        labels = hints["labels"]
+        self.assertIsInstance(labels, WDL.Expr.Map)
         self.assertEqual(
-            doc.workflow.hints,
-            {
-                "allow_nested_inputs": True,
-                "labels": {"team": "genomics", "priority": 3},
-                "retry_backoff_sec": [1, 2, 4],
-            },
+            {k.literal.value: v.literal.value for k, v in labels.items},
+            {"team": "genomics", "priority": 3},
         )
+        backoff = hints["retry_backoff_sec"]
+        self.assertIsInstance(backoff, WDL.Expr.Array)
+        self.assertEqual([item.value for item in backoff.items], [1, 2, 4])
 
         # workflow hint values must be literals; expressions are not allowed
         doc = r"""version 1.2

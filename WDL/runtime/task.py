@@ -13,7 +13,6 @@ from contextlib import ExitStack, suppress
 from typing import (
     TYPE_CHECKING,
     Any,
-    NamedTuple,
 )
 
 import regex
@@ -222,20 +221,12 @@ def run_local_task(  # type: ignore[return]
                     cfg, logger, run_id, task, posix_inputs, container, container_env, stdlib
                 )
 
-                # evaluate hints{} and hand the plain values to the container, which
-                # may use or ignore them (see TaskContainer.process_hints). A hint
-                # evaluation error must not fail the task run, so log a warning and
-                # deliver no hints in that case.
-                try:
-                    hints_values = eval_task_hints(task, posix_inputs, container_env, stdlib)
-                except Exception as exn:
-                    logger.warning(
-                        _(
-                            "task hints could not be evaluated; proceeding without them",
-                            error=str(exn),
-                        )
-                    )
-                    hints_values = {}
+                # evaluate hints{} and hand the values to the container, which
+                # may use or ignore them (see TaskContainer.process_hints).
+                # Individual hints that fail to evaluate are dropped with a
+                # warning inside _eval_task_hints; invalid hint overrides raise
+                # InputError.
+                hints_values = _eval_task_hints(logger, task, posix_inputs, container_env, stdlib)
                 container.process_hints(logger, hints_values)
 
                 if wdl_version_geq(task.effective_wdl_version, WDLVersion.V1_2):
@@ -741,112 +732,94 @@ def _eval_task_runtime(
         logger.warning(_("ignored runtime settings", keys=unused_keys))
 
 
-class IOHintsValue(NamedTuple):
-    """
-    Evaluated form of :class:`WDL.Tree.IOHints` (an ``input{...}``/``output{...}``
-    block in a task ``hints{}`` section), as produced by :func:`eval_task_hints`.
-
-    The ``kind`` tag (``"input"`` or ``"output"``) must survive evaluation,
-    because it is not recoverable from the entries alone; ``entries`` maps each
-    input/output name (or dotted struct member path) to its evaluated hints.
-    """
-
-    kind: str
-    entries: dict[str, Any]
-
-
-def _eval_hint_value(v: Tree.HintValue, env: Env.Bindings[Value.Base], stdlib: StdLib.Base) -> Any:
-    # recursively evaluate a task hints value: Expr -> Value, HintsObject ->
-    # plain dict, IOHints -> IOHintsValue
+def _eval_hint_value(
+    v: Tree.HintValue, env: Env.Bindings[Value.Base], stdlib: StdLib.Base
+) -> Value.Base:
+    # recursively evaluate a task hints value: expressions evaluate to their
+    # WDL.Value; nested hints{...} objects and input{...}/output{...} blocks
+    # become Value.Struct of Type.Object (the input/output block kind follows
+    # from the key the block is stored under, so it isn't retained in the
+    # evaluated value)
     if isinstance(v, Expr.Base):
         return v.eval(env, stdlib)
-    if isinstance(v, Tree.HintsObject):
-        return {k: _eval_hint_value(vv, env, stdlib) for k, vv in v.values.items()}
-    assert isinstance(v, Tree.IOHints)
-    return IOHintsValue(
-        v.kind, {k: _eval_hint_value(vv, env, stdlib) for k, vv in v.values.items()}
-    )
+    members: dict[str, Value.Base] = {}
+    member_types: dict[str, Type.Base] = {}
+    for k, vv in v.values.items():
+        members[k] = _eval_hint_value(vv, env, stdlib)
+        member_types[k] = members[k].type
+    return Value.Struct(Type.Object(member_types), members)
 
 
-def _hint_override_value(v: Value.Base) -> Any:
-    # convert a JSON-supplied hint override value to the same plain shapes
-    # _eval_hint_value produces (compound values become dicts/lists of Values)
-    if isinstance(v, Value.Struct):
-        return {k: _hint_override_value(vv) for k, vv in v.value.items()}
-    if isinstance(v, Value.Map):
-        return {
-            (k.value if isinstance(k, Value.String) else str(k.json)): _hint_override_value(vv)
-            for k, vv in v.value
-        }
-    if isinstance(v, Value.Array):
-        return [_hint_override_value(item) for item in v.value]
-    if isinstance(v, Value.Pair):
-        return [_hint_override_value(v.value[0]), _hint_override_value(v.value[1])]
-    return v
-
-
-def eval_task_hints(
+def _eval_task_hints(
+    logger: logging.Logger,
     task: Tree.Task,
     inputs: Env.Bindings[Value.Base],
     env: Env.Bindings[Value.Base],
     stdlib: StdLib.Base,
-) -> dict[str, Any]:
+) -> dict[str, Value.Base]:
     """
-    Evaluate a task's ``hints{}`` section to plain values, for consumption by
-    execution backends and other tooling. This mirrors the layering of
-    :func:`_eval_task_runtime` for the ``runtime{}``/``requirements{}``
-    sections: the WDL hint expressions are evaluated in the task input
-    environment ``env``, then any hint overrides supplied in the input JSON
-    (bound under the ``hints`` namespace of ``inputs``, e.g. from
-    ``"wf.task.hints.max_cpu"`` input keys) supersede them.
+    Evaluate a task's ``hints{}`` section, for consumption by the task's
+    container (see :meth:`WDL.runtime.task_container.TaskContainer.process_hints`).
+    This mirrors the layering of :func:`_eval_task_runtime` for the
+    ``runtime{}``/``requirements{}`` sections: the WDL hint expressions are
+    evaluated in the task input environment ``env``, then any hint overrides
+    supplied in the input JSON (bound under the ``hints`` namespace of
+    ``inputs``, e.g. from ``"wf.task.hints.max_cpu"`` input keys) supersede
+    them.
 
-    Overrides replace per top-level key: if any override is supplied under a
+    The result maps each top-level hint key to a :class:`WDL.Value.Base`:
+    expressions evaluate to their values, and nested ``hints{...}`` objects
+    and ``input{...}``/``output{...}`` blocks evaluate to
+    :class:`WDL.Value.Struct` of :class:`WDL.Type.Object` -- the same shape
+    JSON overrides arrive in (via ``Value.from_json(Type.Any(), ...)``). The
+    input/output block kind follows from its key (``inputs``/``outputs``).
+
+    Overrides replace per top-level key: if an override is supplied for a
     top-level hint key, the declared value of that key is superseded
     wholesale (its expression is not evaluated); other top-level keys are
-    unaffected.
+    unaffected. Overrides addressing a value below the top-level key (e.g.
+    ``aws.instance_type``), or targeting a key declared with a
+    ``hints{...}``/``input{...}``/``output{...}`` block, are input errors:
+    the spec is ambiguous about nested hint overrides and miniwdl does not
+    commit to a reading while openwdl/wdl#773 is unresolved.
 
-    The result maps each top-level hint key to an evaluated value: WDL
-    expressions become :class:`WDL.Value.Base` instances, nested
-    ``hints{...}`` objects become plain dicts of the same shape, and
-    ``input{...}``/``output{...}`` blocks become :class:`IOHintsValue`.
-
-    During a task run, the core task runner delivers the result to the task's
-    container via :meth:`WDL.runtime.task_container.TaskContainer.process_hints`.
+    A hint whose expression fails to evaluate at runtime is dropped
+    individually, with a logged warning naming the key: a task execution
+    never fails due to a hint (WDL 1.2 spec, Hints section). Typechecking
+    errors in hint expressions remain strict errors, raised earlier.
     """
-    overrides: dict[str, Any] = {}
+    overrides: dict[str, Value.Base] = {}
     for b in inputs.enter_namespace("hints"):
-        # override bindings may use dotted names to address nested values
-        # (e.g. "aws.instance_type"); assemble them into a tree keyed by the
-        # top-level hint key
-        parts = b.name.split(".")
-        tree = overrides
-        for part in parts[:-1]:
-            nxt = tree.get(part)
-            if not isinstance(nxt, dict):
-                nxt = {}
-                tree[part] = nxt
-            tree = nxt
-        tree[parts[-1]] = _hint_override_value(b.value)
+        if "." in b.name:
+            raise Error.InputError(
+                f"unsupported hint override '{b.name}': hint overrides address"
+                " top-level hint keys only; overriding a value within a hint is"
+                " not supported yet (see openwdl/wdl#773)"
+            )
+        declared = task.hints.get(b.name)
+        if isinstance(declared, (Tree.HintsObject, Tree.IOHints)):
+            kind = "hints" if isinstance(declared, Tree.HintsObject) else declared.kind
+            raise Error.InputError(
+                f"unsupported hint override '{b.name}': the '{b.name}' hint is declared"
+                f" with a {kind} {{ ... }} block, which cannot be overridden yet"
+                " (see openwdl/wdl#773)"
+            )
+        overrides[b.name] = b.value
 
-    ans: dict[str, Any] = {}
+    ans: dict[str, Value.Base] = {}
     for key, v in task.hints.items():
         if key not in overrides:
-            ans[key] = _eval_hint_value(v, env, stdlib)
-    for key, override in overrides.items():
-        declared = task.hints.get(key)
-        if isinstance(override, dict) and (
-            isinstance(declared, Tree.IOHints)
-            or (declared is None and key in ("inputs", "outputs"))
-        ):
-            # retain the input/output kind tag; the entries are superseded
-            kind = (
-                declared.kind
-                if isinstance(declared, Tree.IOHints)
-                else ("input" if key == "inputs" else "output")
-            )
-            ans[key] = IOHintsValue(kind, override)
-        else:
-            ans[key] = override
+            try:
+                ans[key] = _eval_hint_value(v, env, stdlib)
+            except Exception as exn:
+                logger.warning(
+                    _(
+                        "task hint could not be evaluated; dropping it",
+                        hint=key,
+                        error=str(exn),
+                    )
+                )
+    ans.update(overrides)
     return ans
 
 

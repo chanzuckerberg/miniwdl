@@ -404,17 +404,21 @@ def _validate_io_hints(
         for part in parts[1:]:
             ty = _struct_member_type(ty, part, struct_types, io)
         if isinstance(value, HintsObject):
+            # the entry value is itself a hints object, so its members are
+            # validated as members of a hints object (no further nesting)
             _validate_hints_values(
-                value.values, input_types, output_types, struct_types, check_quant
-            )
-        elif isinstance(value, IOHints):
-            _validate_io_hints(
-                value,
-                input_types if value.kind == "input" else output_types,
+                value.values,
                 input_types,
                 output_types,
                 struct_types,
                 check_quant,
+                inside_hints_object=True,
+            )
+        elif isinstance(value, IOHints):
+            raise Error.ValidationError(
+                value,
+                "input/output hints blocks may only appear as the 'inputs'/'outputs'"
+                " task hints, not nested within another input/output hints block",
             )
 
 
@@ -424,12 +428,16 @@ def _validate_hints_values(
     output_types: dict[str, Type.Base],
     struct_types: Env.Bindings[dict[str, Type.Base]],
     check_quant: bool,
+    inside_hints_object: bool = False,
 ) -> None:
     # Validate one level of a task hints structure (the top-level section, or
     # recursively the members of a nested hints object, which the spec says
     # follow the same rules). Reserved keys are type-checked against
     # _TASK_HINT_TYPES; "inputs"/"outputs" must be input/output blocks whose
-    # keys name actual task inputs/outputs.
+    # keys name actual task inputs/outputs. The hints type cannot be nested
+    # (WDL 1.2 spec, Hints section): with inside_hints_object set (validating
+    # the members of a hints object -- a compute-environment block, or an
+    # input/output entry's hints), a further hints object member is an error.
     for key, value in values.items():
         if key in ("inputs", "outputs"):
             kind = "input" if key == "inputs" else "output"
@@ -448,17 +456,27 @@ def _validate_hints_values(
         elif isinstance(value, Expr.Base):
             _check_reserved_hint_type(key, value, check_quant)
         elif isinstance(value, HintsObject):
+            if inside_hints_object:
+                raise Error.ValidationError(
+                    value,
+                    "hints objects cannot be nested: a member of a hints object"
+                    " may not itself have a hints value",
+                )
             _validate_hints_values(
-                value.values, input_types, output_types, struct_types, check_quant
-            )
-        elif isinstance(value, IOHints):
-            _validate_io_hints(
-                value,
-                input_types if value.kind == "input" else output_types,
+                value.values,
                 input_types,
                 output_types,
                 struct_types,
                 check_quant,
+                inside_hints_object=True,
+            )
+        elif isinstance(value, IOHints):
+            # the block kind follows from the key: input/output blocks are
+            # only accepted under the "inputs"/"outputs" keys (handled above)
+            raise Error.ValidationError(
+                value,
+                f"task hint '{key}' must not be an input/output block; input/output"
+                " blocks are only allowed under the 'inputs' and 'outputs' hint keys",
             )
 
 
@@ -678,6 +696,17 @@ class Task(SourceNode):
                             str(decl.type), decl.name, "{}"
                         ),
                     )
+        # The runtime section is mutually exclusive with the requirements and
+        # hints sections (WDL 1.2 spec, Runtime section). A task can't declare
+        # both runtime and requirements sections (they share one section dict,
+        # and the parser rejects redundant sections), so runtime+hints is the
+        # combination to check here.
+        if self.runtime_section_name == "runtime" and self.hints:
+            raise Error.ValidationError(
+                self,
+                "task has both runtime and hints sections; in WDL 1.2, the runtime"
+                " section is mutually exclusive with the requirements and hints sections",
+            )
         # First collect a type environment for all the input & postinput
         # declarations, so that we're prepared for possible forward-references
         # in their right-hand side expressions.
@@ -1345,12 +1374,15 @@ class Workflow(SourceNode):
     :type: dict[str,Any]
 
     ``meta{}`` section as a JSON-like dict"""
-    hints: dict[str, Any]
+    hints: dict[str, HintValue]
     """
-    :type: dict[str,Any]
+    :type: dict[str, WDL.Tree.HintValue]
 
-    ``hints{}`` section (for WDL 1.2+ workflows) as a JSON-like dict; the spec
-    requires workflow hint values to be literals (unlike task hints)"""
+    ``hints{}`` section (for WDL 1.2+ workflows), in the same representation
+    as :attr:`Task.hints`; unlike task hints, the spec requires workflow hint
+    values to be literals, which is validated when the document is parsed"""
+    hints_section_pos: SourcePosition | None
+    # Source position of the hints section, if present
 
     _type_env: Env.Bindings[Type.Base] | None = None
     """
@@ -1387,7 +1419,8 @@ class Workflow(SourceNode):
         meta: dict[str, Any],
         output_idents: list[list[str]] | None = None,
         output_idents_pos: SourcePosition | None = None,
-        hints: dict[str, Any] | None = None,
+        hints: dict[str, HintValue] | None = None,
+        hints_section_pos: SourcePosition | None = None,
     ) -> None:
         super().__init__(pos)
         self.name = name
@@ -1399,6 +1432,7 @@ class Workflow(SourceNode):
         self.parameter_meta = parameter_meta
         self.meta = meta
         self.hints = hints or {}
+        self.hints_section_pos = hints_section_pos
         self.complete_calls = True
         self._nodes_by_id = {}
         self.effective_wdl_version = ""  # overridden by Document.__init__
@@ -1498,6 +1532,7 @@ class Workflow(SourceNode):
         yield from self.body
         for d in self.outputs or []:
             yield d
+        yield from self.hints.values()
 
     def typecheck(self, doc: "Document", check_quant: bool) -> None:
         assert doc.workflow is self

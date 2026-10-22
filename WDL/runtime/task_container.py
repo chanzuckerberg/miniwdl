@@ -111,7 +111,7 @@ class TaskContainer(ABC):
     Retry logic (maxRetries, preemptible) is handled externally.
     """
 
-    hints_values: dict[str, Any]
+    hints_values: dict[str, Value.Base]
     """
     Evaluated task hints{} section, to be populated by process_hints(). Unlike
     runtime_values, hints are advisory: the WDL specification provides that an execution
@@ -323,22 +323,30 @@ class TaskContainer(ABC):
                 raise Error.RuntimeError("invalid setting of runtime.gpu")
             ans["gpu"] = runtime_eval["gpu"].value
 
-    def process_hints(self, logger: logging.Logger, hints_eval: dict[str, Any]) -> None:
+    def process_hints(self, logger: logging.Logger, hints_eval: dict[str, Value.Base]) -> None:
         """
         Given the evaluated values from the task hints{} section, populate
         self.hints_values for the backend's optional use.
 
         The core task runner evaluates the hints{} expressions, along with any hint
-        overrides supplied in the input JSON, using WDL.runtime.task.eval_task_hints()
+        overrides supplied in the input JSON, using WDL.runtime.task._eval_task_hints()
         and invokes this method on each task run -- with an empty dict if the task
         declares no hints and no overrides were supplied. This base version simply
-        stores the values without acting on any of them; hints are advisory and an
-        execution engine may ignore any hint for any reason.
+        stores the values (and logs them at debug level) without acting on any of
+        them; hints are advisory and an execution engine may ignore any hint for
+        any reason.
 
         Subclasses may override this to consume custom hints (before or after invoking
         this base version).
+
+        TODO: compute environments (WDL 1.2 spec, Hints Section > Compute
+        Environments): let a backend declare the environment names it represents
+        (e.g. "aws") and merge hints[env] over the top-level hints, since reserved
+        hints within an environment's hints {} override the task-level values. Add
+        with the first backend that consumes hints.
         """
         self.hints_values = dict(hints_eval)
+        logger.debug(_("task hint values", **{key: str(v) for key, v in self.hints_values.items()}))
 
     def build_task_runtime_info_struct(
         self, logger: logging.Logger, run_id: str, task: "Tree.Task"

@@ -1650,8 +1650,8 @@ class TestTaskContainerRetryPaths(unittest.TestCase):
 class TestProcessHints(unittest.TestCase):
     """
     On each task run, the core task runner evaluates the task's hints{} section and
-    hands the plain values to the TaskContainer via process_hints() -- which stores
-    them in hints_values without acting on them.
+    hands the evaluated values (dict[str, Value.Base]) to the TaskContainer via
+    process_hints() -- which stores them in hints_values without acting on them.
     """
 
     class RecordingContainer(TaskContainer):
@@ -1704,15 +1704,18 @@ class TestProcessHints(unittest.TestCase):
         return WDL.values_to_json(outputs)
 
     def test_process_hints_stores_values(self):
-        # the base implementation stores the given dict (as a copy) in hints_values
+        # the base implementation stores the given dict (as a copy) in
+        # hints_values, and logs the values at debug level
         container = self.RecordingContainer(
             self._cfg, "test-run", os.path.join(self._dir, "run")
         )
         self.assertEqual(container.hints_values, {})
         hints = {"max_cpu": WDL.Value.Int(8)}
-        container.process_hints(self._logger, hints)
+        with self.assertLogs(self._logger, level="DEBUG") as logs:
+            container.process_hints(self._logger, hints)
         self.assertEqual(container.hints_values, hints)
         self.assertIsNot(container.hints_values, hints)
+        self.assertIn("max_cpu", "\n".join(logs.output))
 
     def test_run_delivers_evaluated_hints_with_override(self):
         outputs = self._run_task(
@@ -1757,9 +1760,10 @@ class TestProcessHints(unittest.TestCase):
         self.assertEqual(container.hints_calls, 1)
         self.assertEqual(container.hints_values, {})
 
-    def test_run_with_unevaluable_hint_still_succeeds(self):
+    def test_run_with_unevaluable_hint_drops_just_that_hint(self):
         # a hint expression that typechecks but fails to evaluate at run time
-        # (division by zero) must not fail the task; no hints are delivered
+        # (division by zero) must not fail the task; just that hint is
+        # dropped, and the remaining hints are delivered
         outputs = self._run_task(
             """version 1.2
             task bad_hint {
@@ -1768,6 +1772,7 @@ class TestProcessHints(unittest.TestCase):
                 output { String out = "done" }
                 hints {
                     max_cpu: 10 / n
+                    short_task: true
                 }
             }
             """
@@ -1776,7 +1781,53 @@ class TestProcessHints(unittest.TestCase):
         container = self.RecordingContainer.last_instance
         self.assertIsNotNone(container)
         self.assertEqual(container.hints_calls, 1)
-        self.assertEqual(container.hints_values, {})
+        self.assertEqual(container.hints_values, {"short_task": WDL.Value.Boolean(True)})
+
+    def test_consumer_subclass_uses_hint(self):
+        # a TaskContainer subclass can consume hints through process_hints():
+        # here a test-only backend sets its memory limit from the max_memory
+        # hint, showing the interface suffices for a real consumer
+        class MemoryHintContainer(self.RecordingContainer):
+            def process_hints(self, logger, hints_eval):
+                super().process_hints(logger, hints_eval)
+                max_memory = self.hints_values.get("max_memory")
+                if isinstance(max_memory, WDL.Value.Int):
+                    self.memory_limit_bytes = max_memory.value
+
+        WDL.runtime.task_container._backends["memory_hint_test"] = MemoryHintContainer
+        self.addCleanup(
+            WDL.runtime.task_container._backends.pop, "memory_hint_test", None
+        )
+        cfg = WDL.runtime.config.Loader(self._logger, [])
+        cfg.override({"scheduler": {"container_backend": "memory_hint_test"}})
+
+        doc = WDL.parse_document(
+            """version 1.2
+            task hinted {
+                command <<< echo hello >>>
+                output { String out = "done" }
+                hints {
+                    max_memory: 17179869184
+                    max_cpu: 4
+                }
+            }
+            """
+        )
+        doc.typecheck()
+        task = doc.tasks[0]
+        inputs = WDL.values_from_json(
+            {}, task.available_inputs, task.required_inputs, namespace=task.name
+        )
+        _, outputs = WDL.runtime.run_local_task(
+            cfg, task, inputs, run_dir=self._dir, logger_prefix=[self.id()]
+        )
+        self.assertEqual(WDL.values_to_json(outputs), {"out": "done"})
+        container = MemoryHintContainer.last_instance
+        self.assertIsNotNone(container)
+        # the full evaluated hints were delivered, and the subclass acted on
+        # the one it consumes
+        self.assertEqual(container.hints_values["max_cpu"], WDL.Value.Int(4))
+        self.assertEqual(container.memory_limit_bytes, 17179869184)
 
 
 class TestSwarmMiscConfigUidGid(unittest.TestCase):

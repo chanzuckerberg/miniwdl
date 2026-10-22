@@ -214,7 +214,9 @@ class SetParents(Base):
             obj.workflow.parent = obj
 
     def workflow(self, obj: Tree.Workflow) -> None:
+        self._parent_stack.append(obj)
         super().workflow(obj)
+        self._parent_stack.pop()
         obj.parent = None
         for elt in (obj.inputs or []) + obj.body + (obj.outputs or []):
             elt.parent = obj  # type: ignore

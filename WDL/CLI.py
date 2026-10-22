@@ -1039,11 +1039,12 @@ def runner_input(
         decl = available_inputs.get(name)
 
         if not decl:
-            # allow arbitrary runtime overrides (or "requirements" in WDL 1.2)
+            # allow arbitrary runtime/requirements/hints overrides (WDL 1.2)
             nmparts = name.split(".")
             for override in (
                 "requirements",
                 "runtime",
+                "hints",
             ):
                 runtime_idx = next(
                     (i for i, term in enumerate(nmparts) if term == override),
