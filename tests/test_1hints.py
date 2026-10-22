@@ -452,6 +452,33 @@ class TestHintsTypecheck(unittest.TestCase):
         )
         doc.typecheck()
 
+    def test_io_block_struct_output_member(self):
+        # outputs block keys name output declarations; members of a
+        # struct-typed output are addressed by dotted paths (report.summary),
+        # not by bare member names (summary)
+        src = """version 1.2
+        struct Report {
+            File summary
+            Directory bundle
+        }
+        task t {
+            command <<< true >>>
+            output {
+                Report report = Report { summary: "s.txt", bundle: "b" }
+            }
+            hints {
+                outputs: output {
+                    %s
+                }
+            }
+        }
+        """
+        doc = WDL.parse_document(src % "report.summary: hints { max_length: 5 }")
+        doc.typecheck()
+        doc = WDL.parse_document(src % "summary: hints { max_length: 5 }")
+        with self.assertRaises(WDL.Error.NoSuchMember):
+            doc.typecheck()
+
     def test_io_block_rejects_private_declarations(self):
         # the keys of an inputs hint block must name parameters in the task's
         # input{} section; a private (postinput) declaration doesn't qualify
