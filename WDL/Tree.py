@@ -543,8 +543,7 @@ class Task(SourceNode):
         if self.runtime_section_name == "runtime" and self.hints_section_pos is not None:
             raise Error.ValidationError(
                 self.hints_section_pos,
-                "task has both runtime and hints sections; in WDL 1.2, the runtime"
-                " section is mutually exclusive with the requirements and hints sections",
+                "task has both runtime and hints sections, which are mutually exclusive in WDL 1.2",
             )
         # First collect a type environment for all the input & postinput
         # declarations, so that we're prepared for possible forward-references

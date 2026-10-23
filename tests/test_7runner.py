@@ -2108,7 +2108,7 @@ class MiscRegressionTests(RunnerTestCase):
             output {
                 Array[File] files_out = glob("files_out/*")
             }
-            runtime {
+            requirements {
                 container: ["ubuntu:20.04"]
             }
             hints {

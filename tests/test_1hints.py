@@ -440,8 +440,12 @@ class TestHintsTypecheck(unittest.TestCase):
             }
             """
         )
-        with self.assertRaises(WDL.Error.ValidationError):
+        with self.assertRaises(WDL.Error.ValidationError) as ctx:
             doc.typecheck()
+        self.assertEqual(
+            str(ctx.exception),
+            "task has both runtime and hints sections, which are mutually exclusive in WDL 1.2",
+        )
         # an empty hints{} section still counts as declaring hints
         doc = WDL.parse_document(
             """version 1.2
