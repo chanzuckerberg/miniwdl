@@ -45,7 +45,7 @@ Literal paths passed to standard library functions, such as ``read_lines("data/l
 
 ``--add-all`` includes every file under each WDL source directory. If a source directory is in a git work tree, that means the files git tracks plus any untracked files git doesn't ignore, as listed by ``git ls-files``, so all of git's ignore rules apply (``.gitignore`` files at every level, ``.git/info/exclude``, and global excludes). Otherwise, it means all files. Also:
 
-* If ``git`` isn't installed but a source directory appears to be in a git repository (there's a ``.git`` directory or file in it or a parent directory, or a ``.gitignore`` in it, a parent directory, or anywhere below it), ``miniwdl zip`` stops with an error rather than include files git would ignore. Install git, or use ``--add`` instead.
+* If ``git`` isn't installed but a source directory appears to be in a git repository (there's a ``.git`` directory or file, or a ``.gitignore``, in it or anywhere below it), ``miniwdl zip`` stops with an error rather than include files git would ignore. Install git, or use ``--add`` instead.
 * Files in git submodules and nested repositories aren't included. ``miniwdl zip`` warns about each one it skips; include specific files from them with ``--add``.
 * ``--add-all`` may include the targets of computed paths, but ``miniwdl zip`` can't verify that, so it still warns about them.
 

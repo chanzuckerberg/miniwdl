@@ -981,6 +981,8 @@ def _git_ls_files(source_dir: str) -> set[str] | None:
             ],
             capture_output=True,
             check=False,
+            # untranslated messages, for the "not a git repository" check below
+            env={**os.environ, "LC_ALL": "C"},
         )
     except OSError as exn:
         if _repository_evidence(source_dir):
@@ -1007,23 +1009,14 @@ def _git_ls_files(source_dir: str) -> set[str] | None:
 
 def _repository_evidence(source_dir: str) -> bool:
     """
-    Whether there's evidence ``source_dir`` belongs to a git repository, consulted
-    only when git can't be run: a ``.git`` directory or file (worktrees and
-    submodules use a ``.git`` file) in the directory or any ancestor, or a
-    ``.gitignore`` in the directory, any ancestor, or anywhere in the swept tree.
+    Whether the tree the sweep would cover shows incidental evidence of a git
+    repository, consulted only when git can't be run: a ``.git`` directory or file
+    (worktrees and submodules use a ``.git`` file) or a ``.gitignore`` anywhere in
+    ``source_dir`` or below it. Best effort: directories the sweep wouldn't visit,
+    such as ancestors, aren't examined.
     """
-    path = source_dir
-    while True:
-        if os.path.lexists(os.path.join(path, ".git")) or os.path.isfile(
-            os.path.join(path, ".gitignore")
-        ):
-            return True
-        parent = os.path.dirname(path)
-        if parent == path:
-            break
-        path = parent
-    for _dirpath, _dirnames, filenames in os.walk(source_dir):
-        if ".gitignore" in filenames:
+    for _dirpath, dirnames, filenames in os.walk(source_dir):
+        if ".git" in dirnames or ".git" in filenames or ".gitignore" in filenames:
             return True
     return False
 
@@ -1047,8 +1040,8 @@ def _add_all_source_files(
         if git_files is None:
             logger.info(
                 _(
-                    "Source directory is not in a git work tree; including all files under"
-                    " it, with no ignore rules applied",
+                    "Source directory is not in a git work tree (or git is unavailable);"
+                    " including all files under it, with no ignore rules applied",
                     path=source_dir,
                 )
             )
