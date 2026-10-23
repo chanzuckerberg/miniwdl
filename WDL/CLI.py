@@ -880,12 +880,9 @@ def unpack_source_zip(logger, cleanup, uri, file_io_root=None):
             root = os.path.realpath(file_io_root)
             if not path_really_within(os.path.realpath(uri), root):
                 raise Error.InputError(
-                    "unpacked source archive directory is outside file_io.root: "
-                    + os.path.abspath(uri)
-                    + " (file_io.root is "
-                    + root
-                    + "); move the unpacked archive under file_io.root"
-                    " or adjust the configuration"
+                    f"unpacked source archive directory is outside file_io.root: "
+                    f"{os.path.abspath(uri)} (file_io.root is {root}); move the unpacked "
+                    f"archive under file_io.root or adjust the configuration"
                 )
     else:
         if not uri.endswith(".zip"):  # nothing to do

@@ -1432,6 +1432,62 @@ class TestZip(unittest.TestCase):
             source_dir, _main_wdl, _inputs_file = cleanup.enter_context(WDL.Zip.unpack(zip_fn))
             self.assertFalse(os.path.exists(os.path.join(source_dir, "config.json")))
 
+    def test_zip_derived_from_file_input_no_warning(self):
+        # paths derived from a File/Directory input (bam + ".bai", select_first over
+        # Files) evaluate to absolute paths at run time, not source-relative ones, so
+        # they draw no unprovable-reference warning -- unlike paths computed purely
+        # from strings, which still warn (see the fixture & read_json tests)
+        with contextlib.ExitStack() as cleanup:
+            testdir = cleanup.enter_context(tempfile.TemporaryDirectory(prefix="miniwdl_zip_test_"))
+            src = os.path.join(testdir, "src")
+            os.makedirs(src)
+            pathlib.Path(os.path.join(src, "main.wdl")).write_text(
+                "version 1.2\n"
+                "task t {\n"
+                "    input {\n"
+                "        File bam\n"
+                "    }\n"
+                '    File bai = bam + ".bai"\n'
+                "    command { cat ~{bam} }\n"
+                "    output { File o = bai }\n"
+                "}\n"
+                "workflow w {\n"
+                "    input {\n"
+                "        File bam\n"
+                "        File idx = select_first([bam])\n"
+                "    }\n"
+                "    call t { input: bam = bam }\n"
+                "}\n"
+            )
+            doc = WDL.load(os.path.join(src, "main.wdl"))
+            zip_fn = os.path.join(testdir, "source.zip")
+            logger = logging.getLogger("miniwdl_zip_test")
+            with self.assertNoLogs(logger, level="WARNING"):
+                WDL.Zip.build(doc, zip_fn, logger)
+
+    def test_zip_auto_include_summary_log(self):
+        # automatic inclusion logs a one-line summary of files/bytes added, since it
+        # can substantially grow an archive that previously held only WDL sources
+        with contextlib.ExitStack() as cleanup:
+            testdir = cleanup.enter_context(tempfile.TemporaryDirectory(prefix="miniwdl_zip_test_"))
+            src = os.path.join(testdir, "src")
+            os.makedirs(os.path.join(src, "data"))
+            pathlib.Path(os.path.join(src, "data", "a.txt")).write_text("hello\n")
+            pathlib.Path(os.path.join(src, "main.wdl")).write_text(
+                "version 1.2\n"
+                "workflow w {\n"
+                "    input {\n"
+                '        File f = "data/a.txt"\n'
+                "    }\n"
+                "}\n"
+            )
+            doc = WDL.load(os.path.join(src, "main.wdl"))
+            zip_fn = os.path.join(testdir, "source.zip")
+            logger = logging.getLogger("miniwdl_zip_test")
+            with self.assertLogs(logger, level="INFO") as logs:
+                WDL.Zip.build(doc, zip_fn, logger)
+            self.assertIn("Automatically included 1 files (6 bytes)", "\n".join(logs.output))
+
     def test_zip_hoover_ancestor_gitignore(self):
         # the hoover sweep applies .gitignore rules inherited from ancestor directories
         # within the swept tree, not only each directory's own .gitignore

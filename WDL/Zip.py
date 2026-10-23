@@ -102,8 +102,11 @@ def build(
                 source_dirs = []
             archive_dirs = dict(source_dirs)
             include_pairs: list[tuple[str, str, _SourceRelativeRef | None]] = []
+            # expansions computed here are kept for the coverage check below, so it
+            # doesn't have to re-walk the same directory trees to verify them
+            expansions: dict[int, list[tuple[str, str]]] = {}
             if auto_include:
-                for ref in refs:
+                for ref_index, ref in enumerate(refs):
                     if ref.kind != Lint._SourceRelativePathKind.OK or not ref.target:
                         continue
                     dest = _source_relative_dest(ref, archive_dirs)
@@ -123,6 +126,7 @@ def build(
                             )
                         )
                     else:
+                        expansions[ref_index] = expanded
                         include_pairs.extend((src, dst, ref) for src, dst in expanded)
             swept_dirs: set[str] = set()
             if hoover and source_dirs:
@@ -137,7 +141,14 @@ def build(
                 )
             collided: set[str] = set()
             if include_pairs and source_dirs:
-                _include_scanned_paths(dir_to_zip, include_pairs, staged, collided, logger)
+                n_files, n_bytes = _include_scanned_paths(
+                    dir_to_zip, include_pairs, staged, collided, logger
+                )
+                if n_files:
+                    logger.info(
+                        f"Automatically included {n_files} files ({n_bytes} bytes)"
+                        " in the source archive"
+                    )
             _warn_uncovered_source_relative_refs(
                 refs,
                 dir_to_zip,
@@ -146,6 +157,7 @@ def build(
                 collided,
                 auto_include,
                 swept_dirs,
+                expansions,
                 logger,
             )
 
@@ -540,91 +552,113 @@ def _scan_typed_expr_refs(
     description: str,
     refs: list[_SourceRelativeRef],
 ) -> None:
-    # Mirror the recursive literal walk of WDL.Lint._file_coercion_decl_suspicious, but
-    # collect the classification of each File/Directory leaf instead of a boolean verdict.
+    # Walk the File/Directory leaves of the (possibly compound) expression with the
+    # linter's shared leaf generator, collecting the classification of each leaf.
     if expr is None:
         return
-    if isinstance(to_type, (Type.File, Type.Directory)):
-        literal = expr.literal
-        if isinstance(literal, Value.String):
-            if "://" in literal.value:
-                return  # downloadable URI, not source-relative
-            kind = Lint._source_relative_path_kind(
-                source_dir, literal.value, isinstance(to_type, Type.Directory)
-            )
-            if kind == Lint._SourceRelativePathKind.ABSOLUTE:
-                return
-            # the path as written, normalized but with symlinks preserved: both the
-            # runner's resolution (WDL.runtime._io_helpers.resolve_source_relative_path)
-            # and the archive placement key off the literal's own path, never its
-            # realpath, so a symlinked file keeps its own name
-            target = (
-                os.path.abspath(os.path.join(source_dir, literal.value)) if source_dir else None
-            )
-            refs.append(
-                _SourceRelativeRef(
-                    description,
-                    source_dir,
-                    literal.value,
-                    target,
-                    kind,
-                    isinstance(to_type, Type.Directory),
-                    to_type.optional,
-                )
-            )
-        elif isinstance(expr.type, (Type.String, Type.Any)):
-            # path computed by an expression; not statically knowable. An Any-typed
-            # expression (e.g. a StdLib function result coerced to File) is just as
-            # unprovable as a String-typed one, and the declaration still deserves the
-            # uncovered-reference warning (without scanning the expression's own
-            # arguments, which remain out of scope).
-            refs.append(
-                _SourceRelativeRef(
-                    description,
-                    source_dir,
-                    None,
-                    None,
-                    None,
-                    isinstance(to_type, Type.Directory),
-                    to_type.optional,
-                )
-            )
-        return
-    if isinstance(to_type, Type.Array) and isinstance(expr, Expr.Array):
-        for item in expr.items:
-            _scan_typed_expr_refs(to_type.item_type, item, source_dir, description, refs)
-        return
-    if isinstance(to_type, Type.Map) and isinstance(expr, Expr.Map):
-        key_type, value_type = to_type.item_type
-        for key, value in expr.items:
-            _scan_typed_expr_refs(key_type, key, source_dir, description, refs)
-            _scan_typed_expr_refs(value_type, value, source_dir, description, refs)
-        return
-    if isinstance(to_type, Type.Pair) and isinstance(expr, Expr.Pair):
-        _scan_typed_expr_refs(to_type.left_type, expr.left, source_dir, description, refs)
-        _scan_typed_expr_refs(to_type.right_type, expr.right, source_dir, description, refs)
-        return
-    if (
-        isinstance(to_type, Type.StructInstance)
-        and to_type.members
-        and isinstance(expr, Expr.Struct)
-    ):
-        for name, member in expr.members.items():
-            if name in to_type.members:
-                _scan_typed_expr_refs(to_type.members[name], member, source_dir, description, refs)
+    leaves = list(Lint._file_coercion_leaves(to_type, expr))
+    for leaf_type, leaf_expr in leaves:
+        _scan_file_leaf_ref(leaf_type, leaf_expr, source_dir, description, refs)
+    if leaves:
         return
     if isinstance(expr.type, Type.Any) and _type_has_file_positions(to_type):
         # whole value computed with unknown static type (e.g. a StdLib function result);
         # any File/Directory leaves within are unprovable
-        refs.append(
-            _SourceRelativeRef(description, source_dir, None, None, None, False, to_type.optional)
-        )
+        _append_computed_ref(to_type, expr, source_dir, description, refs)
         return
     if _computed_feeds_file_positions(to_type, expr.type):
         # non-literal compound value whose File/Directory leaves are computed at run time
-        refs.append(
-            _SourceRelativeRef(description, source_dir, None, None, None, False, to_type.optional)
+        _append_computed_ref(to_type, expr, source_dir, description, refs)
+
+
+def _append_computed_ref(
+    to_type: Type.Base,
+    expr: Expr.Base,
+    source_dir: str,
+    description: str,
+    refs: list[_SourceRelativeRef],
+) -> None:
+    """
+    Record a File/Directory reference whose path is computed by an expression and so
+    can't be known statically (it will draw the uncovered-reference warning) -- unless
+    the expression derives the path from another File/Directory value: at run time such
+    values are absolute paths supplied as inputs, so paths derived from them (e.g.
+    ``bam + ".bai"``) aren't source-relative, and warning about them would be a false
+    positive burying the warnings that matter.
+    """
+    if _expr_references_file_value(expr):
+        return
+    refs.append(
+        _SourceRelativeRef(description, source_dir, None, None, None, False, to_type.optional)
+    )
+
+
+def _expr_references_file_value(expr: Expr.Base) -> bool:
+    """
+    Whether the expression reads a File/Directory value: an identifier or member access
+    typed File/Directory, possibly nested within a compound type (e.g. a struct member).
+    """
+    stack = [expr]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, (Expr.Ident, Expr.Get)) and _type_has_file_positions(node.type):
+            return True
+        stack.extend(child for child in node.children if isinstance(child, Expr.Base))
+    return False
+
+
+def _scan_file_leaf_ref(
+    to_type: Type.Base,
+    expr: Expr.Base,
+    source_dir: str,
+    description: str,
+    refs: list[_SourceRelativeRef],
+) -> None:
+    # classify one File/Directory leaf (to_type is Type.File or Type.Directory)
+    literal = expr.literal
+    if isinstance(literal, Value.String):
+        if "://" in literal.value:
+            return  # downloadable URI, not source-relative
+        kind = Lint._source_relative_path_kind(
+            source_dir, literal.value, isinstance(to_type, Type.Directory)
         )
+        if kind == Lint._SourceRelativePathKind.ABSOLUTE:
+            return
+        # the path as written, normalized but with symlinks preserved: both the
+        # runner's resolution (WDL.runtime._io_helpers.resolve_source_relative_path)
+        # and the archive placement key off the literal's own path, never its
+        # realpath, so a symlinked file keeps its own name
+        target = os.path.abspath(os.path.join(source_dir, literal.value)) if source_dir else None
+        refs.append(
+            _SourceRelativeRef(
+                description,
+                source_dir,
+                literal.value,
+                target,
+                kind,
+                isinstance(to_type, Type.Directory),
+                to_type.optional,
+            )
+        )
+    elif isinstance(expr.type, (Type.String, Type.Any)):
+        # path computed by an expression; not statically knowable. An Any-typed
+        # expression (e.g. a StdLib function result coerced to File) is just as
+        # unprovable as a String-typed one, and the declaration still deserves the
+        # uncovered-reference warning (without scanning the expression's own
+        # arguments, which remain out of scope) -- unless it derives the path from
+        # another File/Directory value.
+        if not _expr_references_file_value(expr):
+            refs.append(
+                _SourceRelativeRef(
+                    description,
+                    source_dir,
+                    None,
+                    None,
+                    None,
+                    isinstance(to_type, Type.Directory),
+                    to_type.optional,
+                )
+            )
 
 
 def _type_has_file_positions(to_type: Type.Base) -> bool:
@@ -776,7 +810,7 @@ def _include_scanned_paths(
     staged: dict[str, str | None],
     collided: set[str],
     logger: logging.Logger,
-) -> None:
+) -> tuple[int, int]:
     """
     Copy automatically-discovered files (scanner hits, hoover sweep) into the archive staging
     directory at their precomputed archive paths. ``staged`` (archive path -> realpath of the
@@ -788,7 +822,11 @@ def _include_scanned_paths(
     are warnings with any partial file removed: automatic inclusion never fails the archive
     (issue #878). Only failures writing the final archive itself are fatal, and those happen
     later, in :func:`create_reproducible_archive`.
+
+    Returns the number of files (directories excluded) and total bytes newly staged.
     """
+    n_files = 0
+    n_bytes = 0
     for src, dest, ref in pairs:
         dest_path = os.path.join(zip_dir, dest)
         if not path_really_within(dest_path, zip_dir):
@@ -815,12 +853,14 @@ def _include_scanned_paths(
                 )
             )
             continue
+        copied_size: int | None = None
         try:
             if os.path.isdir(src):
                 os.makedirs(dest_path, exist_ok=True)
             else:
                 os.makedirs(os.path.dirname(dest_path), exist_ok=True)
                 shutil.copyfile(src, dest_path)
+                copied_size = os.path.getsize(src)
         except OSError as exn:
             # remove any partially-copied file so the archive doesn't carry a stub
             with contextlib.suppress(OSError):
@@ -836,7 +876,11 @@ def _include_scanned_paths(
             )
             continue
         staged[dest] = os.path.realpath(src)
+        if copied_size is not None:
+            n_files += 1
+            n_bytes += copied_size
         logger.info(f"{dest} <= {src}")
+    return n_files, n_bytes
 
 
 def _load_gitignore(dirpath: str, logger: logging.Logger) -> Any | None:
@@ -1007,6 +1051,7 @@ def _warn_uncovered_source_relative_refs(
     collided: set[str],
     auto_include: bool,
     swept_dirs: set[str],
+    expansions: dict[int, list[tuple[str, str]]],
     logger: logging.Logger,
 ) -> None:
     """
@@ -1017,7 +1062,7 @@ def _warn_uncovered_source_relative_refs(
     have been requested for inclusion.
     """
     kind = Lint._SourceRelativePathKind
-    for ref in refs:
+    for ref_index, ref in enumerate(refs):
         if ref.kind is None:
             # path computed by an expression; statically unknowable either way
             if os.path.realpath(ref.source_dir) not in swept_dirs:
@@ -1047,7 +1092,9 @@ def _warn_uncovered_source_relative_refs(
             dest = _source_relative_dest(ref, archive_dirs)
             if dest is not None and dest in collided:
                 continue  # the collision warning already covered this reference
-            if not _source_relative_ref_covered(ref, zip_dir, archive_dirs, staged):
+            if not _source_relative_ref_covered(
+                ref, zip_dir, archive_dirs, staged, expansions.get(ref_index)
+            ):
                 message = (
                     "Source-relative path is not included in the archive; add it with --additional"
                 )
@@ -1098,6 +1145,7 @@ def _source_relative_ref_covered(
     zip_dir: str,
     archive_dirs: dict[str, str],
     staged: dict[str, str | None],
+    expansion: list[tuple[str, str]] | None = None,
 ) -> bool:
     """
     Whether the archive verifiably covers this reference. For a file: the entry at the
@@ -1107,6 +1155,9 @@ def _source_relative_ref_covered(
     the directory itself must exist in the staging tree AND every file under the target
     directory must be staged, from its corresponding source, at its corresponding
     archive path -- one staged descendant is not proof of whole-directory coverage.
+
+    ``expansion`` is the reference's directory expansion as already computed by the
+    inclusion pass, when available, sparing a second walk of the target tree.
     """
     if ref.target is None:
         return False
@@ -1116,10 +1167,12 @@ def _source_relative_ref_covered(
     target_real = os.path.realpath(ref.target)
     if not ref.directory:
         return staged.get(dest) is not None and staged.get(dest) == target_real
-    try:
-        expected = list(_expand_scanned_target(ref.target, dest, ref))
-    except Error.InputError:
-        return False
+    if expansion is None:
+        try:
+            expansion = list(_expand_scanned_target(ref.target, dest, ref))
+        except Error.InputError:
+            return False
+    expected = expansion
     # every expected entry must be verifiably present: files via the staged map's
     # provenance, directories (including empty ones, which leave no other trace) via
     # the staging tree itself
@@ -1159,7 +1212,7 @@ def _write_no_mtime_zip(zip_archive: str, src_dest_list: list[tuple[pathlib.Path
             if src.is_dir() and not src.is_symlink():
                 # directory entry: trailing slash + directory attributes, no content
                 dest_info = zipfile.ZipInfo(str(dest) + "/")
-                dest_info.external_attr = (0o40775 << 16) | 0x10
+                dest_info.external_attr = (0o40755 << 16) | 0x10
                 archive.writestr(dest_info, b"")
                 continue
             dest_info = zipfile.ZipInfo(str(dest))
