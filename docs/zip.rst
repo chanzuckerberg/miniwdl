@@ -41,7 +41,7 @@ Some references can't be handled this way. ``miniwdl zip`` warns about each of t
 
 Literal paths passed to standard library functions, such as ``read_lines("data/list.txt")``, aren't detected yet (`#941 <https://github.com/chanzuckerberg/miniwdl/issues/941>`_); include those files with ``--add``.
 
-``--add``/``--additional`` includes other files, directories, or glob patterns, stored at the same location relative to the WDL source files. ``--no-auto-include`` turns off automatic inclusion; the references it would have included are reported as warnings instead.
+``--add``/``--additional`` includes other files, directories, or glob patterns, stored at the same location relative to the WDL source files. ``--no-auto-add`` turns off automatic inclusion; the references it would have included are reported as warnings instead.
 
 ``--add-all`` includes every file under each WDL source directory. If a source directory is in a git work tree, that means the files git tracks plus any untracked files git doesn't ignore, as listed by ``git ls-files``, so all of git's ignore rules apply (``.gitignore`` files at every level, ``.git/info/exclude``, and global excludes). Otherwise, it means all files. Also:
 

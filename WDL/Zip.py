@@ -33,7 +33,7 @@ def build(
     meta: dict[str, Any] | None = None,
     archive_format: str = "zip",
     additional_files: list[str] | None = None,
-    auto_include: bool = True,
+    auto_add: bool = True,
     add_all: bool = False,
 ):
     """
@@ -50,7 +50,7 @@ def build(
     :param archive_format: ``"zip"`` or ``"tar"``
     :param additional_files: other files, directories, or glob patterns to include, stored at the
                              same location relative to the WDL source files
-    :param auto_include: automatically include the files and directories named by literal
+    :param auto_add: automatically include the files and directories named by literal
                          source-relative paths in WDL 1.2+ declarations and call inputs. Either
                          way, source-relative references that the archive doesn't cover draw
                          warnings.
@@ -110,7 +110,7 @@ def build(
             # expansions computed here are kept for the coverage check below, so it
             # doesn't have to re-walk the same directory trees to verify them
             expansions: dict[int, list[tuple[str, str]]] = {}
-            if auto_include:
+            if auto_add:
                 for ref_index, ref in enumerate(refs):
                     if ref.kind != Lint._SourceRelativePathKind.OK or not ref.target:
                         continue
@@ -163,7 +163,7 @@ def build(
                 archive_dirs,
                 staged,
                 collided,
-                auto_include,
+                auto_add,
                 swept_dirs,
                 expansions,
                 logger,
@@ -1144,7 +1144,7 @@ def _warn_uncovered_source_relative_refs(
     archive_dirs: dict[str, str],
     staged: dict[str, str | None],
     collided: set[str],
-    auto_include: bool,
+    auto_add: bool,
     swept_dirs: set[str],
     expansions: dict[int, list[tuple[str, str]]],
     logger: logging.Logger,
@@ -1191,7 +1191,7 @@ def _warn_uncovered_source_relative_refs(
                 message = (
                     "Source-relative path is not included in the archive; add it with --additional"
                 )
-                if not auto_include:
+                if not auto_add:
                     message += " (automatic inclusion disabled)"
                 logger.warning(_(message, path=ref.literal, reference=ref.description, dest=dest))
         elif ref.kind == kind.MISSING:

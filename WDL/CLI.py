@@ -2151,9 +2151,9 @@ def fill_zip_subparser(subparsers):
         dest="additional_files",
     )
     zip_parser.add_argument(
-        "--no-auto-include",
+        "--no-auto-add",
         action="store_true",
-        help="don't automatically include files named by literal source-relative paths in "
+        help="don't automatically add files named by literal source-relative paths in "
         "WDL 1.2+ declarations and call inputs (just warn about them)",
     )
     zip_parser.add_argument(
@@ -2174,7 +2174,7 @@ def zip_wdl(
     path=None,
     no_outside_imports=False,
     additional_files=None,
-    no_auto_include=False,
+    no_auto_add=False,
     add_all=False,
     debug=False,
     **kwargs,
@@ -2226,7 +2226,7 @@ def zip_wdl(
             inputs=input_dict,
             archive_format=fmt,
             additional_files=additional_files,
-            auto_include=not no_auto_include,
+            auto_add=not no_auto_add,
             add_all=add_all,
         )
 

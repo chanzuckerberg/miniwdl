@@ -1102,7 +1102,7 @@ class TestZip(unittest.TestCase):
         )
         return testdir, src
 
-    def test_zip_auto_include_source_relative(self):
+    def test_zip_auto_add_source_relative(self):
         with contextlib.ExitStack() as cleanup:
             testdir, src = self._source_relative_fixture(cleanup)
             doc = WDL.load(os.path.join(src, "main.wdl"))
@@ -1131,7 +1131,7 @@ class TestZip(unittest.TestCase):
             # the computed path's would-be target is not swept in
             self.assertFalse(os.path.exists(os.path.join(source_dir, "data/dynamic_A.txt")))
 
-    def test_zip_auto_include_warnings(self):
+    def test_zip_auto_add_warnings(self):
         with contextlib.ExitStack() as cleanup:
             testdir = cleanup.enter_context(tempfile.TemporaryDirectory(prefix="miniwdl_zip_test_"))
             src = os.path.join(testdir, "src")
@@ -1163,14 +1163,14 @@ class TestZip(unittest.TestCase):
             self.assertTrue(os.path.isfile(os.path.join(source_dir, "main.wdl")))
             self.assertFalse(os.path.exists(os.path.join(source_dir, "plain.txt")))
 
-    def test_zip_no_auto_include(self):
+    def test_zip_no_auto_add(self):
         with contextlib.ExitStack() as cleanup:
             testdir, src = self._source_relative_fixture(cleanup)
             doc = WDL.load(os.path.join(src, "main.wdl"))
             zip_fn = os.path.join(testdir, "source.zip")
             logger = logging.getLogger("miniwdl_zip_test")
             with self.assertLogs(logger, level="WARNING") as logs:
-                WDL.Zip.build(doc, zip_fn, logger, auto_include=False)
+                WDL.Zip.build(doc, zip_fn, logger, auto_add=False)
             warnings = "\n".join(logs.output)
             self.assertIn("data/literal.txt", warnings)
             self.assertIn("automatic inclusion disabled", warnings)
@@ -1237,7 +1237,7 @@ class TestZip(unittest.TestCase):
             testdir, src = self._source_relative_fixture(cleanup)
             main_wdl = os.path.join(src, "main.wdl")
             zip_fn = os.path.join(testdir, "cli.zip")
-            WDL.CLI.zip_wdl(main_wdl, output=zip_fn, force=True, no_auto_include=True)
+            WDL.CLI.zip_wdl(main_wdl, output=zip_fn, force=True, no_auto_add=True)
             with zipfile.ZipFile(zip_fn) as zf:
                 self.assertNotIn("data/literal.txt", zf.namelist())
             WDL.CLI.zip_wdl(main_wdl, output=zip_fn, force=True, add_all=True)
@@ -1543,12 +1543,12 @@ class TestZip(unittest.TestCase):
             # with automatic inclusion off, the harvested defaults are reported like
             # any other scanned literal reference
             with self.assertLogs(logger, level="WARNING") as logs:
-                WDL.Zip.build(doc, zip_fn, logger, auto_include=False)
+                WDL.Zip.build(doc, zip_fn, logger, auto_add=False)
             warnings = "\n".join(logs.output)
             self.assertIn("data/default.fa", warnings)
             self.assertIn("automatic inclusion disabled", warnings)
 
-    def test_zip_auto_include_summary_log(self):
+    def test_zip_auto_add_summary_log(self):
         # automatic inclusion logs a one-line summary of files/bytes added, since it
         # can substantially grow an archive that previously held only WDL sources
         with contextlib.ExitStack() as cleanup:
@@ -1648,7 +1648,7 @@ class TestZip(unittest.TestCase):
                     doc,
                     zip_fn,
                     logger,
-                    auto_include=False,
+                    auto_add=False,
                     additional_files=[os.path.join(src, "data", "a")],
                 )
             warnings = "\n".join(logs.output)
@@ -1995,7 +1995,7 @@ class TestZip(unittest.TestCase):
                     doc,
                     zip_fn,
                     logger,
-                    auto_include=False,
+                    auto_add=False,
                     additional_files=[os.path.join(src, "data", "a")],
                 )
             warnings = "\n".join(logs.output)
