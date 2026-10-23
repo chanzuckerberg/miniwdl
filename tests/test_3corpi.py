@@ -1033,11 +1033,25 @@ class TestZip(unittest.TestCase):
                 )
 
     def _git(self, cwd, *args):
-        # test fixtures may drive the git executable directly; product code never does
+        # test fixtures may drive the git executable directly
         subprocess.run(["git", "-C", cwd, *args], check=True, capture_output=True)
 
     def _init_git_repo(self, path):
         self._git(path, "init", "-q")
+
+    @contextlib.contextmanager
+    def _git_unavailable(self):
+        # simulate a machine with no usable git executable: every attempt to run git
+        # raises FileNotFoundError, as exec of a missing program does
+        real_run = subprocess.run
+
+        def run(cmd, *args, **kwargs):
+            if cmd and cmd[0] == "git":
+                raise FileNotFoundError(2, "No such file or directory", "git")
+            return real_run(cmd, *args, **kwargs)
+
+        with unittest.mock.patch.object(subprocess, "run", run):
+            yield
 
     def _source_relative_fixture(self, cleanup):
         # WDL 1.2 workflow exercising the source-relative reference classes of issue #878:
@@ -1734,14 +1748,14 @@ class TestZip(unittest.TestCase):
             os.makedirs(src)
             # the fixture premise is that src isn't in a git work tree; guard it, since
             # a shared machine could have a repository above the temp directory
-            try:
-                import git
-
-                git.Repo(src, search_parent_directories=True)
-            except Exception:
-                pass
-            else:
-                self.skipTest("temporary directory is inside a git work tree")
+            if shutil.which("git"):
+                proc = subprocess.run(
+                    ["git", "-C", src, "rev-parse", "--git-dir"],
+                    capture_output=True,
+                    check=False,
+                )
+                if proc.returncode == 0:
+                    self.skipTest("temporary directory is inside a git work tree")
             pathlib.Path(os.path.join(src, ".gitignore")).write_text("*.log\n")
             pathlib.Path(os.path.join(src, "skip.log")).write_text("log\n")
             pathlib.Path(os.path.join(src, "keep.txt")).write_text("ok\n")
@@ -1755,6 +1769,154 @@ class TestZip(unittest.TestCase):
             source_dir, _main_wdl, _inputs_file = cleanup.enter_context(WDL.Zip.unpack(zip_fn))
             self.assertTrue(os.path.isfile(os.path.join(source_dir, "skip.log")))
             self.assertTrue(os.path.isfile(os.path.join(source_dir, "keep.txt")))
+
+    @unittest.skipUnless(shutil.which("git"), "git executable not available")
+    def test_zip_add_all_non_ascii_names(self):
+        # tracked files with non-ASCII names are swept: git quotes such names in
+        # ls-files output unless -z is used, and the quoted name matches nothing on
+        # disk (the GitPython-based enumeration silently dropped them)
+        with contextlib.ExitStack() as cleanup:
+            testdir = cleanup.enter_context(tempfile.TemporaryDirectory(prefix="miniwdl_zip_test_"))
+            src = os.path.join(testdir, "src")
+            os.makedirs(src)
+            pathlib.Path(os.path.join(src, "main.wdl")).write_text("version 1.2\nworkflow w {}\n")
+            pathlib.Path(os.path.join(src, "tracked café.txt")).write_text("tracked\n")
+            pathlib.Path(os.path.join(src, "données.txt")).write_text("untracked\n")
+            self._init_git_repo(src)
+            self._git(src, "add", "tracked café.txt")
+            doc = WDL.load(os.path.join(src, "main.wdl"))
+            zip_fn = os.path.join(testdir, "source.zip")
+            WDL.Zip.build(doc, zip_fn, logging.getLogger("miniwdl_zip_test"), add_all=True)
+            source_dir, _main_wdl, _inputs_file = cleanup.enter_context(WDL.Zip.unpack(zip_fn))
+            self.assertTrue(os.path.isfile(os.path.join(source_dir, "tracked café.txt")))
+            self.assertTrue(os.path.isfile(os.path.join(source_dir, "données.txt")))
+
+    def test_zip_add_all_git_unavailable_plain_dir(self):
+        # with no usable git executable and no evidence of a repository, --add-all
+        # falls back to sweeping everything, exactly as outside a work tree (bug:
+        # GitPython raised ImportError at import, crashing even plain directories)
+        with contextlib.ExitStack() as cleanup:
+            testdir = cleanup.enter_context(tempfile.TemporaryDirectory(prefix="miniwdl_zip_test_"))
+            src = os.path.join(testdir, "src")
+            os.makedirs(src)
+            if shutil.which("git"):
+                proc = subprocess.run(
+                    ["git", "-C", src, "rev-parse", "--git-dir"],
+                    capture_output=True,
+                    check=False,
+                )
+                if proc.returncode == 0:
+                    self.skipTest("temporary directory is inside a git work tree")
+            pathlib.Path(os.path.join(src, "keep.txt")).write_text("ok\n")
+            pathlib.Path(os.path.join(src, "main.wdl")).write_text("version 1.2\nworkflow w {}\n")
+            doc = WDL.load(os.path.join(src, "main.wdl"))
+            zip_fn = os.path.join(testdir, "source.zip")
+            logger = logging.getLogger("miniwdl_zip_test")
+            with self.assertLogs(logger, level="INFO") as logs, self._git_unavailable():
+                WDL.Zip.build(doc, zip_fn, logger, add_all=True)
+            self.assertIn("not in a git work tree", "\n".join(logs.output))
+            source_dir, _main_wdl, _inputs_file = cleanup.enter_context(WDL.Zip.unpack(zip_fn))
+            self.assertTrue(os.path.isfile(os.path.join(source_dir, "keep.txt")))
+
+    def test_zip_add_all_git_unavailable_repo_evidence(self):
+        # with no usable git executable, evidence that the directory belongs to a
+        # repository -- a .git directory in it, or a .gitignore in an ancestor --
+        # makes --add-all stop with an error instead of sweeping everything and
+        # bypassing the ignore rules the user relies on
+        for evidence in ["git_dir", "ancestor_gitignore"]:
+            with self.subTest(evidence=evidence), contextlib.ExitStack() as cleanup:
+                testdir = cleanup.enter_context(
+                    tempfile.TemporaryDirectory(prefix="miniwdl_zip_test_")
+                )
+                src = os.path.join(testdir, "src")
+                os.makedirs(src)
+                if evidence == "git_dir":
+                    os.makedirs(os.path.join(src, ".git"))
+                else:
+                    pathlib.Path(os.path.join(testdir, ".gitignore")).write_text("*.log\n")
+                pathlib.Path(os.path.join(src, "main.wdl")).write_text(
+                    "version 1.2\nworkflow w {}\n"
+                )
+                doc = WDL.load(os.path.join(src, "main.wdl"))
+                zip_fn = os.path.join(testdir, "source.zip")
+                logger = logging.getLogger("miniwdl_zip_test")
+                with self._git_unavailable(), self.assertRaisesRegex(
+                    WDL.Error.InputError, "install git.*drop --add-all and use --add"
+                ):
+                    WDL.Zip.build(doc, zip_fn, logger, add_all=True)
+
+    def test_zip_add_all_git_unavailable_tree_gitignore(self):
+        # a .gitignore anywhere in the swept tree is also repository evidence when
+        # git can't be run (here it's the only evidence: no .git anywhere)
+        with contextlib.ExitStack() as cleanup:
+            testdir = cleanup.enter_context(tempfile.TemporaryDirectory(prefix="miniwdl_zip_test_"))
+            src = os.path.join(testdir, "src")
+            os.makedirs(os.path.join(src, "sub"))
+            pathlib.Path(os.path.join(src, "sub", ".gitignore")).write_text("*.log\n")
+            pathlib.Path(os.path.join(src, "main.wdl")).write_text("version 1.2\nworkflow w {}\n")
+            doc = WDL.load(os.path.join(src, "main.wdl"))
+            zip_fn = os.path.join(testdir, "source.zip")
+            logger = logging.getLogger("miniwdl_zip_test")
+            with self._git_unavailable(), self.assertRaisesRegex(
+                WDL.Error.InputError, "install git.*drop --add-all and use --add"
+            ):
+                WDL.Zip.build(doc, zip_fn, logger, add_all=True)
+
+    @unittest.skipUnless(shutil.which("git"), "git executable not available")
+    def test_zip_add_all_submodule_not_swept(self):
+        # git lists a submodule as a single gitlink entry: --add-all doesn't sweep
+        # its contents, and warns about the skip
+        with contextlib.ExitStack() as cleanup:
+            testdir = cleanup.enter_context(tempfile.TemporaryDirectory(prefix="miniwdl_zip_test_"))
+            sub_src = os.path.join(testdir, "sub_src")
+            os.makedirs(sub_src)
+            pathlib.Path(os.path.join(sub_src, "inner.txt")).write_text("inner\n")
+            src = os.path.join(testdir, "src")
+            os.makedirs(src)
+            pathlib.Path(os.path.join(src, "main.wdl")).write_text("version 1.2\nworkflow w {}\n")
+            try:
+                self._init_git_repo(sub_src)
+                self._git(
+                    sub_src,
+                    "-c",
+                    "user.email=miniwdl@test",
+                    "-c",
+                    "user.name=miniwdl",
+                    "add",
+                    "inner.txt",
+                )
+                self._git(
+                    sub_src,
+                    "-c",
+                    "user.email=miniwdl@test",
+                    "-c",
+                    "user.name=miniwdl",
+                    "commit",
+                    "-q",
+                    "-m",
+                    "inner",
+                )
+                self._init_git_repo(src)
+                self._git(
+                    src,
+                    "-c",
+                    "protocol.file.allow=always",
+                    "submodule",
+                    "add",
+                    "-q",
+                    sub_src,
+                    "sub",
+                )
+            except subprocess.CalledProcessError:
+                self.skipTest("could not build a submodule fixture in this environment")
+            doc = WDL.load(os.path.join(src, "main.wdl"))
+            zip_fn = os.path.join(testdir, "source.zip")
+            logger = logging.getLogger("miniwdl_zip_test")
+            with self.assertLogs(logger, level="WARNING") as logs:
+                WDL.Zip.build(doc, zip_fn, logger, add_all=True)
+            self.assertIn("submodule", "\n".join(logs.output))
+            source_dir, _main_wdl, _inputs_file = cleanup.enter_context(WDL.Zip.unpack(zip_fn))
+            self.assertFalse(os.path.exists(os.path.join(source_dir, "sub", "inner.txt")))
 
     def test_zip_missing_empty_descendant_warns(self):
         # directory coverage checks directories too: staging every file of a Directory

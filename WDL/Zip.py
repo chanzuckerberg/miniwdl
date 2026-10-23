@@ -13,6 +13,7 @@ import logging
 import os
 import pathlib
 import shutil
+import subprocess
 import tarfile
 import tempfile
 import zipfile
@@ -54,8 +55,11 @@ def build(
                          source code; warn about any source-relative references that can't be
                          covered statically (disable to only warn about the literal references)
     :param add_all: also include all other files under each WDL source directory; in a git
-                    work tree, the files git tracks plus untracked files git doesn't ignore;
-                    outside a work tree, all files (no ignore rules are applied there)
+                    work tree, the files git tracks plus untracked files git doesn't ignore
+                    (enumerated by running ``git ls-files``); outside a work tree, all files
+                    (no ignore rules are applied there). If git can't be run but a source
+                    directory shows evidence of belonging to a repository, raises InputError
+                    instead of sweeping files the ignore rules would have excluded
     """
 
     with contextlib.ExitStack() as cleanup:
@@ -937,41 +941,85 @@ def _include_scanned_paths(
     return n_files, n_bytes
 
 
-def _git_tracked_and_untracked(
-    source_dir: str, cache: dict[str, frozenset[str]]
-) -> set[str] | None:
+def _git_ls_files(source_dir: str) -> set[str] | None:
     """
-    Enumerate the files git attributes to ``source_dir``: tracked files, plus untracked
-    files not excluded by git's standard ignore rules (``.gitignore`` files at every
-    level of the work tree, ``.git/info/exclude``, and global excludes). Returns
-    source-directory-relative paths with POSIX separators, or None if ``source_dir``
-    isn't in a git work tree (or git can't be consulted). The enumeration is delegated
-    to git itself (via GitPython) so ignore semantics -- inheritance, negations, pruning
-    of excluded directories -- are git's own rather than a reimplementation. Results are
-    cached per work-tree root in ``cache`` (root -> root-relative paths).
-    """
-    import git
+    Enumerate the files git attributes to ``source_dir``, by running
+    ``git -C <source_dir> ls-files -z --cached --others --exclude-standard``: one
+    command lists tracked files plus untracked files not excluded by git's standard
+    ignore rules (``.gitignore`` files at every level of the work tree,
+    ``.git/info/exclude``, and global excludes), with NUL-separated paths relative to
+    ``source_dir`` (``-z`` leaves non-ASCII names unquoted). Ignore semantics --
+    inheritance, negations, pruning of excluded directories -- are git's own rather
+    than a reimplementation. Returns None if ``source_dir`` isn't in a git work tree,
+    in which case the caller sweeps all files without ignore filtering.
 
+    If git can't be consulted at all (no usable executable, or the command fails for
+    a reason other than "not a repository"), raise :class:`Error.InputError` when
+    there's evidence the directory belongs to a repository (see
+    :func:`_repository_evidence`): silently sweeping everything would bypass the
+    ignore rules the user is relying on. ``--add-all`` is an explicit opt-in, so this
+    is its one sanctioned hard failure; absent such evidence, the directory is
+    treated as a plain directory and None is returned.
+    """
     try:
-        repo = git.Repo(source_dir, search_parent_directories=True)
-    except git.GitError:
+        proc = subprocess.run(
+            [
+                "git",
+                "-C",
+                source_dir,
+                "ls-files",
+                "-z",
+                "--cached",
+                "--others",
+                "--exclude-standard",
+            ],
+            capture_output=True,
+            check=False,
+        )
+    except OSError as exn:
+        if _repository_evidence(source_dir):
+            raise Error.InputError(
+                "--add-all requires git to enumerate files under the source directory"
+                f" ({source_dir}), but the git executable could not be run;"
+                " install git, or drop --add-all and use --add instead"
+            ) from exn
         return None
-    root_path = repo.working_tree_dir
-    if root_path is None:  # bare repository: no work tree to sweep
-        return None
-    root = os.fspath(root_path)
-    if root not in cache:
-        try:
-            cache[root] = frozenset(repo.git.ls_files().splitlines()) | frozenset(
-                repo.untracked_files
-            )
-        except git.GitError:
+    if proc.returncode != 0:
+        if b"not a git repository" in proc.stderr:
             return None
-    rel = os.path.relpath(source_dir, root)
-    if rel == ".":
-        return set(cache[root])
-    prefix = rel.replace(os.sep, "/") + "/"
-    return {path[len(prefix) :] for path in cache[root] if path.startswith(prefix)}
+        if _repository_evidence(source_dir):
+            stderr_lines = proc.stderr.decode("utf-8", errors="replace").strip().splitlines()
+            detail = stderr_lines[0] if stderr_lines else f"exit status {proc.returncode}"
+            raise Error.InputError(
+                "--add-all requires git to enumerate files under the source directory"
+                f" ({source_dir}), but git ls-files failed: {detail};"
+                " install git, or drop --add-all and use --add instead"
+            )
+        return None
+    return {os.fsdecode(entry) for entry in proc.stdout.split(b"\0") if entry}
+
+
+def _repository_evidence(source_dir: str) -> bool:
+    """
+    Whether there's evidence ``source_dir`` belongs to a git repository, consulted
+    only when git can't be run: a ``.git`` directory or file (worktrees and
+    submodules use a ``.git`` file) in the directory or any ancestor, or a
+    ``.gitignore`` in the directory, any ancestor, or anywhere in the swept tree.
+    """
+    path = source_dir
+    while True:
+        if os.path.lexists(os.path.join(path, ".git")) or os.path.isfile(
+            os.path.join(path, ".gitignore")
+        ):
+            return True
+        parent = os.path.dirname(path)
+        if parent == path:
+            break
+        path = parent
+    for _dirpath, _dirnames, filenames in os.walk(source_dir):
+        if ".gitignore" in filenames:
+            return True
+    return False
 
 
 def _add_all_source_files(
@@ -980,15 +1028,16 @@ def _add_all_source_files(
     """
     Yield (file, archive path) for every file under each WDL source directory, per the
     --add-all sweep. In a git work tree, the file set is git's own enumeration (see
-    :func:`_git_tracked_and_untracked`), so ``.git`` internals are never swept. Outside
-    a git work tree, ignore rules are not emulated: all files under the directory are
-    swept, with an info note logged. Either way, symlinks resolving outside the swept
-    directory are skipped with a warning, mirroring ``--additional``'s safety posture.
+    :func:`_git_ls_files`), so ``.git`` internals are never swept. Outside a git work
+    tree, ignore rules are not emulated: all files under the directory are swept, with
+    an info note logged. Either way, symlinks resolving outside the swept directory
+    are skipped with a warning, mirroring ``--additional``'s safety posture. Files
+    inside git submodules aren't swept: git lists a submodule as a single (gitlink)
+    entry, and skipping one is warned about.
     """
-    cache: dict[str, frozenset[str]] = {}
     for source_dir, archive_dir in source_dirs:
         root = os.path.realpath(source_dir)
-        git_files = _git_tracked_and_untracked(root, cache)
+        git_files = _git_ls_files(root)
         if git_files is None:
             logger.info(
                 _(
@@ -1004,7 +1053,16 @@ def _add_all_source_files(
             if os.path.realpath(file_path) in exclude:
                 continue
             if os.path.isdir(file_path) and not os.path.islink(file_path):
-                continue  # directory entry in git's listing (e.g. a submodule)
+                # a directory in git's file listing is a submodule (gitlink) entry;
+                # its contents aren't swept
+                logger.warning(
+                    _(
+                        "Skipping submodule for the source archive:"
+                        " --add-all does not include files inside git submodules",
+                        path=file_path,
+                    )
+                )
+                continue
             if not os.path.isfile(file_path):
                 continue  # tracked but since deleted, or a dangling symlink
             if not path_really_within(file_path, root):
