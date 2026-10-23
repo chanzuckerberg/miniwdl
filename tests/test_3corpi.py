@@ -13,6 +13,7 @@ import pathlib
 import hashlib
 import time
 import textwrap
+import zipfile
 from .context import WDL
 import WDL.Lint
 
@@ -1030,6 +1031,184 @@ class TestZip(unittest.TestCase):
                     logger,
                 )
 
+    def _source_relative_fixture(self, cleanup):
+        # WDL 1.2 workflow exercising the source-relative reference classes of issue #878:
+        # literal File/Directory defaults, literals nested in an Array, a computed path,
+        # an optional missing default, a call input binding, and an imported task default
+        testdir = cleanup.enter_context(tempfile.TemporaryDirectory(prefix="miniwdl_zip_test_"))
+        src = os.path.join(testdir, "src")
+        os.makedirs(os.path.join(src, "data", "refdir"))
+        os.makedirs(os.path.join(src, "lib"))
+        for relpath, contents in [
+            ("data/literal.txt", "literal\n"),
+            ("data/refdir/a.txt", "a\n"),
+            ("data/refdir/b.txt", "b\n"),
+            ("data/ref.fa", "fa\n"),
+            ("data/ref.fa.fai", "fai\n"),
+            ("data/dynamic_A.txt", "dynamic\n"),
+            ("data/callbound.txt", "callbound\n"),
+            ("lib/helper.txt", "helper\n"),
+        ]:
+            pathlib.Path(os.path.join(src, relpath)).write_text(contents)
+        pathlib.Path(os.path.join(src, "lib", "tasks.wdl")).write_text(
+            "version 1.2\n"
+            "task helper_task {\n"
+            "    input {\n"
+            '        File helper = "helper.txt"\n'
+            "        String msg\n"
+            "    }\n"
+            "    command { cat ~{helper} }\n"
+            "    output { String out = read_string(stdout()) }\n"
+            "}\n"
+        )
+        pathlib.Path(os.path.join(src, "main.wdl")).write_text(
+            "version 1.2\n"
+            'import "lib/tasks.wdl" as lib\n'
+            "workflow zipprobe {\n"
+            "    input {\n"
+            '        File literal_ref = "data/literal.txt"\n'
+            '        Directory ref_dir = "data/refdir"\n'
+            '        Array[File] ref_set = ["data/ref.fa", "data/ref.fa.fai"]\n'
+            '        String sample = "A"\n'
+            '        File computed_ref = "data/dynamic_" + sample + ".txt"\n'
+            '        File? maybe_ref = "data/not_present.txt"\n'
+            "        File json_ref\n"
+            "    }\n"
+            '    call lib.helper_task as h { input: helper = "data/callbound.txt", msg = "x" }\n'
+            "    output { File o_json = json_ref }\n"
+            "}\n"
+        )
+        return testdir, src
+
+    def test_zip_auto_include_source_relative(self):
+        with contextlib.ExitStack() as cleanup:
+            testdir, src = self._source_relative_fixture(cleanup)
+            doc = WDL.load(os.path.join(src, "main.wdl"))
+            zip_fn = os.path.join(testdir, "source.zip")
+            logger = logging.getLogger("miniwdl_zip_test")
+            with self.assertLogs(logger, level="WARNING") as logs:
+                WDL.Zip.build(doc, zip_fn, logger)
+            warnings = "\n".join(logs.output)
+            # the computed path can't be known statically; warn about it
+            self.assertIn("computed_ref", warnings)
+            # the optional missing default is acceptable, and covered literals are quiet
+            self.assertNotIn("maybe_ref", warnings)
+            self.assertNotIn("literal_ref", warnings)
+
+            source_dir, _main_wdl, _inputs_file = cleanup.enter_context(WDL.Zip.unpack(zip_fn))
+            for relpath in [
+                "data/literal.txt",
+                "data/refdir/a.txt",
+                "data/refdir/b.txt",
+                "data/ref.fa",
+                "data/ref.fa.fai",
+                "data/callbound.txt",
+                "lib/helper.txt",
+            ]:
+                self.assertTrue(os.path.isfile(os.path.join(source_dir, relpath)), relpath)
+            # the computed path's would-be target is not swept in
+            self.assertFalse(os.path.exists(os.path.join(source_dir, "data/dynamic_A.txt")))
+
+    def test_zip_auto_include_warnings(self):
+        with contextlib.ExitStack() as cleanup:
+            testdir = cleanup.enter_context(tempfile.TemporaryDirectory(prefix="miniwdl_zip_test_"))
+            src = os.path.join(testdir, "src")
+            os.makedirs(src)
+            pathlib.Path(os.path.join(src, "plain.txt")).write_text("plain\n")
+            pathlib.Path(os.path.join(testdir, "outside.txt")).write_text("outside\n")
+            pathlib.Path(os.path.join(src, "main.wdl")).write_text(
+                "version 1.2\n"
+                "workflow w {\n"
+                "    input {\n"
+                '        File gone = "data/absent.txt"\n'
+                '        File esc = "../outside.txt"\n'
+                '        Directory wrong_kind = "plain.txt"\n'
+                "    }\n"
+                "}\n"
+            )
+            doc = WDL.load(os.path.join(src, "main.wdl"))
+            zip_fn = os.path.join(testdir, "source.zip")
+            logger = logging.getLogger("miniwdl_zip_test")
+            with self.assertLogs(logger, level="WARNING") as logs:
+                WDL.Zip.build(doc, zip_fn, logger)
+            warnings = "\n".join(logs.output)
+            self.assertIn("does not exist", warnings)
+            self.assertIn("data/absent.txt", warnings)
+            self.assertIn("resolves outside", warnings)
+            self.assertIn("is not a directory", warnings)
+            # warnings never fail the archive, and uncovered files stay out of it
+            source_dir, _main_wdl, _inputs_file = cleanup.enter_context(WDL.Zip.unpack(zip_fn))
+            self.assertTrue(os.path.isfile(os.path.join(source_dir, "main.wdl")))
+            self.assertFalse(os.path.exists(os.path.join(source_dir, "plain.txt")))
+
+    def test_zip_no_auto_include(self):
+        with contextlib.ExitStack() as cleanup:
+            testdir, src = self._source_relative_fixture(cleanup)
+            doc = WDL.load(os.path.join(src, "main.wdl"))
+            zip_fn = os.path.join(testdir, "source.zip")
+            logger = logging.getLogger("miniwdl_zip_test")
+            with self.assertLogs(logger, level="WARNING") as logs:
+                WDL.Zip.build(doc, zip_fn, logger, auto_include=False)
+            warnings = "\n".join(logs.output)
+            self.assertIn("data/literal.txt", warnings)
+            self.assertIn("automatic inclusion disabled", warnings)
+            source_dir, _main_wdl, _inputs_file = cleanup.enter_context(WDL.Zip.unpack(zip_fn))
+            self.assertFalse(os.path.exists(os.path.join(source_dir, "data/literal.txt")))
+            self.assertFalse(os.path.exists(os.path.join(source_dir, "lib/helper.txt")))
+
+    def test_zip_hoover(self):
+        with contextlib.ExitStack() as cleanup:
+            testdir = cleanup.enter_context(tempfile.TemporaryDirectory(prefix="miniwdl_zip_test_"))
+            src = os.path.join(testdir, "src")
+            os.makedirs(os.path.join(src, "sub"))
+            os.makedirs(os.path.join(src, "ignored_dir"))
+            os.makedirs(os.path.join(src, ".git"))
+            pathlib.Path(os.path.join(src, "main.wdl")).write_text("version 1.2\nworkflow w {}\n")
+            pathlib.Path(os.path.join(src, ".gitignore")).write_text(
+                "*.log\nignored.bin\n/deep.txt\nignored_dir/\n"
+            )
+            pathlib.Path(os.path.join(src, "sub", ".gitignore")).write_text("inner_skip.txt\n")
+            for relpath in [
+                "keep.txt",
+                "skip.log",
+                "ignored.bin",
+                "deep.txt",
+                "sub/inner_keep.txt",
+                "sub/inner_skip.txt",
+                "ignored_dir/x.txt",
+                ".git/HEAD",
+            ]:
+                pathlib.Path(os.path.join(src, relpath)).write_text("x\n")
+            doc = WDL.load(os.path.join(src, "main.wdl"))
+            zip_fn = os.path.join(testdir, "source.zip")
+            WDL.Zip.build(doc, zip_fn, logging.getLogger("miniwdl_zip_test"), hoover=True)
+            source_dir, _main_wdl, _inputs_file = cleanup.enter_context(WDL.Zip.unpack(zip_fn))
+            for relpath in ["keep.txt", "sub/inner_keep.txt", ".gitignore", "sub/.gitignore"]:
+                self.assertTrue(os.path.isfile(os.path.join(source_dir, relpath)), relpath)
+            for relpath in [
+                "skip.log",
+                "ignored.bin",
+                "deep.txt",
+                "sub/inner_skip.txt",
+                "ignored_dir/x.txt",
+                ".git/HEAD",
+            ]:
+                self.assertFalse(os.path.exists(os.path.join(source_dir, relpath)), relpath)
+
+    def test_zip_cli_flags(self):
+        with contextlib.ExitStack() as cleanup:
+            testdir, src = self._source_relative_fixture(cleanup)
+            main_wdl = os.path.join(src, "main.wdl")
+            zip_fn = os.path.join(testdir, "cli.zip")
+            WDL.CLI.zip_wdl(main_wdl, output=zip_fn, force=True, no_auto_include=True)
+            with zipfile.ZipFile(zip_fn) as zf:
+                self.assertNotIn("data/literal.txt", zf.namelist())
+            WDL.CLI.zip_wdl(main_wdl, output=zip_fn, force=True, hoover=True)
+            with zipfile.ZipFile(zip_fn) as zf:
+                names = zf.namelist()
+            self.assertIn("data/literal.txt", names)
+            self.assertIn("data/dynamic_A.txt", names)
+
     def test_unpack_tempdir_parent(self):
         with contextlib.ExitStack() as cleanup:
             testdir = cleanup.enter_context(tempfile.TemporaryDirectory(prefix="miniwdl_zip_test_"))
@@ -1128,11 +1307,19 @@ class TestZip(unittest.TestCase):
                 (os.path.join(src, "main.wdl"), None),
             )
 
-            unpacked = cleanup.enter_context(WDL.Zip.unpack(zip_fn))
+            # an already-unpacked directory under file_io.root is used in place
+            unpacked = cleanup.enter_context(WDL.Zip.unpack(zip_fn, tempdir_parent=root))
             self.assertEqual(
                 WDL.CLI.unpack_source_zip(logger, cleanup, unpacked.dir, root),
                 (unpacked.main_wdl, None),
             )
+
+            # but one outside file_io.root fails fast (issue #878)
+            outside = cleanup.enter_context(WDL.Zip.unpack(zip_fn))
+            with self.assertRaisesRegex(WDL.Error.InputError, "outside file_io.root") as exn:
+                WDL.CLI.unpack_source_zip(logger, cleanup, outside.dir, root)
+            self.assertIn(outside.dir, str(exn.exception))
+            self.assertIn(root, str(exn.exception))
 
     def test_reproducible_zip(self):
         self._reproducible_test("zip")
