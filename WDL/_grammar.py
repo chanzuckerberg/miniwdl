@@ -125,7 +125,7 @@ hints_section: hints_object
 hints_object: "hints" "{" [hint_kv (","? hint_kv)*] ","? "}"
 hint_kv: CNAME ":" hint_value
 ?hint_value: expr | hints_object | io_hint
-io_hint: ("input" | "output") "{" [io_hint_kv ("," io_hint_kv)*] ","? "}"
+!io_hint: ("input" | "output") "{" [io_hint_kv ("," io_hint_kv)*] ","? "}"
 io_hint_kv: CNAME ("." CNAME)* ":" hint_value
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////

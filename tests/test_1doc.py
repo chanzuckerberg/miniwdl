@@ -615,7 +615,31 @@ task compare_md5sum {
         }
         """
         task = WDL.parse_tasks(txt, version="1.2")[0]
-        # TODO: test AST repr when implemented
+        self.assertEqual(set(task.hints), {"short_task", "inputs"})
+        short_task = task.hints["short_task"]
+        self.assertIsInstance(short_task, WDL.Expr.Boolean)
+        self.assertTrue(short_task.value)
+        inputs = task.hints["inputs"]
+        self.assertIsInstance(inputs, WDL.Tree.IOHints)
+        self.assertEqual(inputs.kind, "input")
+        files_hints = inputs.values["files"]
+        self.assertIsInstance(files_hints, WDL.Tree.HintsObject)
+        loc_opt = files_hints.values["localization_optional"]
+        self.assertIsInstance(loc_opt, WDL.Expr.Boolean)
+        self.assertTrue(loc_opt.value)
+        self.assertIsNotNone(task.hints_section_pos)
+
+        txt = """
+        task t {
+            command <<< true >>>
+            hints {
+                short_task: true,
+                short_task: false
+            }
+        }
+        """
+        with self.assertRaises(WDL.Error.MultipleDefinitions):
+            WDL.parse_tasks(txt, version="1.2")
 
         txt = """
         task t {
@@ -2707,7 +2731,53 @@ class TestStruct(unittest.TestCase):
         """
         doc = WDL.parse_document(doc)
         doc.typecheck()
-        # TODO: check hints AST once implemented
+        self.assertEqual(set(doc.workflow.hints), {"allow_nested_inputs"})
+        allow_ni = doc.workflow.hints["allow_nested_inputs"]
+        self.assertIsInstance(allow_ni, WDL.Expr.Boolean)
+        self.assertTrue(allow_ni.value)
+        self.assertIsNotNone(doc.workflow.hints_section_pos)
+
+        doc = r"""version 1.2
+        workflow w {
+            input {
+                Array[String] names
+            }
+            hints {
+                allow_nested_inputs: true
+                labels: {"team": "genomics", "priority": 3}
+                retry_backoff_sec: [1, 2, 4]
+            }
+        }
+        """
+        doc = WDL.parse_document(doc)
+        doc.typecheck()
+        hints = doc.workflow.hints
+        self.assertEqual(set(hints), {"allow_nested_inputs", "labels", "retry_backoff_sec"})
+        self.assertIsInstance(hints["allow_nested_inputs"], WDL.Expr.Boolean)
+        self.assertTrue(hints["allow_nested_inputs"].value)
+        labels = hints["labels"]
+        self.assertIsInstance(labels, WDL.Expr.Map)
+        self.assertEqual(
+            {k.literal.value: v.literal.value for k, v in labels.items},
+            {"team": "genomics", "priority": 3},
+        )
+        backoff = hints["retry_backoff_sec"]
+        self.assertIsInstance(backoff, WDL.Expr.Array)
+        self.assertEqual([item.value for item in backoff.items], [1, 2, 4])
+
+        # workflow hint values must be literals; expressions are not allowed
+        doc = r"""version 1.2
+        workflow w {
+            input {
+                Array[String] names
+            }
+            hints {
+                allow_nested_inputs: length(names) > 0
+            }
+        }
+        """
+        with self.assertRaises(WDL.Error.ValidationError):
+            WDL.parse_document(doc)
 
         doc = r"""version 1.2
         workflow w {
