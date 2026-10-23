@@ -1136,12 +1136,18 @@ def runner_input_json_file(available_inputs, namespace, input_file, downloadable
         from ruamel.yaml import YAML  # delayed heavy import
 
         input_json = None
+        input_dir = None
         if input_file[0] == "{":
             input_json = input_file
         elif input_file == "-":
             input_json = sys.stdin.read()
         else:
-            input_json = asyncio.run(make_read_source(False)(input_file, [], None)).source_text
+            read_result = asyncio.run(make_read_source(False)(input_file, [], None))
+            input_json = read_result.source_text
+            if not read_result.abspath.startswith(("http:", "https:")):
+                # resolve relative paths in a local input file against its directory, as the
+                # WDL spec suggests (inline & stdin JSON still use the working directory)
+                input_dir = os.path.dirname(read_result.abspath)
         input_json = YAML(typ="safe", pure=True).load(input_json)
         if not isinstance(input_json, dict):
             raise Error.InputError("check JSON input; expected top-level object")
@@ -1150,12 +1156,79 @@ def runner_input_json_file(available_inputs, namespace, input_file, downloadable
         except Error.InputError as exn:
             raise Error.InputError("check JSON input; " + str(exn))
 
-        ans = Value.rewrite_env_paths(
-            ans,
-            lambda v: validate_input_path(
-                v.value, isinstance(v, Value.Directory), downloadable, root
-            ),
-        )
+        fallback_paths = []
+        ambiguous_paths = []
+
+        def rewrite_input_path(v):
+            # Resolve a relative path from the input JSON against the directory
+            # containing the input file (as the WDL spec suggests), by rewriting it
+            # before the usual validation. A candidate location counts only if it
+            # holds an entry of the expected kind (file vs. directory); an entry of
+            # the wrong kind doesn't shadow the other candidate.
+            # - found (only) relative to the input file: use it
+            # - found only relative to the working directory: use it, but record a
+            #   deprecation fallback warning
+            # - found in both places, as different files: use the input file's,
+            #   and record an ambiguity warning
+            # - found in neither: raise a not-found error naming both locations
+            path = v.value
+            directory = isinstance(v, Value.Directory)
+            if (
+                input_dir
+                and not os.path.isabs(path)
+                and not (downloadable and downloadable(path, directory))
+            ):
+                rebased_path = os.path.join(input_dir, path)
+
+                def has_expected_kind(p):
+                    return os.path.isdir(p) if directory else os.path.isfile(p)
+
+                if has_expected_kind(rebased_path):
+                    if has_expected_kind(path):
+                        try:
+                            same_file = os.path.samefile(rebased_path, path)
+                        except OSError:
+                            same_file = False
+                        if not same_file:
+                            ambiguous_paths.append(path)
+                    path = rebased_path
+                elif has_expected_kind(path):
+                    fallback_paths.append(path)
+                else:
+                    raise Error.InputError(
+                        f"{'Directory' if directory else 'File'} not found: {path} (looked for"
+                        f" {rebased_path}, relative to the input file, and"
+                        f" {os.path.abspath(path)}, relative to the working directory)"
+                    )
+            return validate_input_path(path, directory, downloadable, root)
+
+        ans = Value.rewrite_env_paths(ans, rewrite_input_path)
+        # warn once per input file rather than per path (lists stay empty without input_dir)
+        logger = logging.getLogger("miniwdl-run")
+        if fallback_paths:
+            logger.warning(
+                _(
+                    "relative paths in input file not found relative to its directory, so"
+                    " resolved against the working directory instead; this fallback is"
+                    " deprecated (make paths relative to the input file, or absolute)",
+                    input_file=input_file,
+                    input_dir=input_dir,
+                    count=len(fallback_paths),
+                    examples=fallback_paths[:2],
+                )
+            )
+        if ambiguous_paths:
+            logger.warning(
+                _(
+                    "relative paths in input file exist relative to both its directory and"
+                    " the working directory, as different files; using the ones relative to"
+                    " the input file",
+                    input_file=input_file,
+                    input_dir=input_dir,
+                    count=len(ambiguous_paths),
+                    examples=ambiguous_paths[:2],
+                )
+            )
 
     return ans
 
