@@ -1569,7 +1569,7 @@ class TestZip(unittest.TestCase):
             logger = logging.getLogger("miniwdl_zip_test")
             with self.assertLogs(logger, level="INFO") as logs:
                 WDL.Zip.build(doc, zip_fn, logger)
-            self.assertIn("Automatically included 1 files (6 bytes)", "\n".join(logs.output))
+            self.assertIn("files: 1, bytes: 6", "\n".join(logs.output))
 
     @unittest.skipUnless(shutil.which("git"), "git executable not available")
     def test_zip_add_all_ancestor_gitignore(self):
@@ -1618,7 +1618,7 @@ class TestZip(unittest.TestCase):
                 WDL.Zip.build(doc, zip_fn, logger, add_all=True)
             warnings = "\n".join(logs.output)
             self.assertIn("computed_ref", warnings)
-            self.assertIn("--add-all sweep covers it only if", warnings)
+            self.assertIn("--add-all includes it only if", warnings)
             # the sweep did in fact include the computed path's target here
             source_dir, _main_wdl, _inputs_file = cleanup.enter_context(WDL.Zip.unpack(zip_fn))
             self.assertTrue(os.path.isfile(os.path.join(source_dir, "data/dynamic_A.txt")))
@@ -1841,7 +1841,7 @@ class TestZip(unittest.TestCase):
                 zip_fn = os.path.join(testdir, "source.zip")
                 logger = logging.getLogger("miniwdl_zip_test")
                 with self._git_unavailable(), self.assertRaisesRegex(
-                    WDL.Error.InputError, "install git.*drop --add-all and use --add"
+                    WDL.Error.InputError, "install git, or use --add instead of --add-all"
                 ):
                     WDL.Zip.build(doc, zip_fn, logger, add_all=True)
 
@@ -1858,7 +1858,7 @@ class TestZip(unittest.TestCase):
             zip_fn = os.path.join(testdir, "source.zip")
             logger = logging.getLogger("miniwdl_zip_test")
             with self._git_unavailable(), self.assertRaisesRegex(
-                WDL.Error.InputError, "install git.*drop --add-all and use --add"
+                WDL.Error.InputError, "install git, or use --add instead of --add-all"
             ):
                 WDL.Zip.build(doc, zip_fn, logger, add_all=True)
 

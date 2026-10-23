@@ -10,9 +10,9 @@
 
 Optionally, you can also include a JSON file with default workflow inputs. Any command-line arguments provided at runtime are merged into (override) these defaults. The ZIP file includes a ``MANIFEST.json`` identifying the top-level WDL and inputs JSON, if present.
 
-``miniwdl zip`` copies the default inputs JSON to the archive root as ``default_input.json``, without rewriting its contents. When the archive runs, relative ``File`` and ``Directory`` paths in that JSON resolve against the unpacked archive root.
+The archive stores the default inputs JSON at its root as ``default_input.json``, unchanged. When the archive runs, relative ``File`` and ``Directory`` paths in it resolve against the unpacked archive root.
 
-To keep paths consistent between direct and archived runs, place the inputs JSON beside the main WDL file and write paths relative to their shared directory. For example, a JSON value of ``data/f.txt`` works with this layout:
+To make paths work the same way in direct and archived runs, put the inputs JSON beside the main WDL file and write paths relative to that directory. For example, a JSON value of ``data/f.txt`` works with this layout:
 
 .. code-block:: text
 
@@ -21,27 +21,33 @@ To keep paths consistent between direct and archived runs, place the inputs JSON
      inputs.json
      data/f.txt
 
-From ``project/``, bundle the data with:
+From ``project/``, bundle the data into the archive with:
 
 .. code-block:: bash
 
    miniwdl zip main.wdl --input inputs.json --add data/f.txt
 
-If a relative path isn't found in the archive, miniwdl also checks the working directory and logs a deprecation warning when that fallback succeeds. Prefer bundling the data with ``--add``, or use absolute paths for external data.
+If a relative path isn't found in the archive, miniwdl also looks in the working directory, logging a deprecation warning if the file is found there. Prefer bundling the data with ``--add``, or use absolute paths for data outside the archive.
 
 Source-relative files
 ---------------------
 
-WDL 1.2+ workflows and tasks can refer to files relative to the WDL source file that mentions them ("source-relative" paths), for example ``File ref = "data/ref.fa"`` as a declaration default or call input. ``miniwdl zip`` scans all declarations and call inputs in the WDL sources, and automatically includes each file or directory named by such a literal path, at the location the runner will look for it after unpacking. Literal paths nested inside array, map, pair, and struct values are included too, as is the whole tree of a ``Directory``. This covers the common cases with no manual bookkeeping.
+WDL 1.2+ workflows and tasks can refer to files by paths relative to the WDL source file containing them ("source-relative" paths), such as ``File ref = "data/ref.fa"``. ``miniwdl zip`` scans the declarations and call inputs in every WDL source file, and automatically includes each file or directory named by a literal source-relative path, placing it where the runner will look for it once the archive is unpacked. This covers literal paths inside arrays, maps, pairs, and structs; the whole contents of a ``Directory``; and literal alternatives in an expression, as in the "default unless overridden" pattern ``select_first([ref_override, "data/default.fa"])``.
 
-Not every reference can be resolved statically:
+Some references can't be handled this way. ``miniwdl zip`` warns about each of these, but still creates the archive:
 
-* A path computed by an expression (e.g. ``"data/" + sample + ".txt"``) can't be known until run time. ``miniwdl zip`` logs a warning naming the declaration; bundle the file(s) with ``--additional`` if the archive needs them.
-* A literal path that doesn't exist, escapes the WDL source directory, or names the wrong kind of file also draws a warning. The archive is still created; ``miniwdl zip`` warns rather than fails over source-relative references.
+* A path computed by an expression, such as ``"data/" + sample + ".txt"``, isn't known until run time. If the archive needs the file(s), include them with ``--add``. (A path derived from another ``File`` value, such as ``bam + ".bai"``, isn't source-relative and draws no warning.)
+* A literal path that doesn't exist, resolves outside the WDL source directory, or names a file where a directory is expected (or vice versa).
 
-Use ``--additional``/``--add`` to include other files, directories, or glob patterns explicitly; they'll be stored in the ZIP at the same relative location to the WDL source files. Add ``--no-auto-include`` to disable automatic inclusion of literal source-relative paths (they're then reported by warning only).
+Literal paths passed to standard library functions, such as ``read_lines("data/list.txt")``, aren't detected yet (`#941 <https://github.com/chanzuckerberg/miniwdl/issues/941>`_); include those files with ``--add``.
 
-Finally, ``--add-all`` includes *all* files under each WDL source directory. When a source directory is in a git work tree, the included files are exactly those git accounts for -- tracked files, plus untracked files not excluded by git's standard ignore rules (``.gitignore`` files at every level of the work tree, ``.git/info/exclude``, and global excludes) -- as enumerated by running ``git ls-files`` directly, so ignore semantics are git's own. When a source directory isn't in a git work tree, all files are included and no ignore rules are applied. If the ``git`` executable isn't available at all, that fallback applies only when there's no evidence the directory belongs to a repository (a ``.git`` directory or file in it or any parent directory, or a ``.gitignore`` in it, a parent directory, or anywhere in the tree); with such evidence, ``miniwdl zip`` stops with an error instead of sweeping files the ignore rules would have excluded -- install git, or drop ``--add-all`` and use ``--add`` for specific files. Files inside git submodules aren't included either (git lists a submodule as a single entry); the archiver warns about each submodule it skips, and specific files from a submodule can be included with ``--add``. This blunt option also covers computed paths whose targets lie in the swept tree and aren't ignored, at the cost of archiving everything else in the tree; the archiver still warns about computed paths, since it can't verify statically that a given one is covered.
+``--add``/``--additional`` includes other files, directories, or glob patterns, stored at the same location relative to the WDL source files. ``--no-auto-include`` turns off automatic inclusion; the references it would have included are reported as warnings instead.
+
+``--add-all`` includes every file under each WDL source directory. If a source directory is in a git work tree, that means the files git tracks plus any untracked files git doesn't ignore, as listed by ``git ls-files``, so all of git's ignore rules apply (``.gitignore`` files at every level, ``.git/info/exclude``, and global excludes). Otherwise, it means all files. Also:
+
+* If ``git`` isn't installed but a source directory appears to be in a git repository (there's a ``.git`` directory or file in it or a parent directory, or a ``.gitignore`` in it, a parent directory, or anywhere below it), ``miniwdl zip`` stops with an error rather than include files git would ignore. Install git, or use ``--add`` instead.
+* Files in git submodules and nested repositories aren't included. ``miniwdl zip`` warns about each one it skips; include specific files from them with ``--add``.
+* ``--add-all`` may include the targets of computed paths, but ``miniwdl zip`` can't verify that, so it still warns about them.
 
 Command line
 ------------

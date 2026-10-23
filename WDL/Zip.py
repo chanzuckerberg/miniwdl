@@ -50,16 +50,16 @@ def build(
     :param archive_format: ``"zip"`` or ``"tar"``
     :param additional_files: other files, directories, or glob patterns to include, stored at the
                              same location relative to the WDL source files
-    :param auto_include: automatically include files/directories referenced by literal WDL 1.2
-                         source-relative File/Directory defaults and call inputs found in the
-                         source code; warn about any source-relative references that can't be
-                         covered statically (disable to only warn about the literal references)
-    :param add_all: also include all other files under each WDL source directory; in a git
-                    work tree, the files git tracks plus untracked files git doesn't ignore
-                    (enumerated by running ``git ls-files``); outside a work tree, all files
-                    (no ignore rules are applied there). If git can't be run but a source
-                    directory shows evidence of belonging to a repository, raises InputError
-                    instead of sweeping files the ignore rules would have excluded
+    :param auto_include: automatically include the files and directories named by literal
+                         source-relative paths in WDL 1.2+ declarations and call inputs. Either
+                         way, source-relative references that the archive doesn't cover draw
+                         warnings.
+    :param add_all: also include every other file under each WDL source directory: in a git
+                    work tree, the files git tracks plus untracked files it doesn't ignore (as
+                    listed by ``git ls-files``); otherwise, all files. Raises
+                    :class:`WDL.Error.InputError` if git can't be run but a source directory
+                    appears to be in a git repository, rather than include files that git would
+                    ignore.
     """
 
     with contextlib.ExitStack() as cleanup:
@@ -151,8 +151,11 @@ def build(
                 )
                 if n_files:
                     logger.info(
-                        f"Automatically included {n_files} files ({n_bytes} bytes)"
-                        " in the source archive"
+                        _(
+                            "Automatically included files in the source archive",
+                            files=n_files,
+                            bytes=n_bytes,
+                        )
                     )
             _warn_uncovered_source_relative_refs(
                 refs,
@@ -859,7 +862,10 @@ def _expand_dir(
 
 def _expand_check_within(path: str, ref: _SourceRelativeRef) -> None:
     if not path_really_within(path, ref.source_dir):
-        raise Error.InputError("Source-relative path contains unsafe symlink or path: " + path)
+        raise Error.InputError(
+            "Source-relative directory contains a path or symlink that resolves outside the"
+            " WDL source directory: " + path
+        )
 
 
 def _include_scanned_paths(
@@ -903,8 +909,8 @@ def _include_scanned_paths(
             collided.add(dest)
             logger.warning(
                 _(
-                    "Skipping file for the source archive: archive path already staged"
-                    " from a different source",
+                    "Skipping file for the source archive: a different file is already"
+                    " staged at this archive path",
                     path=src,
                     dest=dest,
                     reference=(ref.description if ref else None),
@@ -979,9 +985,9 @@ def _git_ls_files(source_dir: str) -> set[str] | None:
     except OSError as exn:
         if _repository_evidence(source_dir):
             raise Error.InputError(
-                "--add-all requires git to enumerate files under the source directory"
-                f" ({source_dir}), but the git executable could not be run;"
-                " install git, or drop --add-all and use --add instead"
+                f"--add-all needs git to list the files in {source_dir}, which appears to be"
+                " in a git repository, but git could not be run; install git, or use --add"
+                " instead of --add-all"
             ) from exn
         return None
     if proc.returncode != 0:
@@ -991,9 +997,9 @@ def _git_ls_files(source_dir: str) -> set[str] | None:
             stderr_lines = proc.stderr.decode("utf-8", errors="replace").strip().splitlines()
             detail = stderr_lines[0] if stderr_lines else f"exit status {proc.returncode}"
             raise Error.InputError(
-                "--add-all requires git to enumerate files under the source directory"
-                f" ({source_dir}), but git ls-files failed: {detail};"
-                " install git, or drop --add-all and use --add instead"
+                f"--add-all needs git to list the files in {source_dir}, which appears to be"
+                f" in a git repository, but git ls-files failed ({detail}); fix that, or use"
+                " --add instead of --add-all"
             )
         return None
     return {os.fsdecode(entry) for entry in proc.stdout.split(b"\0") if entry}
@@ -1041,8 +1047,8 @@ def _add_all_source_files(
         if git_files is None:
             logger.info(
                 _(
-                    "Sweeping all files in the source directory; not in a git work tree,"
-                    " so no ignore rules apply",
+                    "Source directory is not in a git work tree; including all files under"
+                    " it, with no ignore rules applied",
                     path=source_dir,
                 )
             )
@@ -1053,12 +1059,12 @@ def _add_all_source_files(
             if os.path.realpath(file_path) in exclude:
                 continue
             if os.path.isdir(file_path) and not os.path.islink(file_path):
-                # a directory in git's file listing is a submodule (gitlink) entry;
-                # its contents aren't swept
+                # a directory in git's file listing is a submodule (gitlink) entry or
+                # an untracked nested repository; its contents aren't swept
                 logger.warning(
                     _(
-                        "Skipping submodule for the source archive:"
-                        " --add-all does not include files inside git submodules",
+                        "Skipping git submodule or nested repository for the source archive:"
+                        " --add-all does not include its files; add specific files with --add",
                         path=file_path,
                     )
                 )
@@ -1164,9 +1170,8 @@ def _warn_uncovered_source_relative_refs(
             if os.path.realpath(ref.source_dir) not in swept_dirs:
                 logger.warning(
                     _(
-                        "Cannot determine statically the file for the source-relative"
-                        " path expression; include it with --additional if it refers"
-                        " to a file in the WDL source tree",
+                        "Cannot determine statically which file this path expression names;"
+                        " if it's a source-relative path, include the file with --additional",
                         reference=ref.description,
                     )
                 )
@@ -1177,10 +1182,9 @@ def _warn_uncovered_source_relative_refs(
                 # so the warning stands, qualified
                 logger.warning(
                     _(
-                        "Cannot determine statically the file for the source-relative"
-                        " path expression; the --add-all sweep covers it only if the"
-                        " computed path lies in a swept source directory and is not"
-                        " ignored there (per git, in a work tree)",
+                        "Cannot determine statically which file this path expression names;"
+                        " --add-all includes it only if the path is in a WDL source directory"
+                        " and not ignored by git",
                         reference=ref.description,
                     )
                 )

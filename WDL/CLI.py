@@ -2153,15 +2153,14 @@ def fill_zip_subparser(subparsers):
     zip_parser.add_argument(
         "--no-auto-include",
         action="store_true",
-        help="do not automatically include files/directories referenced by literal WDL 1.2 "
-        "source-relative File/Directory defaults and call inputs; warn about them instead",
+        help="don't automatically include files named by literal source-relative paths in "
+        "WDL 1.2+ declarations and call inputs (just warn about them)",
     )
     zip_parser.add_argument(
         "--add-all",
         action="store_true",
-        help="include all files under each WDL source directory in the zip (in a git work "
-        "tree: tracked files, plus untracked files not ignored by git; outside a work "
-        "tree: all files, with no ignore rules applied)",
+        help="include every file under each WDL source directory (in a git work tree, only "
+        "the files git tracks or doesn't ignore)",
     )
     return zip_parser
 
