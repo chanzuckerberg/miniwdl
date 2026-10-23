@@ -873,6 +873,20 @@ def unpack_source_zip(logger, cleanup, uri, file_io_root=None):
     source_zip = uri
     if os.path.isdir(uri):
         logger.notice(_("assuming directory is unpacked source zip", dir=uri))
+        if file_io_root:
+            # an already-unpacked directory is used in place, so under a restrictive
+            # file_io.root its source-relative paths could never resolve; fail fast with
+            # an actionable message instead of an obscure run-time containment failure
+            root = os.path.realpath(file_io_root)
+            if not path_really_within(os.path.realpath(uri), root):
+                raise Error.InputError(
+                    "unpacked source archive directory is outside file_io.root: "
+                    + os.path.abspath(uri)
+                    + " (file_io.root is "
+                    + root
+                    + "); move the unpacked archive under file_io.root"
+                    " or adjust the configuration"
+                )
     else:
         if not uri.endswith(".zip"):  # nothing to do
             return (uri, None)
@@ -2139,6 +2153,18 @@ def fill_zip_subparser(subparsers):
         action="append",
         dest="additional_files",
     )
+    zip_parser.add_argument(
+        "--no-auto-include",
+        action="store_true",
+        help="do not automatically include files/directories referenced by literal WDL 1.2 "
+        "source-relative File/Directory defaults and call inputs; warn about them instead",
+    )
+    zip_parser.add_argument(
+        "--hoover",
+        action="store_true",
+        help="include all files under each WDL source directory in the zip, except those "
+        "ignored by .gitignore files in the source tree",
+    )
     return zip_parser
 
 
@@ -2151,6 +2177,8 @@ def zip_wdl(
     path=None,
     no_outside_imports=False,
     additional_files=None,
+    no_auto_include=False,
+    hoover=False,
     debug=False,
     **kwargs,
 ):
@@ -2201,6 +2229,8 @@ def zip_wdl(
             inputs=input_dict,
             archive_format=fmt,
             additional_files=additional_files,
+            auto_include=not no_auto_include,
+            hoover=hoover,
         )
 
 
