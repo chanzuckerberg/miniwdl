@@ -33,7 +33,7 @@ def build(
     archive_format: str = "zip",
     additional_files: list[str] | None = None,
     auto_include: bool = True,
-    hoover: bool = False,
+    add_all: bool = False,
 ):
     """
     Generate zip archive of the WDL document, all its imports, optional default inputs, and a
@@ -53,8 +53,9 @@ def build(
                          source-relative File/Directory defaults and call inputs found in the
                          source code; warn about any source-relative references that can't be
                          covered statically (disable to only warn about the literal references)
-    :param hoover: also include all other files under each WDL source directory, except those
-                   ignored by ``.gitignore`` files within the source tree
+    :param add_all: also include all other files under each WDL source directory; in a git
+                    work tree, the files git tracks plus untracked files git doesn't ignore;
+                    outside a work tree, all files (no ignore rules are applied there)
     """
 
     with contextlib.ExitStack() as cleanup:
@@ -94,7 +95,7 @@ def build(
         # warn about any the archive won't cover. Automatic inclusion never fails the
         # archive; --additional remains the strict, explicit mechanism.
         refs = _scan_source_relative_refs(wdls)
-        if refs or hoover:
+        if refs or add_all:
             try:
                 source_dirs = _additional_source_dirs(zip_paths, wdls)
             except Error.InputError as exn:
@@ -129,11 +130,11 @@ def build(
                         expansions[ref_index] = expanded
                         include_pairs.extend((src, dst, ref) for src, dst in expanded)
             swept_dirs: set[str] = set()
-            if hoover and source_dirs:
+            if add_all and source_dirs:
                 swept_dirs = {os.path.realpath(source_dir) for source_dir, _ in source_dirs}
                 include_pairs.extend(
                     (src, dst, None)
-                    for src, dst in _hoover_source_files(
+                    for src, dst in _add_all_source_files(
                         source_dirs,
                         {os.path.realpath(os.path.abspath(archive))},
                         logger,
@@ -607,6 +608,67 @@ def _expr_references_file_value(expr: Expr.Base) -> bool:
     return False
 
 
+def _append_literal_ref(
+    to_type: Type.Base,
+    value: str,
+    source_dir: str,
+    description: str,
+    refs: list[_SourceRelativeRef],
+) -> bool:
+    """
+    Record one string literal at a File/Directory leaf, classified against the
+    containing document's source directory. Returns False (recording nothing) for
+    downloadable URIs and absolute paths, which aren't source-relative.
+    """
+    if "://" in value:
+        return False  # downloadable URI, not source-relative
+    kind = Lint._source_relative_path_kind(source_dir, value, isinstance(to_type, Type.Directory))
+    if kind == Lint._SourceRelativePathKind.ABSOLUTE:
+        return False
+    # the path as written, normalized but with symlinks preserved: both the
+    # runner's resolution (WDL.runtime._io_helpers.resolve_source_relative_path)
+    # and the archive placement key off the literal's own path, never its
+    # realpath, so a symlinked file keeps its own name
+    target = os.path.abspath(os.path.join(source_dir, value)) if source_dir else None
+    refs.append(
+        _SourceRelativeRef(
+            description,
+            source_dir,
+            value,
+            target,
+            kind,
+            isinstance(to_type, Type.Directory),
+            to_type.optional,
+        )
+    )
+    return True
+
+
+def _candidate_literals(expr: Expr.Base) -> Iterator[str]:
+    """
+    Yield the string literals in candidate positions within a computed expression at a
+    File/Directory leaf: array elements, conditional branches, and the arguments of the
+    ``select_first``/``select_all`` value-selection functions -- the positions a path
+    can be *selected from*, as in the "default unless overridden" idiom. Literals
+    elsewhere aren't candidate paths: string-concatenation operands are fragments
+    (``".bai"``), and other functions' arguments are their own business (``read_json``'s
+    path argument remains unscanned, per the phase-1 scope).
+    """
+    literal = expr.literal
+    if isinstance(literal, Value.String):
+        yield literal.value
+        return
+    if isinstance(expr, Expr.Array):
+        for item in expr.items:
+            yield from _candidate_literals(item)
+    elif isinstance(expr, Expr.IfThenElse):
+        yield from _candidate_literals(expr.consequent)
+        yield from _candidate_literals(expr.alternative)
+    elif isinstance(expr, Expr.Apply) and expr.function_name in ("select_first", "select_all"):
+        for arg in expr.arguments:
+            yield from _candidate_literals(arg)
+
+
 def _scan_file_leaf_ref(
     to_type: Type.Base,
     expr: Expr.Base,
@@ -617,48 +679,40 @@ def _scan_file_leaf_ref(
     # classify one File/Directory leaf (to_type is Type.File or Type.Directory)
     literal = expr.literal
     if isinstance(literal, Value.String):
-        if "://" in literal.value:
-            return  # downloadable URI, not source-relative
-        kind = Lint._source_relative_path_kind(
-            source_dir, literal.value, isinstance(to_type, Type.Directory)
-        )
-        if kind == Lint._SourceRelativePathKind.ABSOLUTE:
-            return
-        # the path as written, normalized but with symlinks preserved: both the
-        # runner's resolution (WDL.runtime._io_helpers.resolve_source_relative_path)
-        # and the archive placement key off the literal's own path, never its
-        # realpath, so a symlinked file keeps its own name
-        target = os.path.abspath(os.path.join(source_dir, literal.value)) if source_dir else None
+        _append_literal_ref(to_type, literal.value, source_dir, description, refs)
+        return
+    # Computed expression: the path can't be known statically, but string literals in
+    # candidate positions within it may name the path taken when inputs don't override
+    # it -- e.g. select_first([ref_override, "data/default.fa"]). Harvest and classify
+    # those exactly like plain literals, so a resolvable default is auto-included (and
+    # a wrong-kind or missing one draws the usual kind-specific warning) instead of
+    # passing silently. If any candidate was recorded, the statically-evident
+    # source-relative content of the leaf is accounted for, so the generic
+    # unprovable-path warning below doesn't also fire for it.
+    harvested = False
+    for value in _candidate_literals(expr):
+        if _append_literal_ref(to_type, value, source_dir, description, refs):
+            harvested = True
+    if harvested:
+        return
+    # path computed by an expression; not statically knowable. An Any-typed
+    # expression (e.g. a StdLib function result coerced to File) is just as
+    # unprovable as a String-typed one, and the declaration still deserves the
+    # uncovered-reference warning (without scanning the expression's own
+    # arguments, which remain out of scope) -- unless it derives the path from
+    # another File/Directory value.
+    if isinstance(expr.type, (Type.String, Type.Any)) and not _expr_references_file_value(expr):
         refs.append(
             _SourceRelativeRef(
                 description,
                 source_dir,
-                literal.value,
-                target,
-                kind,
+                None,
+                None,
+                None,
                 isinstance(to_type, Type.Directory),
                 to_type.optional,
             )
         )
-    elif isinstance(expr.type, (Type.String, Type.Any)):
-        # path computed by an expression; not statically knowable. An Any-typed
-        # expression (e.g. a StdLib function result coerced to File) is just as
-        # unprovable as a String-typed one, and the declaration still deserves the
-        # uncovered-reference warning (without scanning the expression's own
-        # arguments, which remain out of scope) -- unless it derives the path from
-        # another File/Directory value.
-        if not _expr_references_file_value(expr):
-            refs.append(
-                _SourceRelativeRef(
-                    description,
-                    source_dir,
-                    None,
-                    None,
-                    None,
-                    isinstance(to_type, Type.Directory),
-                    to_type.optional,
-                )
-            )
 
 
 def _type_has_file_positions(to_type: Type.Base) -> bool:
@@ -812,7 +866,7 @@ def _include_scanned_paths(
     logger: logging.Logger,
 ) -> tuple[int, int]:
     """
-    Copy automatically-discovered files (scanner hits, hoover sweep) into the archive staging
+    Copy automatically-discovered files (scanner hits, --add-all sweep) into the archive staging
     directory at their precomputed archive paths. ``staged`` (archive path -> realpath of the
     source staged there, or None for generated files) is updated with everything actually
     staged, so coverage checks see verified contents rather than requests. A destination
@@ -883,164 +937,148 @@ def _include_scanned_paths(
     return n_files, n_bytes
 
 
-def _load_gitignore(dirpath: str, logger: logging.Logger) -> Any | None:
+def _git_tracked_and_untracked(
+    source_dir: str, cache: dict[str, frozenset[str]]
+) -> set[str] | None:
     """
-    Load one directory's ``.gitignore`` as a pathspec GitIgnoreSpec, if present. A
-    ``.gitignore`` that can't be read or parsed is treated as absent, with a warning:
-    like the rest of automatic inclusion, ignore-file discovery never fails the archive.
+    Enumerate the files git attributes to ``source_dir``: tracked files, plus untracked
+    files not excluded by git's standard ignore rules (``.gitignore`` files at every
+    level of the work tree, ``.git/info/exclude``, and global excludes). Returns
+    source-directory-relative paths with POSIX separators, or None if ``source_dir``
+    isn't in a git work tree (or git can't be consulted). The enumeration is delegated
+    to git itself (via GitPython) so ignore semantics -- inheritance, negations, pruning
+    of excluded directories -- are git's own rather than a reimplementation. Results are
+    cached per work-tree root in ``cache`` (root -> root-relative paths).
     """
-    from pathspec import GitIgnoreSpec
+    import git
 
-    gitignore_fn = os.path.join(dirpath, ".gitignore")
-    if os.path.isfile(gitignore_fn):
+    try:
+        repo = git.Repo(source_dir, search_parent_directories=True)
+    except git.GitError:
+        return None
+    root_path = repo.working_tree_dir
+    if root_path is None:  # bare repository: no work tree to sweep
+        return None
+    root = os.fspath(root_path)
+    if root not in cache:
         try:
-            with open(gitignore_fn) as gitignore_file:
-                return GitIgnoreSpec.from_lines(gitignore_file)
-        except (OSError, ValueError) as exn:
-            logger.warning(
-                _(
-                    "Skipping unreadable .gitignore for the source archive sweep",
-                    path=gitignore_fn,
-                    reason=str(exn),
-                )
+            cache[root] = frozenset(repo.git.ls_files().splitlines()) | frozenset(
+                repo.untracked_files
             )
-    return None
+        except git.GitError:
+            return None
+    rel = os.path.relpath(source_dir, root)
+    if rel == ".":
+        return set(cache[root])
+    prefix = rel.replace(os.sep, "/") + "/"
+    return {path[len(prefix) :] for path in cache[root] if path.startswith(prefix)}
 
 
-def _hoover_source_files(
+def _add_all_source_files(
     source_dirs: list[tuple[str, str]], exclude: set[str], logger: logging.Logger
 ) -> Iterator[tuple[str, str]]:
     """
-    Yield (file, archive path) for every file under each WDL source directory, except those
-    ignored by ``.gitignore`` files within the tree (pathspec) and ``.git`` directories.
-    Only in-tree ``.gitignore`` files are consulted (not global excludes or
-    ``.git/info/exclude``), so behavior is the same in git checkouts and plain directory
-    trees. Symlinks resolving outside the swept directory are skipped with a warning,
-    mirroring ``--additional``'s safety posture.
-
-    Ignore rules are inherited the way git applies them: a swept directory also obeys the
-    ``.gitignore`` files of its ancestors within the swept tree (down from the shallowest
-    swept ancestor directory), so e.g. a ``*.secret`` rule in the top-level source
-    directory's ``.gitignore`` also excludes matching files under an imported document's
-    subdirectory swept in the same run.
+    Yield (file, archive path) for every file under each WDL source directory, per the
+    --add-all sweep. In a git work tree, the file set is git's own enumeration (see
+    :func:`_git_tracked_and_untracked`), so ``.git`` internals are never swept. Outside
+    a git work tree, ignore rules are not emulated: all files under the directory are
+    swept, with an info note logged. Either way, symlinks resolving outside the swept
+    directory are skipped with a warning, mirroring ``--additional``'s safety posture.
     """
-    roots = [source_dir for source_dir, _archive_dir in source_dirs]
+    cache: dict[str, frozenset[str]] = {}
     for source_dir, archive_dir in source_dirs:
-        root = source_dir
-        # seed the spec stack with .gitignore files of ancestors within the swept tree:
-        # every directory from the shallowest swept ancestor of root down to root's parent
-        bound = root
-        for other in roots:
-            if (root == other or root.startswith(other.rstrip("/") + os.sep)) and len(other) < len(
-                bound
-            ):
-                bound = other
-        spec_stack: list[tuple[str, Any]] = []
-        ancestor = os.path.dirname(root)
-        chain: list[str] = []
-        while ancestor == bound or ancestor.startswith(bound.rstrip("/") + os.sep):
-            chain.append(ancestor)
-            if ancestor == bound:
-                break
-            ancestor = os.path.dirname(ancestor)
-        pruned = False
-        for base in reversed(chain):
-            if spec_stack and _gitignored(spec_stack, base, is_dir=True):
-                # git prunes here: an ancestor directory excluded by a shallower spec
-                # is never descended into, so its own .gitignore (and anything deeper)
-                # is never read -- and the exclusion is final for the whole subtree:
-                # no negation can reopen a directory whose parent stays excluded
-                pruned = True
-                break
-            spec = _load_gitignore(base, logger)
-            if spec is not None:
-                spec_stack.append((base, spec))
-        if pruned or (spec_stack and _gitignored(spec_stack, root, is_dir=True)):
-            # git never descends into an excluded directory, so this directory's own
-            # .gitignore (and any negations in it) is never consulted either
-            continue
-
-        def _walk_error(exn: OSError) -> None:
-            logger.warning(
+        root = os.path.realpath(source_dir)
+        git_files = _git_tracked_and_untracked(root, cache)
+        if git_files is None:
+            logger.info(
                 _(
-                    "Skipping unreadable directory for the source archive sweep",
-                    reason=str(exn),
+                    "Sweeping all files in the source directory; not in a git work tree,"
+                    " so no ignore rules apply",
+                    path=source_dir,
                 )
             )
-
-        visited_dirs: set[str] = set()
-        for dirpath, dirnames, filenames in os.walk(root, followlinks=True, onerror=_walk_error):
-            real_dirpath = os.path.realpath(dirpath)
-            if real_dirpath in visited_dirs:
-                dirnames[:] = []
-                continue
-            visited_dirs.add(real_dirpath)
-            # drop .gitignore specs from subtrees the walk has moved out of (the seeded
-            # ancestor specs stay: every walked directory is beneath them)
-            spec_stack = [
-                (base, spec)
-                for base, spec in spec_stack
-                if dirpath == base or dirpath.startswith(base + os.sep)
-            ]
-            spec = _load_gitignore(dirpath, logger)
-            if spec is not None:
-                spec_stack.append((dirpath, spec))
-            keep_dirs = []
-            for dirname in dirnames:
-                dirname_path = os.path.join(dirpath, dirname)
-                if dirname == ".git":
-                    continue
-                if not path_really_within(dirname_path, root):
-                    logger.warning(
-                        _(
-                            "Skipping directory for the source archive:"
-                            " symlink resolves outside the swept directory",
-                            path=dirname_path,
-                            root=root,
-                        )
-                    )
-                    continue
-                if _gitignored(spec_stack, dirname_path, is_dir=True):
-                    continue
-                keep_dirs.append(dirname)
-            dirnames[:] = keep_dirs
-            for filename in sorted(filenames):
-                file_path = os.path.join(dirpath, filename)
-                if os.path.realpath(file_path) in exclude:
-                    continue
-                if not path_really_within(file_path, root):
-                    logger.warning(
-                        _(
-                            "Skipping file for the source archive:"
-                            " symlink resolves outside the swept directory",
-                            path=file_path,
-                            root=root,
-                        )
-                    )
-                    continue
-                if _gitignored(spec_stack, file_path, is_dir=False):
-                    continue
-                dest = os.path.normpath(os.path.join(archive_dir, os.path.relpath(file_path, root)))
-                yield file_path, dest
-
-
-def _gitignored(spec_stack: list[tuple[str, Any]], abspath: str, is_dir: bool) -> bool:
-    """
-    Decide whether ``abspath`` is ignored by the stacked ``.gitignore`` specs (ordered
-    shallowest first). The deepest spec with an opinion wins, per git's precedence rules;
-    negations within each file are handled by pathspec.
-    """
-    ignored = False
-    for base, spec in spec_stack:
-        if not (abspath == base or abspath.startswith(base + os.sep)):
+            yield from _walk_source_files(root, archive_dir, exclude, logger)
             continue
-        relpath = os.path.relpath(abspath, base).replace(os.sep, "/")
-        if is_dir:
-            relpath += "/"
-        result = spec.check_file(relpath)
-        if result.include is not None:
-            ignored = result.include
-    return ignored
+        for relpath in sorted(git_files):
+            file_path = os.path.join(root, *relpath.split("/"))
+            if os.path.realpath(file_path) in exclude:
+                continue
+            if os.path.isdir(file_path) and not os.path.islink(file_path):
+                continue  # directory entry in git's listing (e.g. a submodule)
+            if not os.path.isfile(file_path):
+                continue  # tracked but since deleted, or a dangling symlink
+            if not path_really_within(file_path, root):
+                logger.warning(
+                    _(
+                        "Skipping file for the source archive:"
+                        " symlink resolves outside the swept directory",
+                        path=file_path,
+                        root=root,
+                    )
+                )
+                continue
+            dest = os.path.normpath(os.path.join(archive_dir, relpath.replace("/", os.sep)))
+            yield file_path, dest
+
+
+def _walk_source_files(
+    root: str, archive_dir: str, exclude: set[str], logger: logging.Logger
+) -> Iterator[tuple[str, str]]:
+    """
+    Yield (file, archive path) for every file under ``root``, with no ignore filtering
+    (the --add-all fallback for directories outside a git work tree). ``.git``
+    directories are never swept; symlinks resolving outside ``root`` are skipped with a
+    warning, as is any directory that can't be read.
+    """
+
+    def _walk_error(exn: OSError) -> None:
+        logger.warning(
+            _(
+                "Skipping unreadable directory for the source archive sweep",
+                reason=str(exn),
+            )
+        )
+
+    visited_dirs: set[str] = set()
+    for dirpath, dirnames, filenames in os.walk(root, followlinks=True, onerror=_walk_error):
+        real_dirpath = os.path.realpath(dirpath)
+        if real_dirpath in visited_dirs:
+            dirnames[:] = []
+            continue
+        visited_dirs.add(real_dirpath)
+        keep_dirs = []
+        for dirname in dirnames:
+            dirname_path = os.path.join(dirpath, dirname)
+            if dirname == ".git":
+                continue
+            if not path_really_within(dirname_path, root):
+                logger.warning(
+                    _(
+                        "Skipping directory for the source archive:"
+                        " symlink resolves outside the swept directory",
+                        path=dirname_path,
+                        root=root,
+                    )
+                )
+                continue
+            keep_dirs.append(dirname)
+        dirnames[:] = keep_dirs
+        for filename in sorted(filenames):
+            file_path = os.path.join(dirpath, filename)
+            if os.path.realpath(file_path) in exclude:
+                continue
+            if not path_really_within(file_path, root):
+                logger.warning(
+                    _(
+                        "Skipping file for the source archive:"
+                        " symlink resolves outside the swept directory",
+                        path=file_path,
+                        root=root,
+                    )
+                )
+                continue
+            dest = os.path.normpath(os.path.join(archive_dir, os.path.relpath(file_path, root)))
+            yield file_path, dest
 
 
 def _warn_uncovered_source_relative_refs(
@@ -1075,16 +1113,16 @@ def _warn_uncovered_source_relative_refs(
                     )
                 )
             else:
-                # the hoover sweep isn't proof of coverage for a computed path: it
+                # the --add-all sweep isn't proof of coverage for a computed path: it
                 # covers the path only if it happens to lie in the swept tree and
-                # isn't excluded by .gitignore, neither of which can be checked
-                # statically -- so the warning stands, qualified
+                # isn't ignored there, neither of which can be checked statically --
+                # so the warning stands, qualified
                 logger.warning(
                     _(
                         "Cannot determine statically the file for the source-relative"
-                        " path expression; the --hoover sweep covers it only if the"
+                        " path expression; the --add-all sweep covers it only if the"
                         " computed path lies in a swept source directory and is not"
-                        " excluded by .gitignore",
+                        " ignored there (per git, in a work tree)",
                         reference=ref.description,
                     )
                 )

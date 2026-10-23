@@ -2157,10 +2157,11 @@ def fill_zip_subparser(subparsers):
         "source-relative File/Directory defaults and call inputs; warn about them instead",
     )
     zip_parser.add_argument(
-        "--hoover",
+        "--add-all",
         action="store_true",
-        help="include all files under each WDL source directory in the zip, except those "
-        "ignored by .gitignore files in the source tree",
+        help="include all files under each WDL source directory in the zip (in a git work "
+        "tree: tracked files, plus untracked files not ignored by git; outside a work "
+        "tree: all files, with no ignore rules applied)",
     )
     return zip_parser
 
@@ -2175,7 +2176,7 @@ def zip_wdl(
     no_outside_imports=False,
     additional_files=None,
     no_auto_include=False,
-    hoover=False,
+    add_all=False,
     debug=False,
     **kwargs,
 ):
@@ -2227,7 +2228,7 @@ def zip_wdl(
             archive_format=fmt,
             additional_files=additional_files,
             auto_include=not no_auto_include,
-            hoover=hoover,
+            add_all=add_all,
         )
 
 

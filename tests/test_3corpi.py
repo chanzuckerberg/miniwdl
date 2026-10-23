@@ -8,6 +8,7 @@ import urllib
 import urllib.request
 import logging
 import shutil
+import subprocess
 import contextlib
 import pathlib
 import hashlib
@@ -1031,6 +1032,13 @@ class TestZip(unittest.TestCase):
                     logger,
                 )
 
+    def _git(self, cwd, *args):
+        # test fixtures may drive the git executable directly; product code never does
+        subprocess.run(["git", "-C", cwd, *args], check=True, capture_output=True)
+
+    def _init_git_repo(self, path):
+        self._git(path, "init", "-q")
+
     def _source_relative_fixture(self, cleanup):
         # WDL 1.2 workflow exercising the source-relative reference classes of issue #878:
         # literal File/Directory defaults, literals nested in an Array, a computed path,
@@ -1156,34 +1164,49 @@ class TestZip(unittest.TestCase):
             self.assertFalse(os.path.exists(os.path.join(source_dir, "data/literal.txt")))
             self.assertFalse(os.path.exists(os.path.join(source_dir, "lib/helper.txt")))
 
-    def test_zip_hoover(self):
+    @unittest.skipUnless(shutil.which("git"), "git executable not available")
+    def test_zip_add_all(self):
+        # in a git work tree, --add-all sweeps exactly the files git accounts for:
+        # tracked files (even ones also matched by an ignore pattern), plus untracked
+        # files not excluded by .gitignore rules at any level
         with contextlib.ExitStack() as cleanup:
             testdir = cleanup.enter_context(tempfile.TemporaryDirectory(prefix="miniwdl_zip_test_"))
             src = os.path.join(testdir, "src")
             os.makedirs(os.path.join(src, "sub"))
             os.makedirs(os.path.join(src, "ignored_dir"))
-            os.makedirs(os.path.join(src, ".git"))
             pathlib.Path(os.path.join(src, "main.wdl")).write_text("version 1.2\nworkflow w {}\n")
+            # stage this file before the ignore pattern naming it exists: git accounts
+            # for tracked files regardless of ignore rules
+            pathlib.Path(os.path.join(src, "tracked.bin")).write_text("x\n")
+            self._init_git_repo(src)
+            self._git(src, "add", "tracked.bin")
             pathlib.Path(os.path.join(src, ".gitignore")).write_text(
-                "*.log\nignored.bin\n/deep.txt\nignored_dir/\n"
+                "*.log\nignored.bin\ntracked.bin\n/deep.txt\nignored_dir/\n!keep.log\n"
             )
             pathlib.Path(os.path.join(src, "sub", ".gitignore")).write_text("inner_skip.txt\n")
             for relpath in [
                 "keep.txt",
+                "keep.log",
                 "skip.log",
                 "ignored.bin",
                 "deep.txt",
                 "sub/inner_keep.txt",
                 "sub/inner_skip.txt",
                 "ignored_dir/x.txt",
-                ".git/HEAD",
             ]:
                 pathlib.Path(os.path.join(src, relpath)).write_text("x\n")
             doc = WDL.load(os.path.join(src, "main.wdl"))
             zip_fn = os.path.join(testdir, "source.zip")
-            WDL.Zip.build(doc, zip_fn, logging.getLogger("miniwdl_zip_test"), hoover=True)
+            WDL.Zip.build(doc, zip_fn, logging.getLogger("miniwdl_zip_test"), add_all=True)
             source_dir, _main_wdl, _inputs_file = cleanup.enter_context(WDL.Zip.unpack(zip_fn))
-            for relpath in ["keep.txt", "sub/inner_keep.txt", ".gitignore", "sub/.gitignore"]:
+            for relpath in [
+                "keep.txt",
+                "keep.log",
+                "tracked.bin",
+                "sub/inner_keep.txt",
+                ".gitignore",
+                "sub/.gitignore",
+            ]:
                 self.assertTrue(os.path.isfile(os.path.join(source_dir, relpath)), relpath)
             for relpath in [
                 "skip.log",
@@ -1203,7 +1226,7 @@ class TestZip(unittest.TestCase):
             WDL.CLI.zip_wdl(main_wdl, output=zip_fn, force=True, no_auto_include=True)
             with zipfile.ZipFile(zip_fn) as zf:
                 self.assertNotIn("data/literal.txt", zf.namelist())
-            WDL.CLI.zip_wdl(main_wdl, output=zip_fn, force=True, hoover=True)
+            WDL.CLI.zip_wdl(main_wdl, output=zip_fn, force=True, add_all=True)
             with zipfile.ZipFile(zip_fn) as zf:
                 names = zf.namelist()
             self.assertIn("data/literal.txt", names)
@@ -1465,6 +1488,52 @@ class TestZip(unittest.TestCase):
             with self.assertNoLogs(logger, level="WARNING"):
                 WDL.Zip.build(doc, zip_fn, logger)
 
+    def test_zip_computed_default_literal_included(self):
+        # "default unless overridden": string literals in candidate positions of a
+        # computed File expression (select_first elements, conditional branches) are
+        # harvested and classified like plain literals, so the default is auto-included
+        # instead of passing silently -- while a candidate naming a directory at a
+        # File leaf draws the usual wrong-kind warning and isn't included
+        with contextlib.ExitStack() as cleanup:
+            testdir = cleanup.enter_context(tempfile.TemporaryDirectory(prefix="miniwdl_zip_test_"))
+            src = os.path.join(testdir, "src")
+            os.makedirs(os.path.join(src, "data", "refdir"))
+            pathlib.Path(os.path.join(src, "data", "default.fa")).write_text("fa\n")
+            pathlib.Path(os.path.join(src, "data", "refdir", "a.txt")).write_text("a\n")
+            pathlib.Path(os.path.join(src, "main.wdl")).write_text(
+                "version 1.2\n"
+                "workflow w {\n"
+                "    input {\n"
+                "        File? ref_override\n"
+                '        File ref = select_first([ref_override, "data/default.fa"])\n'
+                "        File ref2 = if defined(ref_override) then select_first([ref_override])"
+                ' else "data/default.fa"\n'
+                '        File wrong = select_first([ref_override, "data/refdir"])\n'
+                "    }\n"
+                "}\n"
+            )
+            doc = WDL.load(os.path.join(src, "main.wdl"))
+            zip_fn = os.path.join(testdir, "source.zip")
+            logger = logging.getLogger("miniwdl_zip_test")
+            with self.assertLogs(logger, level="WARNING") as logs:
+                WDL.Zip.build(doc, zip_fn, logger)
+            warnings = "\n".join(logs.output)
+            # the wrong-kind candidate warns specifically; the defaults pass silently
+            self.assertIn("data/refdir", warnings)
+            self.assertIn("is not a file", warnings)
+            self.assertNotIn("data/default.fa", warnings)
+            self.assertNotIn("Cannot determine statically", warnings)
+            source_dir, _main_wdl, _inputs_file = cleanup.enter_context(WDL.Zip.unpack(zip_fn))
+            self.assertTrue(os.path.isfile(os.path.join(source_dir, "data", "default.fa")))
+            self.assertFalse(os.path.exists(os.path.join(source_dir, "data", "refdir", "a.txt")))
+            # with automatic inclusion off, the harvested defaults are reported like
+            # any other scanned literal reference
+            with self.assertLogs(logger, level="WARNING") as logs:
+                WDL.Zip.build(doc, zip_fn, logger, auto_include=False)
+            warnings = "\n".join(logs.output)
+            self.assertIn("data/default.fa", warnings)
+            self.assertIn("automatic inclusion disabled", warnings)
+
     def test_zip_auto_include_summary_log(self):
         # automatic inclusion logs a one-line summary of files/bytes added, since it
         # can substantially grow an archive that previously held only WDL sources
@@ -1488,42 +1557,54 @@ class TestZip(unittest.TestCase):
                 WDL.Zip.build(doc, zip_fn, logger)
             self.assertIn("Automatically included 1 files (6 bytes)", "\n".join(logs.output))
 
-    def test_zip_hoover_ancestor_gitignore(self):
-        # the hoover sweep applies .gitignore rules inherited from ancestor directories
-        # within the swept tree, not only each directory's own .gitignore
+    @unittest.skipUnless(shutil.which("git"), "git executable not available")
+    def test_zip_add_all_ancestor_gitignore(self):
+        # the --add-all sweep defers to git: a .gitignore in the work-tree root, above
+        # the WDL source directories, applies to files under them (the case the old
+        # in-tree pathspec emulation missed), as do nested .gitignore files and
+        # negations -- all with git's own outcomes
         with contextlib.ExitStack() as cleanup:
             testdir = cleanup.enter_context(tempfile.TemporaryDirectory(prefix="miniwdl_zip_test_"))
-            src = os.path.join(testdir, "src")
+            src = os.path.join(testdir, "wf")
             os.makedirs(os.path.join(src, "lib"))
-            pathlib.Path(os.path.join(src, ".gitignore")).write_text("*.secret\n")
+            pathlib.Path(os.path.join(testdir, ".gitignore")).write_text("*.secret\n")
+            pathlib.Path(os.path.join(src, "lib", ".gitignore")).write_text(
+                "!visible.secret\ninner_skip.txt\n"
+            )
             pathlib.Path(os.path.join(src, "lib", "hidden.secret")).write_text("shh\n")
+            pathlib.Path(os.path.join(src, "lib", "visible.secret")).write_text("ok\n")
             pathlib.Path(os.path.join(src, "lib", "visible.txt")).write_text("ok\n")
+            pathlib.Path(os.path.join(src, "lib", "inner_skip.txt")).write_text("skip\n")
             pathlib.Path(os.path.join(src, "lib", "tasks.wdl")).write_text(
                 "version 1.2\ntask t { command {} }\n"
             )
             pathlib.Path(os.path.join(src, "main.wdl")).write_text(
                 'version 1.2\nimport "lib/tasks.wdl"\nworkflow w {}\n'
             )
+            self._init_git_repo(testdir)
             doc = WDL.load(os.path.join(src, "main.wdl"))
             zip_fn = os.path.join(testdir, "source.zip")
-            WDL.Zip.build(doc, zip_fn, logging.getLogger("miniwdl_zip_test"), hoover=True)
+            WDL.Zip.build(doc, zip_fn, logging.getLogger("miniwdl_zip_test"), add_all=True)
             source_dir, _main_wdl, _inputs_file = cleanup.enter_context(WDL.Zip.unpack(zip_fn))
             self.assertTrue(os.path.isfile(os.path.join(source_dir, "lib", "visible.txt")))
+            # re-included by the negation in lib/.gitignore
+            self.assertTrue(os.path.isfile(os.path.join(source_dir, "lib", "visible.secret")))
             self.assertFalse(os.path.exists(os.path.join(source_dir, "lib", "hidden.secret")))
+            self.assertFalse(os.path.exists(os.path.join(source_dir, "lib", "inner_skip.txt")))
 
-    def test_zip_hoover_computed_warning_qualified(self):
-        # under --hoover a computed path still warns (qualified): the sweep is not proof
-        # of coverage for a statically unknowable path
+    def test_zip_add_all_computed_warning_qualified(self):
+        # under --add-all a computed path still warns (qualified): the sweep is not
+        # proof of coverage for a statically unknowable path
         with contextlib.ExitStack() as cleanup:
             testdir, src = self._source_relative_fixture(cleanup)
             doc = WDL.load(os.path.join(src, "main.wdl"))
             zip_fn = os.path.join(testdir, "source.zip")
             logger = logging.getLogger("miniwdl_zip_test")
             with self.assertLogs(logger, level="WARNING") as logs:
-                WDL.Zip.build(doc, zip_fn, logger, hoover=True)
+                WDL.Zip.build(doc, zip_fn, logger, add_all=True)
             warnings = "\n".join(logs.output)
             self.assertIn("computed_ref", warnings)
-            self.assertIn("--hoover sweep covers it only if", warnings)
+            self.assertIn("--add-all sweep covers it only if", warnings)
             # the sweep did in fact include the computed path's target here
             source_dir, _main_wdl, _inputs_file = cleanup.enter_context(WDL.Zip.unpack(zip_fn))
             self.assertTrue(os.path.isfile(os.path.join(source_dir, "data/dynamic_A.txt")))
@@ -1619,7 +1700,8 @@ class TestZip(unittest.TestCase):
             self.assertFalse(os.path.exists(os.path.join(source_dir, "data", "a.txt")))
             self.assertFalse(os.path.exists(os.path.join(source_dir, "data", "evil.txt")))
 
-    def test_zip_hoover_excluded_import_root(self):
+    @unittest.skipUnless(shutil.which("git"), "git executable not available")
+    def test_zip_add_all_excluded_import_root(self):
         # git never descends into a directory excluded by an ancestor .gitignore, so a
         # negation in the excluded directory's own .gitignore can't reopen it -- even
         # though the directory is also swept as an imported document's source root
@@ -1636,40 +1718,43 @@ class TestZip(unittest.TestCase):
             pathlib.Path(os.path.join(src, "main.wdl")).write_text(
                 'version 1.2\nimport "lib/tasks.wdl"\nworkflow w {}\n'
             )
+            self._init_git_repo(src)
             doc = WDL.load(os.path.join(src, "main.wdl"))
             zip_fn = os.path.join(testdir, "source.zip")
-            WDL.Zip.build(doc, zip_fn, logging.getLogger("miniwdl_zip_test"), hoover=True)
+            WDL.Zip.build(doc, zip_fn, logging.getLogger("miniwdl_zip_test"), add_all=True)
             source_dir, _main_wdl, _inputs_file = cleanup.enter_context(WDL.Zip.unpack(zip_fn))
             self.assertFalse(os.path.exists(os.path.join(source_dir, "lib", "hidden.secret")))
 
-    def test_zip_hoover_unreadable_gitignore(self):
-        # an unreadable .gitignore is treated as absent, with a warning; the sweep
-        # continues instead of failing the archive
+    def test_zip_add_all_outside_git_repo(self):
+        # outside a git work tree, --add-all doesn't emulate .gitignore: every file is
+        # swept (even ones a .gitignore names), and an info note says so
         with contextlib.ExitStack() as cleanup:
             testdir = cleanup.enter_context(tempfile.TemporaryDirectory(prefix="miniwdl_zip_test_"))
             src = os.path.join(testdir, "src")
             os.makedirs(src)
+            # the fixture premise is that src isn't in a git work tree; guard it, since
+            # a shared machine could have a repository above the temp directory
+            try:
+                import git
+
+                git.Repo(src, search_parent_directories=True)
+            except Exception:
+                pass
+            else:
+                self.skipTest("temporary directory is inside a git work tree")
             pathlib.Path(os.path.join(src, ".gitignore")).write_text("*.log\n")
             pathlib.Path(os.path.join(src, "skip.log")).write_text("log\n")
+            pathlib.Path(os.path.join(src, "keep.txt")).write_text("ok\n")
             pathlib.Path(os.path.join(src, "main.wdl")).write_text("version 1.2\nworkflow w {}\n")
             doc = WDL.load(os.path.join(src, "main.wdl"))
             zip_fn = os.path.join(testdir, "source.zip")
             logger = logging.getLogger("miniwdl_zip_test")
-            real_open = open
-
-            def flaky_open(path, *args, **kwargs):
-                if str(path).endswith(".gitignore"):
-                    raise PermissionError("mock unreadable .gitignore")
-                return real_open(path, *args, **kwargs)
-
-            with unittest.mock.patch("builtins.open", flaky_open):
-                with self.assertLogs(logger, level="WARNING") as logs:
-                    WDL.Zip.build(doc, zip_fn, logger, hoover=True)
-            warnings = "\n".join(logs.output)
-            self.assertIn("Skipping unreadable .gitignore", warnings)
+            with self.assertLogs(logger, level="INFO") as logs:
+                WDL.Zip.build(doc, zip_fn, logger, add_all=True)
+            self.assertIn("not in a git work tree", "\n".join(logs.output))
             source_dir, _main_wdl, _inputs_file = cleanup.enter_context(WDL.Zip.unpack(zip_fn))
-            # the ignore rules never loaded, so the .log file was swept in
             self.assertTrue(os.path.isfile(os.path.join(source_dir, "skip.log")))
+            self.assertTrue(os.path.isfile(os.path.join(source_dir, "keep.txt")))
 
     def test_zip_missing_empty_descendant_warns(self):
         # directory coverage checks directories too: staging every file of a Directory
@@ -1704,7 +1789,8 @@ class TestZip(unittest.TestCase):
             self.assertTrue(os.path.isfile(os.path.join(source_dir, "data", "a")))
             self.assertFalse(os.path.exists(os.path.join(source_dir, "data", "hollow")))
 
-    def test_zip_hoover_ignored_intermediate(self):
+    @unittest.skipUnless(shutil.which("git"), "git executable not available")
+    def test_zip_add_all_ignored_intermediate(self):
         # an intermediate directory excluded by a shallower .gitignore is never
         # descended into: its own .gitignore can't negate a deeper imported sweep
         # root back into the sweep
@@ -1721,15 +1807,17 @@ class TestZip(unittest.TestCase):
             pathlib.Path(os.path.join(src, "main.wdl")).write_text(
                 'version 1.2\nimport "lib/deep/tasks.wdl"\nworkflow w {}\n'
             )
+            self._init_git_repo(src)
             doc = WDL.load(os.path.join(src, "main.wdl"))
             zip_fn = os.path.join(testdir, "source.zip")
-            WDL.Zip.build(doc, zip_fn, logging.getLogger("miniwdl_zip_test"), hoover=True)
+            WDL.Zip.build(doc, zip_fn, logging.getLogger("miniwdl_zip_test"), add_all=True)
             source_dir, _main_wdl, _inputs_file = cleanup.enter_context(WDL.Zip.unpack(zip_fn))
             self.assertFalse(
                 os.path.exists(os.path.join(source_dir, "lib", "deep", "hidden.secret"))
             )
 
-    def test_zip_hoover_negation_cannot_reopen_pruned_subtree(self):
+    @unittest.skipUnless(shutil.which("git"), "git executable not available")
+    def test_zip_add_all_negation_cannot_reopen_pruned_subtree(self):
         # a negation for a deeper directory in the same .gitignore (!lib/deep/) cannot
         # reopen it while its parent (lib/) stays excluded -- git prunes at the parent
         with contextlib.ExitStack() as cleanup:
@@ -1744,9 +1832,10 @@ class TestZip(unittest.TestCase):
             pathlib.Path(os.path.join(src, "main.wdl")).write_text(
                 'version 1.2\nimport "lib/deep/tasks.wdl"\nworkflow w {}\n'
             )
+            self._init_git_repo(src)
             doc = WDL.load(os.path.join(src, "main.wdl"))
             zip_fn = os.path.join(testdir, "source.zip")
-            WDL.Zip.build(doc, zip_fn, logging.getLogger("miniwdl_zip_test"), hoover=True)
+            WDL.Zip.build(doc, zip_fn, logging.getLogger("miniwdl_zip_test"), add_all=True)
             source_dir, _main_wdl, _inputs_file = cleanup.enter_context(WDL.Zip.unpack(zip_fn))
             self.assertFalse(
                 os.path.exists(os.path.join(source_dir, "lib", "deep", "hidden.secret"))
