@@ -1042,29 +1042,16 @@ def runner_input(
         if not decl:
             # allow arbitrary runtime/requirements/hints overrides (WDL 1.2)
             nmparts = name.split(".")
-            for override in (
-                "requirements",
-                "runtime",
-                "hints",
-            ):
-                runtime_idx = next(
-                    (i for i, term in enumerate(nmparts) if term == override),
-                    -1,
-                )
-                if (
-                    runtime_idx >= 0
-                    and len(nmparts) > (runtime_idx + 1)
-                    and (
-                        decl := available_inputs.get(
-                            ".".join(nmparts[:runtime_idx] + ["_" + override])
-                        )
-                    )
-                ):
-                    if override == "hints":
-                        # as in values_from_json: hint overrides may only
-                        # address top-level hint keys
-                        Tree._check_hint_override_name(".".join(nmparts[runtime_idx + 1 :]))
-                    break
+            found_override = Tree._find_override_namespace(
+                nmparts, lambda placeholder: available_inputs.get(placeholder) is not None
+            )
+            if found_override:
+                override, runtime_idx = found_override
+                decl = available_inputs.get(".".join(nmparts[:runtime_idx] + ["_" + override]))
+                if override == "hints":
+                    # as in values_from_json: hint overrides may only
+                    # address top-level hint keys
+                    Tree._check_hint_override_name(".".join(nmparts[runtime_idx + 1 :]))
 
         if not decl:
             runner_input_help(target)

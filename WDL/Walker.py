@@ -8,7 +8,8 @@ class Base:
     """
     Helper base class for traversing the WDL abstract syntax tree. When called
     on a node, invokes the appropriate method (document, workflow, call,
-    scatter, conditional, decl, task). The base implementations of these
+    scatter, conditional, decl, task, hints_object, io_hints). The base
+    implementations of these
     methods recurse into the node's "children." Overriding subclasses can thus
     invoke their super at the appropriate point for preorder or postorder
     traversal (or omit super to prevent further descent).

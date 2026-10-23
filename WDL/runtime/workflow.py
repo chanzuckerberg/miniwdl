@@ -257,14 +257,9 @@ def _validate_workflow_hint_overrides(
 ) -> None:
     """
     At workflow startup, validate the launch inputs' hint overrides against
-    the declared hints of each called task (recursing into subworkflows): an
-    override targeting a key declared with a hints{}/input{}/output{} block
-    is an input error (see Tree._validate_hint_override_names). Checking
-    once here, before any task runs, keeps a bad override for a late call
-    from surfacing only after earlier calls have already executed.
-    (Overrides addressing a value below the top-level hint key are rejected
-    even earlier, while the inputs are parsed; see WDL.values_from_json and
-    WDL.CLI.runner_input.)
+    the declared hints of each called task (recursing into subworkflows), so
+    a bad override is an input error before any task runs (see
+    Tree._validate_hint_override_names).
     """
     for call in Tree._calls(workflow):
         callee = call.callee

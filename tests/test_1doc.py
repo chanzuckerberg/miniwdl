@@ -2776,7 +2776,7 @@ class TestStruct(unittest.TestCase):
             }
         }
         """
-        with self.assertRaises(WDL.Error.SyntaxError):
+        with self.assertRaises(WDL.Error.ValidationError):
             WDL.parse_document(doc)
 
         doc = r"""version 1.2

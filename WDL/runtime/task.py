@@ -222,10 +222,7 @@ def run_local_task(  # type: ignore[return]
                 )
 
                 # evaluate hints{} and hand the values to the container, which
-                # may use or ignore them (see TaskContainer.process_hints).
-                # Individual hints that fail to evaluate are dropped with a
-                # warning inside _eval_task_hints; invalid hint overrides raise
-                # InputError.
+                # may use or ignore them (see TaskContainer.process_hints)
                 hints_values = _eval_task_hints(logger, task, posix_inputs, container_env, stdlib)
                 container.process_hints(logger, hints_values)
 
@@ -758,40 +755,18 @@ def _eval_task_hints(
     stdlib: StdLib.Base,
 ) -> dict[str, Value.Base]:
     """
-    Evaluate a task's ``hints{}`` section, for consumption by the task's
-    container (see :meth:`WDL.runtime.task_container.TaskContainer.process_hints`).
-    This mirrors the layering of :func:`_eval_task_runtime` for the
-    ``runtime{}``/``requirements{}`` sections: the WDL hint expressions are
-    evaluated in the task input environment ``env``, then any hint overrides
-    supplied in the input JSON (bound under the ``hints`` namespace of
-    ``inputs``, e.g. from ``"wf.task.hints.max_cpu"`` input keys) supersede
-    them.
-
-    The result maps each top-level hint key to a :class:`WDL.Value.Base`:
-    expressions evaluate to their values, and nested ``hints{...}`` objects
-    and ``input{...}``/``output{...}`` blocks evaluate to
-    :class:`WDL.Value.Struct` of :class:`WDL.Type.Object` -- the same shape
-    JSON overrides arrive in (via ``Value.from_json(Type.Any(), ...)``). The
-    input/output block kind follows from its key (``inputs``/``outputs``).
-
-    Overrides replace per top-level key: if an override is supplied for a
-    top-level hint key, the declared value of that key is superseded
-    wholesale (its expression is not evaluated); other top-level keys are
-    unaffected. Overrides addressing a value below the top-level key (e.g.
-    ``aws.instance_type``), or targeting a key declared with a
-    ``hints{...}``/``input{...}``/``output{...}`` block, are input errors:
-    the spec is ambiguous about nested hint overrides and miniwdl does not
-    commit to a reading while openwdl/wdl#773 is unresolved. The dotted-path
-    case is normally rejected while the inputs are parsed (see
-    WDL.values_from_json and WDL.CLI.runner_input), and workflow runs
-    validate the block case once at startup (see
-    WDL.runtime.workflow.run_local_workflow); both are re-checked here for
-    programmatically-constructed inputs.
-
-    A hint whose expression fails to evaluate at runtime is dropped
-    individually, with a logged warning naming the key: a task execution
-    never fails due to a hint (WDL 1.2 spec, Hints section). Typechecking
-    errors in hint expressions remain strict errors, raised earlier.
+    Evaluate a task's ``hints{}`` section to ``dict[str, Value.Base]``, for
+    consumption by the task's container (see
+    :meth:`WDL.runtime.task_container.TaskContainer.process_hints`), mirroring
+    :func:`_eval_task_runtime`: the hint expressions are evaluated in the task
+    input environment ``env``, then hint overrides from the input JSON (the
+    ``hints`` namespace of ``inputs``) supersede them per top-level key (the
+    superseded expression is not evaluated). Nested ``hints{...}`` objects and
+    ``input{...}``/``output{...}`` blocks evaluate to :class:`WDL.Value.Struct`
+    of :class:`WDL.Type.Object`, the shape JSON overrides arrive in. A hint
+    whose expression fails to evaluate is dropped individually, with a logged
+    warning naming the key: a task execution never fails due to a hint
+    (WDL 1.2 spec, Hints section).
     """
     hint_bindings = list(inputs.enter_namespace("hints"))
     Tree._validate_hint_override_names(task.hints, [b.name for b in hint_bindings])

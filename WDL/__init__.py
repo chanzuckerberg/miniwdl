@@ -252,28 +252,17 @@ def values_from_json(
             else:
                 key2parts = key2.split(".")
 
-                for override in (
-                    "requirements",
-                    "runtime",
-                    "hints",
-                ):
-                    runtime_idx = next(
-                        (i for i, term in enumerate(key2parts) if term == override),
-                        -1,
-                    )
-                    if (
-                        runtime_idx >= 0
-                        and len(key2parts) > (runtime_idx + 1)
-                        and ".".join(key2parts[:runtime_idx] + ["_" + override]) in available
-                    ):
-                        # allow arbitrary keys for runtime
-                        ty = Type.Any()
-                        if override == "hints":
-                            # Hint overrides may only address top-level hint
-                            # keys; reject a dotted path below one now, while
-                            # the inputs are being parsed, instead of when
-                            # the called task eventually runs.
-                            Tree._check_hint_override_name(".".join(key2parts[runtime_idx + 1 :]))
+                found_override = Tree._find_override_namespace(
+                    key2parts, lambda placeholder: placeholder in available
+                )
+                if found_override:
+                    override, runtime_idx = found_override
+                    # allow arbitrary keys under the override namespace
+                    ty = Type.Any()
+                    if override == "hints":
+                        # hint overrides may only address top-level hint keys
+                        # (see Tree._check_hint_override_name)
+                        Tree._check_hint_override_name(".".join(key2parts[runtime_idx + 1 :]))
 
                 if (
                     not ty

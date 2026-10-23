@@ -47,9 +47,7 @@ def to_float(x):
     return float(x)
 
 
-def _validate_workflow_hint_expr_literal(
-    expr: Expr.Base, wdl_version: str | None, declared_version: str | None
-) -> None:
+def _validate_workflow_hint_expr_literal(expr: Expr.Base) -> None:
     # Check that an expression is a literal, as the WDL 1.2 spec requires of
     # workflow hint values. Composite literals are checked recursively, so the
     # error points at the specific non-literal subexpression. (Map keys are
@@ -61,64 +59,50 @@ def _validate_workflow_hint_expr_literal(
         # literal as long as it has no placeholders interpolating expressions
         for part in expr.parts:
             if isinstance(part, Expr.Placeholder):
-                raise Error.SyntaxError(
+                raise Error.ValidationError(
                     part.expr.pos,
                     "workflow hint values must be literals; expressions are not allowed",
-                    wdl_version or "",
-                    declared_version,
                 )
         return
     if isinstance(expr, Expr.Array):
         for item in expr.items:
-            _validate_workflow_hint_expr_literal(item, wdl_version, declared_version)
+            _validate_workflow_hint_expr_literal(item)
         return
     if isinstance(expr, Expr.Pair):
-        _validate_workflow_hint_expr_literal(expr.left, wdl_version, declared_version)
-        _validate_workflow_hint_expr_literal(expr.right, wdl_version, declared_version)
+        _validate_workflow_hint_expr_literal(expr.left)
+        _validate_workflow_hint_expr_literal(expr.right)
         return
     if isinstance(expr, Expr.Map):
         for k, v in expr.items:
             if not isinstance(k, (Expr.Boolean, Expr.Int, Expr.Float, Expr.String)):
-                raise Error.SyntaxError(
-                    k.pos,
-                    "workflow hint object keys must be literal values",
-                    wdl_version or "",
-                    declared_version,
+                raise Error.ValidationError(
+                    k.pos, "workflow hint object keys must be literal values"
                 )
-            _validate_workflow_hint_expr_literal(k, wdl_version, declared_version)
-            _validate_workflow_hint_expr_literal(v, wdl_version, declared_version)
+            _validate_workflow_hint_expr_literal(k)
+            _validate_workflow_hint_expr_literal(v)
         return
     if isinstance(expr, Expr.Struct):
         for v in expr.members.values():
-            _validate_workflow_hint_expr_literal(v, wdl_version, declared_version)
+            _validate_workflow_hint_expr_literal(v)
         return
-    raise Error.SyntaxError(
-        expr.pos,
-        "workflow hint values must be literals; expressions are not allowed",
-        wdl_version or "",
-        declared_version,
+    raise Error.ValidationError(
+        expr.pos, "workflow hint values must be literals; expressions are not allowed"
     )
 
 
-def _validate_workflow_hint_literal(
-    node: Tree.HintValue, wdl_version: str | None, declared_version: str | None
-) -> None:
+def _validate_workflow_hint_literal(node: Tree.HintValue) -> None:
     # Validate a parsed hints value (from the grammar productions shared by task
-    # and workflow hints sections) for a workflow hints section: the parsed AST
-    # is retained in Tree.Workflow.hints, in the same representation as task
-    # hints; only the spec's literal-values rule is enforced here.
+    # and workflow hints sections) for a workflow hints section: only the
+    # spec's literal-values rule is enforced here.
     if isinstance(node, Tree.HintsObject):
         for v in node.values.values():
-            _validate_workflow_hint_literal(v, wdl_version, declared_version)
+            _validate_workflow_hint_literal(v)
         return
     if isinstance(node, Tree.IOHints):
-        raise Error.SyntaxError(
-            node.pos,
-            "input/output blocks are not allowed in workflow hints",
-            wdl_version or "",
-            declared_version,
+        raise Error.ValidationError(
+            node.pos, "input/output blocks are not allowed in workflow hints"
         )
-    _validate_workflow_hint_expr_literal(node, wdl_version, declared_version)
+    _validate_workflow_hint_expr_literal(node)
 
 
 class _SourcePositionTransformerMixin:
@@ -508,23 +492,32 @@ class _DocTransformer(_ExprTransformer):
 
     def io_hint_kv(self, meta, items):
         # items: one or more CNAME tokens forming the (possibly dotted) key,
-        # followed by the value
-        return (".".join(tok.value for tok in items[:-1]), items[-1])
+        # followed by the value; retain the key's source position so that
+        # validation errors can point at the key (Tree._validate_io_hints)
+        key_toks = items[:-1]
+        key_pos = SourcePosition(
+            uri=self.uri,
+            abspath=self.abspath,
+            line=key_toks[0].line,
+            column=key_toks[0].column,
+            end_line=key_toks[-1].end_line,
+            end_column=key_toks[-1].end_column,
+        )
+        return (".".join(tok.value for tok in key_toks), key_pos, items[-1])
 
     def io_hint(self, meta, items):
-        kind = next(
-            tok.value
-            for tok in items
-            if isinstance(tok, lark.Token) and tok.value in ("input", "output")
-        )
+        # the !io_hint grammar rule puts the kind token first
+        kind = items[0].value
         d = {}
-        for k, v in (item for item in items if isinstance(item, tuple)):
+        key_pos = {}
+        for k, kpos, v in (item for item in items if isinstance(item, tuple)):
             if k in d:
                 raise Error.MultipleDefinitions(
                     self._sp(meta), "duplicate keys in hints input/output block"
                 )
             d[k] = v
-        return Tree.IOHints(self._sp(meta), kind, d)
+            key_pos[k] = kpos
+        return Tree.IOHints(self._sp(meta), kind, d, key_pos)
 
     def hints_object(self, meta, items):
         d = {}
@@ -763,7 +756,7 @@ class _DocTransformer(_ExprTransformer):
         wf_hints_pos = None
         if hints_section is not None:
             assert isinstance(hints_section, Tree.HintsObject)
-            _validate_workflow_hint_literal(hints_section, self._version, self._declared_version)
+            _validate_workflow_hint_literal(hints_section)
             wf_hints = hints_section.values
             wf_hints_pos = hints_section.pos
         return Tree.Workflow(
