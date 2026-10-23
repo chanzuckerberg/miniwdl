@@ -41,7 +41,7 @@ Not every reference can be resolved statically:
 
 Use ``--additional``/``--add`` to include other files, directories, or glob patterns explicitly; they'll be stored in the ZIP at the same relative location to the WDL source files. Add ``--no-auto-include`` to disable automatic inclusion of literal source-relative paths (they're then reported by warning only).
 
-Finally, ``--hoover`` includes *all* files under each WDL source directory, except those ignored by ``.gitignore`` files in the source tree (and ``.git`` directories). Only in-tree ``.gitignore`` files are consulted, so the behavior is the same in git checkouts and plain directory trees. This blunt option also covers computed paths, at the cost of archiving everything else in the tree.
+Finally, ``--hoover`` includes *all* files under each WDL source directory, except those ignored by ``.gitignore`` files in the source tree (and ``.git`` directories). Only in-tree ``.gitignore`` files are consulted, so the behavior is the same in git checkouts and plain directory trees. This blunt option also covers computed paths whose targets lie in the swept tree and aren't excluded by ``.gitignore``, at the cost of archiving everything else in the tree; the archiver still warns about computed paths, since it can't verify statically that a given one is covered.
 
 Command line
 ------------

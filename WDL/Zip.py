@@ -20,6 +20,7 @@ from collections.abc import Iterator
 from typing import Any, NamedTuple
 
 from . import Error, Expr, Lint, Tree, Type, Value
+from ._util import StructuredLogMessage as _
 from ._util import WDLVersion, path_really_within, wdl_version_geq
 
 
@@ -60,6 +61,15 @@ def build(
         # write WDL source code to temp directory
         dir_to_zip, zip_paths, wdls = _build_source_dir(cleanup, top_doc, logger)
 
+        # Track what actually lands at each archive path, and from which source file, so
+        # coverage of source-relative references can be verified against the archive's real
+        # contents instead of what was merely requested. Generated files (the manifest and
+        # the default inputs JSON) are recorded with source None: they're reserved names
+        # that no user file may silently take over, nor be taken over by.
+        staged: dict[str, str | None] = {
+            zip_path: os.path.realpath(abspath) for abspath, zip_path in zip_paths.items()
+        }
+
         # add MANIFEST.json; schema roughly following Amazon Genomics CLI's:
         #  https://aws.github.io/amazon-genomics-cli/docs/concepts/workflows/#multi-file-workflows
         manifest: dict[str, Any] = {"mainWorkflowURL": os.path.basename(top_doc.pos.abspath)}
@@ -69,11 +79,15 @@ def build(
             manifest["inputFileURLs"] = ["default_input.json"]
             with open(os.path.join(dir_to_zip, "default_input.json"), "w") as inputs_file:
                 json.dump(inputs, inputs_file, indent=2)
+            staged["default_input.json"] = None
         with open(os.path.join(dir_to_zip, "MANIFEST.json"), "w") as manifest_file:
             json.dump(manifest, manifest_file, indent=2)
+        staged["MANIFEST.json"] = None
         logger.debug("manifest = " + json.dumps(manifest))
         if additional_files:
-            add_additional_files(dir_to_zip, additional_files, zip_paths, wdls, logger)
+            staged.update(
+                add_additional_files(dir_to_zip, additional_files, zip_paths, wdls, logger)
+            )
 
         # Scan declarations and call inputs for WDL 1.2 source-relative File/Directory
         # references (issue #878): auto-include the ones with provable literal paths, and
@@ -84,32 +98,52 @@ def build(
             try:
                 source_dirs = _additional_source_dirs(zip_paths, wdls)
             except Error.InputError as exn:
-                logger.warning(f"Skipping automatic file inclusion: {exn}")
+                logger.warning(_("Skipping automatic file inclusion", reason=str(exn)))
                 source_dirs = []
-            include_targets: list[str] = []
+            archive_dirs = dict(source_dirs)
+            include_pairs: list[tuple[str, str, _SourceRelativeRef | None]] = []
             if auto_include:
-                include_targets.extend(
-                    ref.target
-                    for ref in refs
-                    if ref.kind == Lint._SourceRelativePathKind.OK and ref.target
-                )
+                for ref in refs:
+                    if ref.kind != Lint._SourceRelativePathKind.OK or not ref.target:
+                        continue
+                    dest = _source_relative_dest(ref, archive_dirs)
+                    if dest is None:
+                        continue
+                    try:
+                        # materialize the expansion before extending: if it fails partway,
+                        # the whole reference is skipped, not partially included
+                        expanded = list(_expand_scanned_target(ref.target, dest, ref))
+                    except (Error.InputError, OSError) as exn:
+                        logger.warning(
+                            _(
+                                "Skipping source-relative path for the source archive",
+                                path=ref.literal,
+                                reference=ref.description,
+                                reason=str(exn),
+                            )
+                        )
+                    else:
+                        include_pairs.extend((src, dst, ref) for src, dst in expanded)
             swept_dirs: set[str] = set()
             if hoover and source_dirs:
                 swept_dirs = {os.path.realpath(source_dir) for source_dir, _ in source_dirs}
-                include_targets.extend(
-                    _hoover_source_files(
+                include_pairs.extend(
+                    (src, dst, None)
+                    for src, dst in _hoover_source_files(
                         source_dirs,
                         {os.path.realpath(os.path.abspath(archive))},
                         logger,
                     )
                 )
-            if include_targets and source_dirs:
-                _include_scanned_paths(dir_to_zip, include_targets, source_dirs, logger)
+            collided: set[str] = set()
+            if include_pairs and source_dirs:
+                _include_scanned_paths(dir_to_zip, include_pairs, staged, collided, logger)
             _warn_uncovered_source_relative_refs(
                 refs,
                 dir_to_zip,
-                source_dirs,
-                set(include_targets),
+                archive_dirs,
+                staged,
+                collided,
                 auto_include,
                 swept_dirs,
                 logger,
@@ -246,10 +280,11 @@ def add_additional_files(
     zip_paths: dict[str, str],
     wdls: dict[str, Tree.Document],
     logger: logging.Logger,
-) -> None:
+) -> dict[str, str]:
     """
     Add files/directories to an archive staging directory, preserving paths relative to WDL source
-    directories represented in ``zip_paths``.
+    directories represented in ``zip_paths``. Returns a map of each staged archive path to the
+    realpath of the source file it was staged from.
 
     Examples:
 
@@ -289,6 +324,7 @@ def add_additional_files(
                 shutil.copyfile(src, dest_path)
                 copied[dest] = os.path.realpath(src)
                 logger.info(f"{dest} <= {src}")
+    return copied
 
 
 def _additional_source_dirs(
@@ -483,14 +519,18 @@ def _scan_call_refs(
 ) -> None:
     if call.callee is None:
         return
-    callee_inputs = {decl.name: decl for decl in call.callee.inputs or []}
     for name, expr in call.inputs.items():
-        decl = callee_inputs.get(name)
-        if decl is not None:
-            # call input bindings resolve against the *caller's* source directory
-            _scan_typed_expr_refs(
-                decl.type, expr, source_dir, f"call input '{call.name}.{name}' in {doc_name}", refs
-            )
+        try:
+            # the callee's canonical callable-input interface (as in Call.typecheck_input):
+            # for a task without an input{} section, this includes its bare declarations
+            # (pre-1.0 "implicit" inputs), which callee.inputs alone would miss
+            decl = call.callee.available_inputs[name]
+        except KeyError:
+            continue
+        # call input bindings resolve against the *caller's* source directory
+        _scan_typed_expr_refs(
+            decl.type, expr, source_dir, f"call input '{call.name}.{name}' in {doc_name}", refs
+        )
 
 
 def _scan_typed_expr_refs(
@@ -514,8 +554,12 @@ def _scan_typed_expr_refs(
             )
             if kind == Lint._SourceRelativePathKind.ABSOLUTE:
                 return
+            # the path as written, normalized but with symlinks preserved: both the
+            # runner's resolution (WDL.runtime._io_helpers.resolve_source_relative_path)
+            # and the archive placement key off the literal's own path, never its
+            # realpath, so a symlinked file keeps its own name
             target = (
-                os.path.realpath(os.path.join(source_dir, literal.value)) if source_dir else None
+                os.path.abspath(os.path.join(source_dir, literal.value)) if source_dir else None
             )
             refs.append(
                 _SourceRelativeRef(
@@ -528,8 +572,12 @@ def _scan_typed_expr_refs(
                     to_type.optional,
                 )
             )
-        elif isinstance(expr.type, Type.String):
-            # path computed by an expression; not statically knowable
+        elif isinstance(expr.type, (Type.String, Type.Any)):
+            # path computed by an expression; not statically knowable. An Any-typed
+            # expression (e.g. a StdLib function result coerced to File) is just as
+            # unprovable as a String-typed one, and the declaration still deserves the
+            # uncovered-reference warning (without scanning the expression's own
+            # arguments, which remain out of scope).
             refs.append(
                 _SourceRelativeRef(
                     description,
@@ -565,32 +613,62 @@ def _scan_typed_expr_refs(
             if name in to_type.members:
                 _scan_typed_expr_refs(to_type.members[name], member, source_dir, description, refs)
         return
-    if _string_feeds_file_positions(to_type, expr.type):
-        # non-literal compound value whose File/Directory leaves are computed from strings
+    if isinstance(expr.type, Type.Any) and _type_has_file_positions(to_type):
+        # whole value computed with unknown static type (e.g. a StdLib function result);
+        # any File/Directory leaves within are unprovable
+        refs.append(
+            _SourceRelativeRef(description, source_dir, None, None, None, False, to_type.optional)
+        )
+        return
+    if _computed_feeds_file_positions(to_type, expr.type):
+        # non-literal compound value whose File/Directory leaves are computed at run time
         refs.append(
             _SourceRelativeRef(description, source_dir, None, None, None, False, to_type.optional)
         )
 
 
-def _string_feeds_file_positions(to_type: Type.Base, expr_type: Type.Base) -> bool:
+def _type_has_file_positions(to_type: Type.Base) -> bool:
+    """Whether ``to_type`` has File/Directory in any (nested) position."""
+    if isinstance(to_type, (Type.File, Type.Directory)):
+        return True
+    if isinstance(to_type, Type.Array):
+        return _type_has_file_positions(to_type.item_type)
+    if isinstance(to_type, Type.Map):
+        (key_type, value_type) = to_type.item_type
+        return _type_has_file_positions(key_type) or _type_has_file_positions(value_type)
+    if isinstance(to_type, Type.Pair):
+        return _type_has_file_positions(to_type.left_type) or _type_has_file_positions(
+            to_type.right_type
+        )
+    if isinstance(to_type, Type.StructInstance) and to_type.members:
+        return any(_type_has_file_positions(member) for member in to_type.members.values())
+    return False
+
+
+def _computed_feeds_file_positions(to_type: Type.Base, expr_type: Type.Base) -> bool:
     """
-    Whether ``expr_type`` has String in any position where ``to_type`` has File/Directory --
-    i.e. the expression computes one or more paths from strings at run time.
+    Whether ``expr_type`` has String or Any in any position where ``to_type`` has
+    File/Directory -- i.e. the expression computes one or more paths at run time, from
+    strings or from opaquely-typed values, so they can't be known statically.
     """
+    if isinstance(expr_type, Type.Any):
+        # an opaquely-typed value in a compound position: unprovable wherever the
+        # target type has File/Directory positions within it
+        return _type_has_file_positions(to_type)
     if isinstance(to_type, (Type.File, Type.Directory)):
         return isinstance(expr_type, Type.String)
     if isinstance(to_type, Type.Array) and isinstance(expr_type, Type.Array):
-        return _string_feeds_file_positions(to_type.item_type, expr_type.item_type)
+        return _computed_feeds_file_positions(to_type.item_type, expr_type.item_type)
     if isinstance(to_type, Type.Map) and isinstance(expr_type, Type.Map):
         (key_type, value_type) = to_type.item_type
         (expr_key_type, expr_value_type) = expr_type.item_type
-        return _string_feeds_file_positions(
+        return _computed_feeds_file_positions(
             key_type, expr_key_type
-        ) or _string_feeds_file_positions(value_type, expr_value_type)
+        ) or _computed_feeds_file_positions(value_type, expr_value_type)
     if isinstance(to_type, Type.Pair) and isinstance(expr_type, Type.Pair):
-        return _string_feeds_file_positions(
+        return _computed_feeds_file_positions(
             to_type.left_type, expr_type.left_type
-        ) or _string_feeds_file_positions(to_type.right_type, expr_type.right_type)
+        ) or _computed_feeds_file_positions(to_type.right_type, expr_type.right_type)
     if (
         isinstance(to_type, Type.StructInstance)
         and isinstance(expr_type, Type.StructInstance)
@@ -599,78 +677,270 @@ def _string_feeds_file_positions(to_type: Type.Base, expr_type: Type.Base) -> bo
     ):
         return any(
             name in expr_type.members
-            and _string_feeds_file_positions(member_type, expr_type.members[name])
+            and _computed_feeds_file_positions(member_type, expr_type.members[name])
+            for name, member_type in to_type.members.items()
+        )
+    if (
+        isinstance(to_type, Type.StructInstance)
+        and isinstance(expr_type, Type.Object)
+        and to_type.members
+        and expr_type.members
+    ):
+        # an Object value coerced to a struct: compare member-wise
+        return any(
+            name in expr_type.members
+            and _computed_feeds_file_positions(member_type, expr_type.members[name])
             for name, member_type in to_type.members.items()
         )
     return False
 
 
+def _source_relative_dest(ref: _SourceRelativeRef, archive_dirs: dict[str, str]) -> str | None:
+    """
+    The archive path at which the runner will look for this reference after unpacking: the
+    archive directory of the document that *mentions* the reference, joined with the literal
+    as written. This mirrors the runner's own resolution
+    (``WDL.runtime._io_helpers.resolve_source_relative_path``: a symlink-preserving normpath
+    join onto the mentioning document's directory) -- placement must be derived per-reference
+    from the mentioning document, not by matching the target file against all source
+    directories, and the literal's own path (including any symlinks in it) is preserved.
+    """
+    if ref.literal is None:
+        return None
+    archive_dir = archive_dirs.get(ref.source_dir.rstrip("/"))
+    if archive_dir is None:
+        return None
+    return os.path.normpath(os.path.join(archive_dir, ref.literal))
+
+
+def _expand_scanned_target(
+    target: str, dest: str, ref: _SourceRelativeRef
+) -> Iterator[tuple[str, str]]:
+    """
+    Expand one automatically-discovered file/directory into (source, archive path) pairs:
+    the target itself, plus every entry of a directory tree, each keeping its path relative
+    to the target (so symlinks retain their own names in the archive). Directories are
+    yielded as pairs too, so empty directories are staged (and archived) instead of
+    vanishing. Entries whose realpath escapes the mentioning document's source directory
+    raise :class:`WDL.Error.InputError`, mirroring ``--additional``'s safety posture; the
+    caller turns that into a warning.
+    """
+    if not path_really_within(target, ref.source_dir):
+        raise Error.InputError(
+            "Source-relative path resolves outside the WDL source directory: " + target
+        )
+    if not os.path.isdir(target):
+        yield target, dest
+        return
+    yield from _expand_dir(target, dest, ref, frozenset())
+
+
+def _expand_dir(
+    dirpath: str, dest: str, ref: _SourceRelativeRef, ancestors: frozenset[str]
+) -> Iterator[tuple[str, str]]:
+    """
+    Yield (source, archive path) for a directory and, recursively, its contents. Cycle
+    protection tracks only the realpaths of the directories *above* this one in the
+    recursion: a directory whose realpath is its own ancestor is yielded (so its name is
+    staged) but not descended into. Sibling aliases to the same directory are NOT cycles
+    -- each pathname is expanded in full, since the runner may resolve either spelling.
+    """
+    yield dirpath, dest
+    real_dirpath = os.path.realpath(dirpath)
+    if real_dirpath in ancestors:
+        return
+    try:
+        entries = sorted(os.listdir(dirpath))
+    except OSError as exn:
+        raise Error.InputError(
+            f"Cannot list directory for the source archive: {dirpath}: {exn}"
+        ) from exn
+    ancestors = ancestors | {real_dirpath}
+    for entry in entries:
+        entry_path = os.path.join(dirpath, entry)
+        _expand_check_within(entry_path, ref)
+        if os.path.isdir(entry_path):
+            yield from _expand_dir(entry_path, os.path.join(dest, entry), ref, ancestors)
+        else:
+            yield entry_path, os.path.join(dest, entry)
+
+
+def _expand_check_within(path: str, ref: _SourceRelativeRef) -> None:
+    if not path_really_within(path, ref.source_dir):
+        raise Error.InputError("Source-relative path contains unsafe symlink or path: " + path)
+
+
 def _include_scanned_paths(
     zip_dir: str,
-    paths: list[str],
-    source_dirs: list[tuple[str, str]],
+    pairs: list[tuple[str, str, _SourceRelativeRef | None]],
+    staged: dict[str, str | None],
+    collided: set[str],
     logger: logging.Logger,
 ) -> None:
     """
     Copy automatically-discovered files (scanner hits, hoover sweep) into the archive staging
-    directory, at the same archive paths ``--additional`` would use. Unlike ``--additional``,
-    entries already staged are skipped rather than treated as errors, and an unusable path is
-    skipped with a warning: automatic inclusion never fails the archive (issue #878).
+    directory at their precomputed archive paths. ``staged`` (archive path -> realpath of the
+    source staged there, or None for generated files) is updated with everything actually
+    staged, so coverage checks see verified contents rather than requests. A destination
+    already staged from the *same* source file is skipped silently; one staged from anything
+    else (including the generated MANIFEST.json/default_input.json) is a collision: warn, and
+    record it in ``collided`` rather than silently dropping the payload. Per-source failures
+    are warnings with any partial file removed: automatic inclusion never fails the archive
+    (issue #878). Only failures writing the final archive itself are fatal, and those happen
+    later, in :func:`create_reproducible_archive`.
     """
-    added: set[str] = set()
-    for path in paths:
-        try:
-            pairs = list(_additional_files_from_path(path, source_dirs))
-        except Error.InputError as exn:
-            logger.warning(f"Skipping {path} for the source archive: {exn}")
+    for src, dest, ref in pairs:
+        dest_path = os.path.join(zip_dir, dest)
+        if not path_really_within(dest_path, zip_dir):
+            logger.warning(
+                _(
+                    "Skipping file for the source archive: invalid destination",
+                    path=src,
+                    dest=dest,
+                )
+            )
             continue
-        for src, dest in pairs:
-            if dest in added:
-                continue
-            dest_path = os.path.join(zip_dir, dest)
-            if os.path.exists(dest_path) or os.path.lexists(dest_path):
-                continue
-            if not path_really_within(dest_path, zip_dir):
-                logger.warning(f"Skipping {src} for the source archive: invalid destination {dest}")
-                continue
-            os.makedirs(os.path.dirname(dest_path), exist_ok=True)
-            shutil.copyfile(src, dest_path)
-            added.add(dest)
-            logger.info(f"{dest} <= {src}")
+        if dest in staged:
+            previous = staged[dest]
+            if previous is not None and previous == os.path.realpath(src):
+                continue  # this very file is already staged at the destination
+            collided.add(dest)
+            logger.warning(
+                _(
+                    "Skipping file for the source archive: archive path already staged"
+                    " from a different source",
+                    path=src,
+                    dest=dest,
+                    reference=(ref.description if ref else None),
+                )
+            )
+            continue
+        try:
+            if os.path.isdir(src):
+                os.makedirs(dest_path, exist_ok=True)
+            else:
+                os.makedirs(os.path.dirname(dest_path), exist_ok=True)
+                shutil.copyfile(src, dest_path)
+        except OSError as exn:
+            # remove any partially-copied file so the archive doesn't carry a stub
+            with contextlib.suppress(OSError):
+                if os.path.isfile(dest_path):
+                    os.unlink(dest_path)
+            logger.warning(
+                _(
+                    "Skipping file for the source archive: could not copy it",
+                    path=src,
+                    dest=dest,
+                    reason=str(exn),
+                )
+            )
+            continue
+        staged[dest] = os.path.realpath(src)
+        logger.info(f"{dest} <= {src}")
+
+
+def _load_gitignore(dirpath: str, logger: logging.Logger) -> Any | None:
+    """
+    Load one directory's ``.gitignore`` as a pathspec GitIgnoreSpec, if present. A
+    ``.gitignore`` that can't be read or parsed is treated as absent, with a warning:
+    like the rest of automatic inclusion, ignore-file discovery never fails the archive.
+    """
+    from pathspec import GitIgnoreSpec
+
+    gitignore_fn = os.path.join(dirpath, ".gitignore")
+    if os.path.isfile(gitignore_fn):
+        try:
+            with open(gitignore_fn) as gitignore_file:
+                return GitIgnoreSpec.from_lines(gitignore_file)
+        except (OSError, ValueError) as exn:
+            logger.warning(
+                _(
+                    "Skipping unreadable .gitignore for the source archive sweep",
+                    path=gitignore_fn,
+                    reason=str(exn),
+                )
+            )
+    return None
 
 
 def _hoover_source_files(
     source_dirs: list[tuple[str, str]], exclude: set[str], logger: logging.Logger
-) -> Iterator[str]:
+) -> Iterator[tuple[str, str]]:
     """
-    Yield every file under each WDL source directory, except those ignored by ``.gitignore``
-    files within the tree (pathspec) and ``.git`` directories. Only in-tree ``.gitignore``
-    files are consulted (not global excludes or ``.git/info/exclude``), so behavior is the
-    same in git checkouts and plain directory trees. Symlinks resolving outside the swept
-    directory are skipped with a warning, mirroring ``--additional``'s safety posture.
-    """
-    from pathspec import GitIgnoreSpec
+    Yield (file, archive path) for every file under each WDL source directory, except those
+    ignored by ``.gitignore`` files within the tree (pathspec) and ``.git`` directories.
+    Only in-tree ``.gitignore`` files are consulted (not global excludes or
+    ``.git/info/exclude``), so behavior is the same in git checkouts and plain directory
+    trees. Symlinks resolving outside the swept directory are skipped with a warning,
+    mirroring ``--additional``'s safety posture.
 
-    for source_dir, _archive_dir in source_dirs:
-        root = os.path.realpath(source_dir)
+    Ignore rules are inherited the way git applies them: a swept directory also obeys the
+    ``.gitignore`` files of its ancestors within the swept tree (down from the shallowest
+    swept ancestor directory), so e.g. a ``*.secret`` rule in the top-level source
+    directory's ``.gitignore`` also excludes matching files under an imported document's
+    subdirectory swept in the same run.
+    """
+    roots = [source_dir for source_dir, _archive_dir in source_dirs]
+    for source_dir, archive_dir in source_dirs:
+        root = source_dir
+        # seed the spec stack with .gitignore files of ancestors within the swept tree:
+        # every directory from the shallowest swept ancestor of root down to root's parent
+        bound = root
+        for other in roots:
+            if (root == other or root.startswith(other.rstrip("/") + os.sep)) and len(other) < len(
+                bound
+            ):
+                bound = other
         spec_stack: list[tuple[str, Any]] = []
+        ancestor = os.path.dirname(root)
+        chain: list[str] = []
+        while ancestor == bound or ancestor.startswith(bound.rstrip("/") + os.sep):
+            chain.append(ancestor)
+            if ancestor == bound:
+                break
+            ancestor = os.path.dirname(ancestor)
+        pruned = False
+        for base in reversed(chain):
+            if spec_stack and _gitignored(spec_stack, base, is_dir=True):
+                # git prunes here: an ancestor directory excluded by a shallower spec
+                # is never descended into, so its own .gitignore (and anything deeper)
+                # is never read -- and the exclusion is final for the whole subtree:
+                # no negation can reopen a directory whose parent stays excluded
+                pruned = True
+                break
+            spec = _load_gitignore(base, logger)
+            if spec is not None:
+                spec_stack.append((base, spec))
+        if pruned or (spec_stack and _gitignored(spec_stack, root, is_dir=True)):
+            # git never descends into an excluded directory, so this directory's own
+            # .gitignore (and any negations in it) is never consulted either
+            continue
+
+        def _walk_error(exn: OSError) -> None:
+            logger.warning(
+                _(
+                    "Skipping unreadable directory for the source archive sweep",
+                    reason=str(exn),
+                )
+            )
+
         visited_dirs: set[str] = set()
-        for dirpath, dirnames, filenames in os.walk(root, followlinks=True):
+        for dirpath, dirnames, filenames in os.walk(root, followlinks=True, onerror=_walk_error):
             real_dirpath = os.path.realpath(dirpath)
             if real_dirpath in visited_dirs:
                 dirnames[:] = []
                 continue
             visited_dirs.add(real_dirpath)
-            # drop .gitignore specs from subtrees the walk has moved out of
+            # drop .gitignore specs from subtrees the walk has moved out of (the seeded
+            # ancestor specs stay: every walked directory is beneath them)
             spec_stack = [
                 (base, spec)
                 for base, spec in spec_stack
                 if dirpath == base or dirpath.startswith(base + os.sep)
             ]
-            gitignore_fn = os.path.join(dirpath, ".gitignore")
-            if os.path.isfile(gitignore_fn):
-                with open(gitignore_fn) as gitignore_file:
-                    spec_stack.append((dirpath, GitIgnoreSpec.from_lines(gitignore_file)))
+            spec = _load_gitignore(dirpath, logger)
+            if spec is not None:
+                spec_stack.append((dirpath, spec))
             keep_dirs = []
             for dirname in dirnames:
                 dirname_path = os.path.join(dirpath, dirname)
@@ -678,8 +948,12 @@ def _hoover_source_files(
                     continue
                 if not path_really_within(dirname_path, root):
                     logger.warning(
-                        f"Skipping {dirname_path} for the source archive:"
-                        f" symlink resolves outside {root}"
+                        _(
+                            "Skipping directory for the source archive:"
+                            " symlink resolves outside the swept directory",
+                            path=dirname_path,
+                            root=root,
+                        )
                     )
                     continue
                 if _gitignored(spec_stack, dirname_path, is_dir=True):
@@ -692,13 +966,18 @@ def _hoover_source_files(
                     continue
                 if not path_really_within(file_path, root):
                     logger.warning(
-                        f"Skipping {file_path} for the source archive:"
-                        f" symlink resolves outside {root}"
+                        _(
+                            "Skipping file for the source archive:"
+                            " symlink resolves outside the swept directory",
+                            path=file_path,
+                            root=root,
+                        )
                     )
                     continue
                 if _gitignored(spec_stack, file_path, is_dir=False):
                     continue
-                yield file_path
+                dest = os.path.normpath(os.path.join(archive_dir, os.path.relpath(file_path, root)))
+                yield file_path, dest
 
 
 def _gitignored(spec_stack: list[tuple[str, Any]], abspath: str, is_dir: bool) -> bool:
@@ -723,74 +1002,133 @@ def _gitignored(spec_stack: list[tuple[str, Any]], abspath: str, is_dir: bool) -
 def _warn_uncovered_source_relative_refs(
     refs: list[_SourceRelativeRef],
     zip_dir: str,
-    source_dirs: list[tuple[str, str]],
-    include_targets: set[str],
+    archive_dirs: dict[str, str],
+    staged: dict[str, str | None],
+    collided: set[str],
     auto_include: bool,
     swept_dirs: set[str],
     logger: logging.Logger,
 ) -> None:
     """
     Warn about each scanned source-relative reference the archive won't cover (issue #878:
-    warn, never fail). A reference is covered if its file was staged by --additional,
-    automatic inclusion, or the hoover sweep.
+    warn, never fail). A reference counts as covered only by verified contents: the file
+    must actually be staged, from the very source it refers to, at the archive path the
+    runner will resolve it to (see :func:`_source_relative_ref_covered`) -- not merely
+    have been requested for inclusion.
     """
     kind = Lint._SourceRelativePathKind
     for ref in refs:
         if ref.kind is None:
-            # path computed by an expression; the hoover sweep covers any in-tree target
+            # path computed by an expression; statically unknowable either way
             if os.path.realpath(ref.source_dir) not in swept_dirs:
                 logger.warning(
-                    "Cannot determine statically the file for the source-relative path"
-                    f" expression in {ref.description}; include it with --additional"
-                    " if it refers to a file in the WDL source tree"
+                    _(
+                        "Cannot determine statically the file for the source-relative"
+                        " path expression; include it with --additional if it refers"
+                        " to a file in the WDL source tree",
+                        reference=ref.description,
+                    )
+                )
+            else:
+                # the hoover sweep isn't proof of coverage for a computed path: it
+                # covers the path only if it happens to lie in the swept tree and
+                # isn't excluded by .gitignore, neither of which can be checked
+                # statically -- so the warning stands, qualified
+                logger.warning(
+                    _(
+                        "Cannot determine statically the file for the source-relative"
+                        " path expression; the --hoover sweep covers it only if the"
+                        " computed path lies in a swept source directory and is not"
+                        " excluded by .gitignore",
+                        reference=ref.description,
+                    )
                 )
         elif ref.kind == kind.OK:
-            if not _source_relative_ref_covered(ref, zip_dir, source_dirs, include_targets):
+            dest = _source_relative_dest(ref, archive_dirs)
+            if dest is not None and dest in collided:
+                continue  # the collision warning already covered this reference
+            if not _source_relative_ref_covered(ref, zip_dir, archive_dirs, staged):
                 message = (
-                    f"Source-relative path '{ref.literal}' ({ref.description})"
-                    " is not included in the archive; add it with --additional"
+                    "Source-relative path is not included in the archive; add it with --additional"
                 )
                 if not auto_include:
                     message += " (automatic inclusion disabled)"
-                logger.warning(message)
+                logger.warning(_(message, path=ref.literal, reference=ref.description, dest=dest))
         elif ref.kind == kind.MISSING:
             if not ref.optional:
                 logger.warning(
-                    f"Source-relative path '{ref.literal}' ({ref.description})"
-                    f" does not exist: {ref.target}"
+                    _(
+                        "Source-relative path does not exist",
+                        path=ref.literal,
+                        reference=ref.description,
+                        target=ref.target,
+                    )
                 )
         elif ref.kind == kind.ESCAPES:
             logger.warning(
-                f"Source-relative path '{ref.literal}' ({ref.description})"
-                f" resolves outside the WDL source directory: {ref.target}"
+                _(
+                    "Source-relative path resolves outside the WDL source directory",
+                    path=ref.literal,
+                    reference=ref.description,
+                    target=ref.target,
+                )
             )
         elif ref.kind == kind.WRONG_KIND:
             logger.warning(
-                f"Source-relative path '{ref.literal}' ({ref.description})"
-                f" is not a {'directory' if ref.directory else 'file'}: {ref.target}"
+                _(
+                    "Source-relative path is not a " + ("directory" if ref.directory else "file"),
+                    path=ref.literal,
+                    reference=ref.description,
+                    target=ref.target,
+                )
             )
         elif ref.kind == kind.UNAVAILABLE:
             logger.warning(
-                f"Source-relative path '{ref.literal}' ({ref.description})"
-                " is in a WDL document loaded from a URI, so it cannot be packaged"
+                _(
+                    "Source-relative path is in a WDL document loaded from a URI,"
+                    " so it cannot be packaged",
+                    path=ref.literal,
+                    reference=ref.description,
+                )
             )
 
 
 def _source_relative_ref_covered(
     ref: _SourceRelativeRef,
     zip_dir: str,
-    source_dirs: list[tuple[str, str]],
-    include_targets: set[str],
+    archive_dirs: dict[str, str],
+    staged: dict[str, str | None],
 ) -> bool:
+    """
+    Whether the archive verifiably covers this reference. For a file: the entry at the
+    archive path the runner will resolve the reference to was staged from the very file
+    the reference names (an entry staged from a different source -- or a generated file
+    such as MANIFEST.json -- doesn't count, even if the path matches). For a directory:
+    the directory itself must exist in the staging tree AND every file under the target
+    directory must be staged, from its corresponding source, at its corresponding
+    archive path -- one staged descendant is not proof of whole-directory coverage.
+    """
     if ref.target is None:
         return False
-    if ref.target in include_targets:
-        return True
+    dest = _source_relative_dest(ref, archive_dirs)
+    if dest is None:
+        return False
+    target_real = os.path.realpath(ref.target)
+    if not ref.directory:
+        return staged.get(dest) is not None and staged.get(dest) == target_real
     try:
-        dest = _additional_dest(ref.target, source_dirs)
+        expected = list(_expand_scanned_target(ref.target, dest, ref))
     except Error.InputError:
         return False
-    return os.path.exists(os.path.join(zip_dir, dest))
+    # every expected entry must be verifiably present: files via the staged map's
+    # provenance, directories (including empty ones, which leave no other trace) via
+    # the staging tree itself
+    return all(
+        os.path.isdir(os.path.join(zip_dir, dst))
+        if os.path.isdir(src)
+        else staged.get(dst) == os.path.realpath(src)
+        for src, dst in expected
+    )
 
 
 def create_reproducible_archive(zip_dir: str, output_path: str, format: str):
@@ -801,6 +1139,7 @@ def create_reproducible_archive(zip_dir: str, output_path: str, format: str):
         for path in pathlib.Path(zip_dir).glob("**/*")  # Finds all files recursively
         if path.is_file()
         or path.is_symlink()  # Symlinks will be included in the zip as normal files
+        or path.is_dir()  # directory entries, so empty directories survive archiving
     ]
     # Sort paths by destination
     src_dest_list.sort(key=lambda x: x[1])
@@ -817,6 +1156,12 @@ def _write_no_mtime_zip(zip_archive: str, src_dest_list: list[tuple[pathlib.Path
     with zipfile.ZipFile(zip_archive, "w") as archive:
         for src, dest in src_dest_list:
             # This always sets the mod time at 1980-1-1
+            if src.is_dir() and not src.is_symlink():
+                # directory entry: trailing slash + directory attributes, no content
+                dest_info = zipfile.ZipInfo(str(dest) + "/")
+                dest_info.external_attr = (0o40775 << 16) | 0x10
+                archive.writestr(dest_info, b"")
+                continue
             dest_info = zipfile.ZipInfo(str(dest))
             with (
                 archive.open(dest_info, "w") as archive_file,
@@ -833,6 +1178,12 @@ def _write_no_mtime_tar(tar_archive: str, src_dest_list: list[tuple[pathlib.Path
     with tarfile.TarFile(tar_archive, "w") as archive:
         for src, dest in src_dest_list:
             dest_info = tarfile.TarInfo(str(dest))  # Mtime by default at 0
+            if src.is_dir() and not src.is_symlink():
+                dest_info.type = tarfile.DIRTYPE
+                dest_info.mode = 0o755  # TarInfo's default 0644 lacks directory search permission
+                dest_info.size = 0
+                archive.addfile(dest_info)
+                continue
             dest_info.size = os.stat(src).st_size
             with open(src, "rb") as in_file:
                 archive.addfile(dest_info, in_file)
