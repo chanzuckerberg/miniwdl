@@ -51,9 +51,9 @@ def build(
     :param additional_files: other files, directories, or glob patterns to include, stored at the
                              same location relative to the WDL source files
     :param auto_add: automatically include the files and directories named by literal
-                         source-relative paths in WDL 1.2+ declarations and call inputs. Either
-                         way, source-relative references that the archive doesn't cover draw
-                         warnings.
+                     source-relative paths in WDL 1.2+ declarations and call inputs. Either
+                     way, source-relative references that the archive doesn't cover draw
+                     warnings.
     :param add_all: also include every other file under each WDL source directory: in a git
                     work tree, the files git tracks plus untracked files it doesn't ignore (as
                     listed by ``git ls-files``); otherwise, all files. Raises
@@ -66,12 +66,6 @@ def build(
         # write WDL source code to temp directory
         dir_to_zip, zip_paths, wdls = _build_source_dir(cleanup, top_doc, logger)
 
-        # archive path -> realpath of the file staged there (None for generated files), to
-        # tell harmless duplicates from collisions when including files automatically
-        staged: dict[str, str | None] = {
-            zip_path: os.path.realpath(abspath) for abspath, zip_path in zip_paths.items()
-        }
-
         # add MANIFEST.json; schema roughly following Amazon Genomics CLI's:
         #  https://aws.github.io/amazon-genomics-cli/docs/concepts/workflows/#multi-file-workflows
         manifest: dict[str, Any] = {"mainWorkflowURL": os.path.basename(top_doc.pos.abspath)}
@@ -81,61 +75,17 @@ def build(
             manifest["inputFileURLs"] = ["default_input.json"]
             with open(os.path.join(dir_to_zip, "default_input.json"), "w") as inputs_file:
                 json.dump(inputs, inputs_file, indent=2)
-            staged["default_input.json"] = None
         with open(os.path.join(dir_to_zip, "MANIFEST.json"), "w") as manifest_file:
             json.dump(manifest, manifest_file, indent=2)
-        staged["MANIFEST.json"] = None
         logger.debug("manifest = " + json.dumps(manifest))
+        added: dict[str, str] = {}
         if additional_files:
-            staged.update(
-                add_additional_files(dir_to_zip, additional_files, zip_paths, wdls, logger)
-            )
+            added = add_additional_files(dir_to_zip, additional_files, zip_paths, wdls, logger)
 
-        # Automatically include the targets of literal source-relative File/Directory paths in
-        # WDL 1.2+ declarations and call inputs, and warn about references the archive doesn't
-        # cover (issue #878). This never fails the archive; --additional is the strict mechanism.
-        refs = _scan_source_relative_refs(wdls)
-        if refs or add_all:
-            try:
-                source_dirs = _additional_source_dirs(zip_paths, wdls)
-            except Error.InputError as exn:
-                logger.warning(_("Skipping automatic file inclusion", reason=str(exn)))
-                source_dirs = []
-            archive_dirs = dict(source_dirs)
-            pairs: list[tuple[str, str, str | None]] = []
-            for ref in refs if auto_add else []:
-                dest = _source_relative_dest(ref, archive_dirs)
-                if ref.kind != Lint._SourceRelativePathKind.OK or dest is None:
-                    continue
-                try:
-                    pairs.extend((src, dst, ref.description) for src, dst in _expand_ref(ref, dest))
-                except (Error.InputError, OSError) as exn:
-                    logger.warning(
-                        _(
-                            "Skipping source-relative path for the source archive",
-                            path=ref.literal,
-                            reference=ref.description,
-                            reason=str(exn),
-                        )
-                    )
-            swept_dirs: set[str] = set()
-            if add_all and source_dirs:
-                swept_dirs = {os.path.realpath(source_dir) for source_dir, _ in source_dirs}
-                exclude = {os.path.realpath(os.path.abspath(archive))}
-                pairs.extend(
-                    (src, dst, None)
-                    for src, dst in _add_all_source_files(source_dirs, exclude, logger)
-                )
-            n_files, n_bytes = _stage_files(dir_to_zip, pairs, staged, logger)
-            if n_files:
-                logger.info(
-                    _(
-                        "Automatically included files in the source archive",
-                        files=n_files,
-                        bytes=n_bytes,
-                    )
-                )
-            _warn_uncovered_refs(refs, dir_to_zip, archive_dirs, auto_add, swept_dirs, logger)
+        # add files referenced by WDL 1.2+ source-relative paths (and --add-all)
+        _add_source_relative_files(
+            dir_to_zip, zip_paths, wdls, added, archive, auto_add, add_all, logger
+        )
 
         # zip the temp directory (into another temp directory)
         spool_dir = cleanup.enter_context(tempfile.TemporaryDirectory(prefix="miniwdl_zip_"))
@@ -647,24 +597,91 @@ def _is_symlink_cycle(dirpath: str, root: str) -> bool:
     return False
 
 
+def _add_source_relative_files(
+    zip_dir: str,
+    zip_paths: dict[str, str],
+    wdls: dict[str, Tree.Document],
+    added: dict[str, str],
+    archive: str,
+    auto_add: bool,
+    add_all: bool,
+    logger: logging.Logger,
+) -> None:
+    """
+    Stage the targets of literal source-relative File/Directory paths in WDL 1.2+ declarations
+    and call inputs (if ``auto_add``), and every file under the WDL source directories (if
+    ``add_all``); then warn about references the archive doesn't cover (issue #878). Problems
+    are warnings: this never fails the archive (except :func:`_git_ls_files`' refusal).
+    ``added`` maps paths already staged by ``--additional`` to their source realpaths.
+    """
+    refs = _scan_source_relative_refs(wdls)
+    if not (refs or add_all):
+        return
+    try:
+        source_dirs = _additional_source_dirs(zip_paths, wdls)
+    except Error.InputError as exn:
+        logger.warning(_("Skipping automatic file inclusion", reason=str(exn)))
+        source_dirs = []
+    archive_dirs = dict(source_dirs)
+
+    pairs: list[tuple[str, str, str | None]] = []
+    for ref in refs if auto_add else []:
+        dest = _source_relative_dest(ref, archive_dirs)
+        if ref.kind != Lint._SourceRelativePathKind.OK or dest is None:
+            continue
+        try:
+            pairs.extend((src, dst, ref.description) for src, dst in _expand_ref(ref, dest))
+        except (Error.InputError, OSError) as exn:
+            logger.warning(
+                _(
+                    "Skipping source-relative path for the source archive",
+                    path=ref.literal,
+                    reference=ref.description,
+                    reason=str(exn),
+                )
+            )
+    swept_dirs: set[str] = set()
+    if add_all and source_dirs:
+        swept_dirs = {os.path.realpath(source_dir) for source_dir, _ in source_dirs}
+        exclude = {os.path.realpath(os.path.abspath(archive))}
+        pairs.extend(
+            (src, dst, None) for src, dst in _add_all_source_files(source_dirs, exclude, logger)
+        )
+
+    staged = {zip_path: os.path.realpath(abspath) for abspath, zip_path in zip_paths.items()}
+    staged.update(added)
+    n_files, n_bytes = _stage_files(zip_dir, pairs, staged, logger)
+    if n_files:
+        logger.info(
+            _("Automatically included files in the source archive", files=n_files, bytes=n_bytes)
+        )
+    _warn_uncovered_refs(refs, zip_dir, archive_dirs, auto_add, swept_dirs, logger)
+
+
 def _stage_files(
     zip_dir: str,
     pairs: list[tuple[str, str, str | None]],
-    staged: dict[str, str | None],
+    staged: dict[str, str],
     logger: logging.Logger,
 ) -> tuple[int, int]:
     """
-    Copy automatically-included (source, archive path, reference description) into the
-    staging directory, recording each in ``staged`` (archive path -> source realpath, None
-    for generated files). A different file already staged at the same archive path is a
-    collision, warned about and skipped. Failures are warnings: automatic inclusion never
-    fails the archive. Returns the number of files and bytes staged.
+    Copy (source, archive path, reference description) into the staging directory, recording
+    each in ``staged`` (archive path -> source realpath). Something else already at the archive
+    path -- a different file, or a generated one like MANIFEST.json -- is a collision, warned
+    about and skipped. Failures are warnings: automatic inclusion never fails the archive.
+    Returns the number of files and bytes staged.
     """
     n_files = n_bytes = 0
     for src, dest, reference in pairs:
         dest_path = os.path.join(zip_dir, dest)
-        if dest in staged:
-            if staged[dest] is None or staged[dest] != os.path.realpath(src):
+        if not path_really_within(dest_path, zip_dir):
+            logger.warning(
+                _("Skipping file for the source archive: invalid destination", path=src, dest=dest)
+            )
+            continue
+        if os.path.lexists(dest_path):
+            same = staged.get(dest) == os.path.realpath(src)
+            if not (same or (os.path.isdir(src) and os.path.isdir(dest_path))):
                 logger.warning(
                     _(
                         "Skipping file for the source archive: a different file is already"
@@ -674,11 +691,6 @@ def _stage_files(
                         reference=reference,
                     )
                 )
-            continue
-        if not path_really_within(dest_path, zip_dir):
-            logger.warning(
-                _("Skipping file for the source archive: invalid destination", path=src, dest=dest)
-            )
             continue
         try:
             if os.path.isdir(src):
