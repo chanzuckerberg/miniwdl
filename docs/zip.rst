@@ -10,7 +10,38 @@
 
 Optionally, you can also include a JSON file with default workflow inputs. Any command-line arguments provided at runtime are merged into (override) these defaults. The ZIP file includes a ``MANIFEST.json`` identifying the top-level WDL and inputs JSON, if present.
 
-Use ``--additional``/``--add`` to include other files, directories, or glob patterns; they'll be stored in the ZIP at the same relative location to the WDL source files. Importantly, be sure to add any files/directories needed for WDL 1.2+ source-relative inputs.
+``miniwdl zip`` copies the default inputs JSON to the archive root as ``default_input.json``, without rewriting its contents. When the archive runs, relative ``File`` and ``Directory`` paths in that JSON resolve against the unpacked archive root.
+
+To keep paths consistent between direct and archived runs, place the inputs JSON beside the main WDL file and write paths relative to their shared directory. For example, a JSON value of ``data/f.txt`` works with this layout:
+
+.. code-block:: text
+
+   project/
+     main.wdl
+     inputs.json
+     data/f.txt
+
+From ``project/``, bundle the data with:
+
+.. code-block:: bash
+
+   miniwdl zip main.wdl --input inputs.json --add data/f.txt
+
+If a relative path isn't found in the archive, miniwdl also checks the working directory and logs a deprecation warning when that fallback succeeds. Prefer bundling the data with ``--add``, or use absolute paths for external data.
+
+Source-relative files
+---------------------
+
+WDL 1.2+ workflows and tasks can refer to files relative to the WDL source file that mentions them ("source-relative" paths), for example ``File ref = "data/ref.fa"`` as a declaration default or call input. ``miniwdl zip`` scans all declarations and call inputs in the WDL sources, and automatically includes each file or directory named by such a literal path, at the location the runner will look for it after unpacking. Literal paths nested inside array, map, pair, and struct values are included too, as is the whole tree of a ``Directory``. This covers the common cases with no manual bookkeeping.
+
+Not every reference can be resolved statically:
+
+* A path computed by an expression (e.g. ``"data/" + sample + ".txt"``) can't be known until run time. ``miniwdl zip`` logs a warning naming the declaration; bundle the file(s) with ``--additional`` if the archive needs them.
+* A literal path that doesn't exist, escapes the WDL source directory, or names the wrong kind of file also draws a warning. The archive is still created; ``miniwdl zip`` warns rather than fails over source-relative references.
+
+Use ``--additional``/``--add`` to include other files, directories, or glob patterns explicitly; they'll be stored in the ZIP at the same relative location to the WDL source files. Add ``--no-auto-include`` to disable automatic inclusion of literal source-relative paths (they're then reported by warning only).
+
+Finally, ``--hoover`` includes *all* files under each WDL source directory, except those ignored by ``.gitignore`` files in the source tree (and ``.git`` directories). Only in-tree ``.gitignore`` files are consulted, so the behavior is the same in git checkouts and plain directory trees. This blunt option also covers computed paths, at the cost of archiving everything else in the tree.
 
 Command line
 ------------
