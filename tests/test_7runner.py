@@ -1720,7 +1720,7 @@ class TestDirectoryIO(RunnerTestCase):
 
     def test_input_json_file_relative_path_wrong_kind_not_found(self):
         # no candidate of the expected kind in either place: the not-found error
-        # names the path relative to the input file's directory
+        # names both locations tried
         target = self._input_json_fixture()
         os.makedirs(os.path.join(self._dir, "inputs", "data", "missing.txt"))
         os.makedirs(os.path.join(self._dir, "elsewhere"))
@@ -1740,9 +1740,10 @@ class TestDirectoryIO(RunnerTestCase):
                 )
         finally:
             os.chdir(old_cwd)
-        assert "File not found: " + os.path.join(self._dir, "inputs", "data", "missing.txt") in str(
-            ctx.exception
-        )
+        msg = str(ctx.exception)
+        assert "File not found: data/missing.txt" in msg
+        assert os.path.join(self._dir, "inputs", "data", "missing.txt") in msg
+        assert os.path.join(os.path.realpath(self._dir), "elsewhere", "data", "missing.txt") in msg
 
     def test_input_json_file_relative_path_same_file(self):
         # the same file reachable relative to both the input file and the working

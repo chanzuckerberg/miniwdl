@@ -1170,8 +1170,7 @@ def runner_input_json_file(available_inputs, namespace, input_file, downloadable
             #   deprecation fallback warning
             # - found in both places, as different files: use the input file's,
             #   and record an ambiguity warning
-            # - found in neither: validate the input-file path, so the resulting
-            #   not-found error names it
+            # - found in neither: raise a not-found error naming both locations
             path = v.value
             directory = isinstance(v, Value.Directory)
             if (
@@ -1196,7 +1195,11 @@ def runner_input_json_file(available_inputs, namespace, input_file, downloadable
                 elif has_expected_kind(path):
                     fallback_paths.append(path)
                 else:
-                    path = rebased_path
+                    raise Error.InputError(
+                        f"{'Directory' if directory else 'File'} not found: {path} (looked for"
+                        f" {rebased_path}, relative to the input file, and"
+                        f" {os.path.abspath(path)}, relative to the working directory)"
+                    )
             return validate_input_path(path, directory, downloadable, root)
 
         ans = Value.rewrite_env_paths(ans, rewrite_input_path)
