@@ -1776,6 +1776,144 @@ class TestDirectoryIO(RunnerTestCase):
         got = {b.name: b.value for b in env}
         assert got["plain"].value == os.path.join(self._dir, "inputs", "data", "plain.txt")
 
+    def test_input_json_file_empty_path_rejected(self):
+        # an empty-string Directory input raises InputError, rather than resolving to
+        # the input file's own directory
+        target = self._input_json_fixture()
+        with open(os.path.join(self._dir, "inputs", "empty.json"), mode="w") as outfile:
+            json.dump({"w.d": ""}, outfile)
+
+        with self.assertRaises(WDL.Error.InputError) as ctx:
+            WDL.CLI.runner_input_json_file(
+                target.available_inputs,
+                target.name,
+                os.path.join(self._dir, "inputs", "empty.json"),
+                None,
+                "/",
+            )
+        assert "Directory not found" in str(ctx.exception)
+
+    def test_input_json_file_relative_path_cwd_fallback_deduped(self):
+        # the same relative path bound to multiple inputs counts once in the
+        # consolidated fallback warning
+        target = self._input_json_fixture()
+        os.makedirs(os.path.join(self._dir, "cwd", "data"))
+        with open(os.path.join(self._dir, "cwd", "data", "only_cwd.txt"), mode="w") as outfile:
+            print("only_cwd", file=outfile)
+        with open(os.path.join(self._dir, "inputs", "dupes.json"), mode="w") as outfile:
+            json.dump(
+                {"w.plain": "data/only_cwd.txt", "w.arr": ["data/only_cwd.txt"]}, outfile
+            )
+
+        old_cwd = os.getcwd()
+        try:
+            os.chdir(os.path.join(self._dir, "cwd"))
+            with self.assertLogs("miniwdl-run", level="WARNING") as logs:
+                WDL.CLI.runner_input_json_file(
+                    target.available_inputs,
+                    target.name,
+                    os.path.join(self._dir, "inputs", "dupes.json"),
+                    None,
+                    "/",
+                )
+        finally:
+            os.chdir(old_cwd)
+        assert len(logs.records) == 1
+        msg = logs.records[0].getMessage()
+        assert "count: 1" in msg
+        assert msg.count("data/only_cwd.txt") == 1
+
+    def test_input_json_file_pipe_uses_cwd(self):
+        # a non-regular input file (e.g. shell process substitution, /dev/fd/N) has no
+        # meaningful containing directory: relative paths resolve against the working
+        # directory, without any fallback warning
+        target = self._input_json_fixture()
+        os.makedirs(os.path.join(self._dir, "cwd", "data"))
+        with open(os.path.join(self._dir, "cwd", "data", "piped.txt"), mode="w") as outfile:
+            print("piped", file=outfile)
+        read_fd, write_fd = os.pipe()
+        with os.fdopen(write_fd, mode="w") as outfile:
+            json.dump({"w.plain": "data/piped.txt"}, outfile)
+
+        old_cwd = os.getcwd()
+        try:
+            os.chdir(os.path.join(self._dir, "cwd"))
+            with LogCapture("miniwdl-run", level=logging.WARNING) as capture:
+                env = WDL.CLI.runner_input_json_file(
+                    target.available_inputs,
+                    target.name,
+                    f"/dev/fd/{read_fd}",
+                    None,
+                    "/",
+                )
+        finally:
+            os.chdir(old_cwd)
+            os.close(read_fd)
+        assert not capture.records
+        got = {b.name: b.value for b in env}
+        assert os.path.realpath(got["plain"].value) == os.path.realpath(
+            os.path.join(self._dir, "cwd", "data", "piped.txt")
+        )
+
+    def test_input_json_file_resolve_input_dir_disabled(self):
+        # with resolve_input_dir=False (used for source zip manifests), relative paths
+        # resolve against the working directory, without any fallback warning
+        target = self._input_json_fixture()
+        os.makedirs(os.path.join(self._dir, "cwd", "data"))
+        with open(os.path.join(self._dir, "cwd", "data", "plain.txt"), mode="w") as outfile:
+            print("cwd copy", file=outfile)
+        with open(os.path.join(self._dir, "inputs", "manifest.json"), mode="w") as outfile:
+            json.dump({"w.plain": "data/plain.txt"}, outfile)
+
+        old_cwd = os.getcwd()
+        try:
+            os.chdir(os.path.join(self._dir, "cwd"))
+            with LogCapture("miniwdl-run", level=logging.WARNING) as capture:
+                env = WDL.CLI.runner_input_json_file(
+                    target.available_inputs,
+                    target.name,
+                    os.path.join(self._dir, "inputs", "manifest.json"),
+                    None,
+                    "/",
+                    resolve_input_dir=False,
+                )
+        finally:
+            os.chdir(old_cwd)
+        assert not capture.records
+        got = {b.name: b.value for b in env}
+        assert os.path.realpath(got["plain"].value) == os.path.realpath(
+            os.path.join(self._dir, "cwd", "data", "plain.txt")
+        )
+
+    def test_input_json_file_warning_uses_caller_logger(self):
+        # the consolidated warnings go to the caller-supplied logger (e.g. under
+        # `miniwdl localize`), not hardcoded to miniwdl-run
+        target = self._input_json_fixture()
+        os.makedirs(os.path.join(self._dir, "cwd", "data"))
+        with open(os.path.join(self._dir, "cwd", "data", "only_cwd.txt"), mode="w") as outfile:
+            print("only_cwd", file=outfile)
+        with open(os.path.join(self._dir, "inputs", "fallback2.json"), mode="w") as outfile:
+            json.dump({"w.plain": "data/only_cwd.txt"}, outfile)
+
+        old_cwd = os.getcwd()
+        try:
+            os.chdir(os.path.join(self._dir, "cwd"))
+            with LogCapture("miniwdl-run", level=logging.WARNING) as run_capture:
+                with self.assertLogs("miniwdl-localize", level="WARNING") as logs:
+                    WDL.CLI.runner_input_json_file(
+                        target.available_inputs,
+                        target.name,
+                        os.path.join(self._dir, "inputs", "fallback2.json"),
+                        None,
+                        "/",
+                        logger=logging.getLogger("miniwdl-localize"),
+                    )
+        finally:
+            os.chdir(old_cwd)
+        assert not run_capture.records
+        assert len(logs.records) == 1
+        assert "deprecated" in logs.records[0].getMessage()
+
 
 class TestNoneLiteral(RunnerTestCase):
     def test_none_eval(self):

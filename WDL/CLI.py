@@ -738,11 +738,13 @@ def runner(
 
         # unpack zip & manifest, if applicable
         uri, manifest_input_file = unpack_source_zip(logger, cleanup, uri, cfg["file_io"]["root"])
+        input_file_from_zip = False
         if manifest_input_file:
             if input_file:
                 logger.warning("specified --input file replacing source zip's")
             else:
                 input_file = manifest_input_file
+                input_file_from_zip = True
 
         try:
             # load WDL document
@@ -767,6 +769,10 @@ def runner(
                 task=task,
                 downloadable=lambda fn, is_dir: runtime.download.able(cfg, fn, directory=is_dir),
                 root=eff_root,  # if copy_input_files is set, then input files need not reside under the configured root
+                logger=logger,
+                # a source zip's manifest lives in an ephemeral extraction directory, so its
+                # relative paths keep resolving against the working directory
+                resolve_input_dir=not input_file_from_zip,
             )
         except Error.InputError as exn:
             runner_standard_output(runtime.error_json(exn), stdout_file, error_json, log_json)
@@ -961,6 +967,8 @@ def runner_input(
     check_required=True,
     downloadable=None,
     root="/",
+    logger=None,
+    resolve_input_dir=True,
 ):
     """
     - Determine the target workflow/task
@@ -980,6 +988,8 @@ def runner_input(
         input_file,
         downloadable,
         root,
+        logger=logger,
+        resolve_input_dir=resolve_input_dir,
     )
     json_keys = {b.name for b in input_env}
 
@@ -1124,7 +1134,15 @@ def runner_exe(doc, task_name=None):
     return target
 
 
-def runner_input_json_file(available_inputs, namespace, input_file, downloadable, root):
+def runner_input_json_file(
+    available_inputs,
+    namespace,
+    input_file,
+    downloadable,
+    root,
+    logger=None,
+    resolve_input_dir=True,
+):
     """
     Load user-supplied inputs JSON file, if any
     """
@@ -1144,9 +1162,16 @@ def runner_input_json_file(available_inputs, namespace, input_file, downloadable
         else:
             read_result = asyncio.run(make_read_source(False)(input_file, [], None))
             input_json = read_result.source_text
-            if not read_result.abspath.startswith(("http:", "https:")):
+            if (
+                resolve_input_dir
+                and not read_result.abspath.startswith(("http:", "https:"))
+                and os.path.isfile(read_result.abspath)
+            ):
                 # resolve relative paths in a local input file against its directory, as the
-                # WDL spec suggests (inline & stdin JSON still use the working directory)
+                # WDL spec suggests. Inline & stdin JSON, http(s) input files, and non-regular
+                # files (e.g. process substitution pipes under /dev/fd) have no meaningful
+                # containing directory, so their relative paths keep using the working
+                # directory; so does a source zip's manifest (resolve_input_dir=False).
                 input_dir = os.path.dirname(read_result.abspath)
         input_json = YAML(typ="safe", pure=True).load(input_json)
         if not isinstance(input_json, dict):
@@ -1174,7 +1199,8 @@ def runner_input_json_file(available_inputs, namespace, input_file, downloadable
             path = v.value
             directory = isinstance(v, Value.Directory)
             if (
-                input_dir
+                path  # let validate_input_path reject empty paths
+                and input_dir
                 and not os.path.isabs(path)
                 and not (downloadable and downloadable(path, directory))
             ):
@@ -1189,22 +1215,29 @@ def runner_input_json_file(available_inputs, namespace, input_file, downloadable
                             same_file = os.path.samefile(rebased_path, path)
                         except OSError:
                             same_file = False
-                        if not same_file:
+                        if not same_file and path not in ambiguous_paths:
                             ambiguous_paths.append(path)
                     path = rebased_path
                 elif has_expected_kind(path):
-                    fallback_paths.append(path)
+                    if path not in fallback_paths:
+                        fallback_paths.append(path)
                 else:
-                    raise Error.InputError(
-                        f"{'Directory' if directory else 'File'} not found: {path} (looked for"
-                        f" {rebased_path}, relative to the input file, and"
-                        f" {os.path.abspath(path)}, relative to the working directory)"
+                    return validate_input_path(
+                        path,
+                        directory,
+                        downloadable,
+                        root,
+                        tried=[
+                            f"{rebased_path}, relative to the input file",
+                            f"{os.path.abspath(path)}, relative to the working directory",
+                        ],
                     )
             return validate_input_path(path, directory, downloadable, root)
 
         ans = Value.rewrite_env_paths(ans, rewrite_input_path)
         # warn once per input file rather than per path (lists stay empty without input_dir)
-        logger = logging.getLogger("miniwdl-run")
+        if logger is None:
+            logger = logging.getLogger("miniwdl-run")
         if fallback_paths:
             logger.warning(
                 _(
@@ -1368,18 +1401,23 @@ def runner_input_value(s_value, ty, downloadable, root):
     )
 
 
-def validate_input_path(path, directory, downloadable, root):
+def validate_input_path(path, directory, downloadable, root, tried=None):
     """
     If the path is downloadable, return it back. Otherwise, return the absolute path after checking
     1. exists and is a file or directory (according to directory: bool)
     2. resides within root
     3. contains no symlinks pointing outside or to absolute paths
+
+    tried: optional list of locations searched, to name in the not-found error message
     """
     if downloadable and downloadable(path, directory):
         return path
 
     if not ((directory and os.path.isdir(path)) or (not directory and os.path.isfile(path))):
-        raise Error.InputError(("Directory" if directory else "File") + " not found: " + path)
+        msg = ("Directory" if directory else "File") + " not found: " + path
+        if tried:
+            msg += f" (looked for {', and '.join(tried)})"
+        raise Error.InputError(msg)
 
     path = os.path.abspath(path)
 
@@ -1738,6 +1776,7 @@ def localize(
                     downloadable=lambda fn, is_dir: runtime.download.able(
                         cfg, fn, directory=is_dir
                     ),
+                    logger=logger,
                 )
             except Error.InputError as exn:
                 die(str(exn))
@@ -2177,6 +2216,7 @@ def zip_wdl(
                     [],
                     check_required=False,
                     downloadable=lambda fn, is_dir: True,
+                    logger=logger,
                 )
             except Error.InputError as exn:
                 die(str(exn))

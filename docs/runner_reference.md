@@ -56,7 +56,7 @@ Relative `File` and `Directory` paths in an input file (`--input inputs.json`, J
 * If a path doesn't exist relative to the input file but does exist relative to the working directory, miniwdl uses the latter and logs a warning (once per input file). This fallback is deprecated; write such paths relative to the input file, or as absolute paths.
 * If a path exists relative to both, as different files, miniwdl uses the one relative to the input file and logs a warning.
 
-Inputs supplied inline (`--input '{...}'`), on standard input (`--input -`), or as `name=value` command-line arguments have no containing file, so their relative paths are resolved against the working directory. URIs are used as given.
+Inputs supplied inline (`--input '{...}'`), on standard input (`--input -`), or as `name=value` command-line arguments have no containing file, so their relative paths are resolved against the working directory. The same applies to an input file fetched over http(s), to a non-regular input file such as a shell process substitution (`--input <(...)`), and to the default inputs manifest inside a WDL source zip (`miniwdl run wf.zip`), which is extracted to an ephemeral directory. URIs are used as given.
 
 ## File & Directory URI downloads
 
