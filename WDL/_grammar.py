@@ -36,6 +36,7 @@ keywords["1.0"] = keywords["draft-2"] | {"alias", "struct"}
 keywords["1.1"] = keywords["1.0"]
 keywords["1.2"] = keywords["1.1"] | {"Directory", "env", "hints", "requirements"}
 keywords["development"] = keywords["1.2"]
+keywords["development"] = keywords["development"] | {"assert"}
 
 # Grammar versions and their definitions. The productions for WDL 1.2 and development will be
 # defined in this file, while older versions are found in _grammar_old.py.
@@ -64,11 +65,11 @@ import_alias: "alias" CNAME "as" CNAME
 ///////////////////////////////////////////////////////////////////////////////////////////////////
 
 workflow: "workflow" CNAME "{" workflow_element* "}"
-?workflow_element: input_decls | any_decl | call | scatter | conditional | workflow_outputs | meta_section | hints_section
+?workflow_element: input_decls | any_decl | call | scatter | conditional | workflow_outputs | meta_section | hints_section | assertion
 
 scatter: "scatter" "(" CNAME "in" expr ")" "{" inner_workflow_element* "}"
 conditional: "if" "(" expr ")" "{" inner_workflow_element* "}"
-?inner_workflow_element: any_decl | call | scatter | conditional
+?inner_workflow_element: any_decl | call | scatter | conditional | assertion
 
 call: "call" namespaced_ident ("after" CNAME)* _call_body? -> call
     | "call" namespaced_ident "as" CNAME ("after" CNAME)* _call_body? -> call_as
@@ -95,6 +96,7 @@ task: "task" CNAME "{" task_section* command task_section* "}"
              | runtime_section
              | hints_section
              | task_env_decl -> noninput_decl
+             | assertion -> noninput_decl
 
 tasks: task*
 
@@ -135,6 +137,8 @@ io_hint_kv: CNAME ("." CNAME)* ":" hint_value
 unbound_decl: type CNAME -> decl
 bound_decl: type CNAME "=" expr -> decl
 ?any_decl: unbound_decl | bound_decl
+
+assertion: "assert" expr
 
 struct: "struct" CNAME "{" (unbound_decl | meta_section)* "}"
 

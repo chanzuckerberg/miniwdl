@@ -359,6 +359,16 @@ class _DocTransformer(_ExprTransformer):
         assert len(items) == 1 and isinstance(items[0], Tree.Decl)
         return items[0]
 
+    def assertion(self, meta, items):
+        if self._version == "development":
+            return Tree.Assertion(self._sp(meta), items[0])
+        raise Error.SyntaxError(
+            self._sp(meta),
+            "assert is only supported with version development",
+            self._version,
+            self._declared_version,
+        )
+
     def input_decls(self, meta, items):
         return {"inputs": items}
 
