@@ -86,11 +86,11 @@ class _DocTransformer:
 
     def assertion(self, meta, items):
         if self._version == "development":
-          return Tree.Assertion(self._sp(meta), items[0])
-        ... # raise appropriate error
+            return Tree.Assertion(self._sp(meta), items[0])
+        ...  # raise appropriate error
 ```
 
-Lark calls this method when the new `assert` statement appears in the source code, upon which we create an instance of our new `Assertion` node based on the source position and expression
+Lark calls this method when the new `assert` statement appears in the source code, upon which we create an instance of our new `Assertion` node based on the source position and expression.
 
 Even though we haven't yet added the logic to actually check the asserted condition at runtime, we can begin writing our test cases to check that the new statement is recognized syntactically. In [`tests/test_7runner.py`](https://github.com/chanzuckerberg/miniwdl/blob/main/tests/test_7runner.py) we add a new test case class deriving from the `RunnerTestCase(unittest.TestCase)` helper,
 
