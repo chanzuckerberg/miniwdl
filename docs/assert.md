@@ -85,17 +85,12 @@ class _DocTransformer:
     ...
 
     def assertion(self, meta, items):
-        if self._version != "development":
-            raise Error.SyntaxError(
-                self._sp(meta),
-                "assert is only supported with version development",
-                self._version,
-                self._declared_version,
-            )
-        return Tree.Assertion(self._sp(meta), items[0])
+        if self._version == "development":
+          return Tree.Assertion(self._sp(meta), items[0])
+        ... # raise appropriate error
 ```
 
-Lark calls this method when the new `assert` statement appears in the source code, upon which we create an instance of our new `Assertion` node based on the source position and expression. The development grammar is also used to parse the current WDL language version, so we first check the document's declared version and reject the statement in other versions. (Miniwdl's experimental `call?` construct is gated the same way.)
+Lark calls this method when the new `assert` statement appears in the source code, upon which we create an instance of our new `Assertion` node based on the source position and expression
 
 Even though we haven't yet added the logic to actually check the asserted condition at runtime, we can begin writing our test cases to check that the new statement is recognized syntactically. In [`tests/test_7runner.py`](https://github.com/chanzuckerberg/miniwdl/blob/main/tests/test_7runner.py) we add a new test case class deriving from the `RunnerTestCase(unittest.TestCase)` helper,
 
