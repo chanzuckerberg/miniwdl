@@ -2202,6 +2202,49 @@ class TestZip(unittest.TestCase):
             self.assertEqual(resolved_dir.value.value, os.path.join(source_dir, "data", "refdir"))
             self.assertTrue(os.path.isdir(resolved_dir.value.value))
 
+    def test_zip_unpack_and_resolve_default_inputs(self):
+        # companion to test_zip_unpack_and_resolve, for the archive's default_input.json:
+        # its relative paths resolve against the archive root (the manifest's own
+        # directory), so from an unrelated working directory holding a same-named decoy
+        # file, the bound input is the archive's copy
+        with contextlib.ExitStack() as cleanup:
+            testdir, src = self._source_relative_fixture(cleanup)
+            doc = WDL.load(os.path.join(src, "main.wdl"))
+            zip_fn = os.path.join(testdir, "source.zip")
+            WDL.Zip.build(
+                doc,
+                zip_fn,
+                logging.getLogger("miniwdl_zip_test"),
+                inputs={"zipprobe.json_ref": "data/literal.txt"},
+            )
+            os.rename(src, os.path.join(testdir, "src_gone"))
+            elsewhere = cleanup.enter_context(
+                tempfile.TemporaryDirectory(prefix="miniwdl_zip_elsewhere_")
+            )
+            os.makedirs(os.path.join(elsewhere, "data"))
+            pathlib.Path(os.path.join(elsewhere, "data", "literal.txt")).write_text("decoy\n")
+            cwd = os.getcwd()
+            try:
+                os.chdir(elsewhere)
+                source_dir, main_wdl, inputs_file = cleanup.enter_context(WDL.Zip.unpack(zip_fn))
+                self.assertIsNotNone(inputs_file)
+                unpacked_doc = WDL.load(os.path.join(source_dir, main_wdl))
+                env = WDL.CLI.runner_input_json_file(
+                    unpacked_doc.workflow.available_inputs,
+                    unpacked_doc.workflow.name,
+                    inputs_file,
+                    None,
+                    "/",
+                )
+            finally:
+                os.chdir(cwd)
+            bound = {b.name: b.value for b in env}
+            self.assertEqual(
+                os.path.realpath(bound["json_ref"].value),
+                os.path.realpath(os.path.join(source_dir, "data", "literal.txt")),
+            )
+            self.assertTrue(os.path.isfile(bound["json_ref"].value))
+
     def test_unpack_tempdir_parent(self):
         with contextlib.ExitStack() as cleanup:
             testdir = cleanup.enter_context(tempfile.TemporaryDirectory(prefix="miniwdl_zip_test_"))
