@@ -1855,35 +1855,39 @@ class TestDirectoryIO(RunnerTestCase):
             os.path.join(self._dir, "cwd", "data", "piped.txt")
         )
 
-    def test_input_json_file_resolve_input_dir_disabled(self):
-        # with resolve_input_dir=False (used for source zip manifests), relative paths
-        # resolve against the working directory, without any fallback warning
+    def test_input_json_file_dev_fd_regular_file_uses_cwd(self):
+        # /dev/stdin and /dev/fd/N pass os.path.isfile() when redirected from a regular file
+        # (e.g. --input /dev/stdin < inputs.json), but /dev isn't a meaningful containing
+        # directory: relative paths resolve against the working directory, without warnings
         target = self._input_json_fixture()
         os.makedirs(os.path.join(self._dir, "cwd", "data"))
-        with open(os.path.join(self._dir, "cwd", "data", "plain.txt"), mode="w") as outfile:
-            print("cwd copy", file=outfile)
-        with open(os.path.join(self._dir, "inputs", "manifest.json"), mode="w") as outfile:
-            json.dump({"w.plain": "data/plain.txt"}, outfile)
+        with open(os.path.join(self._dir, "cwd", "data", "piped.txt"), mode="w") as outfile:
+            print("piped", file=outfile)
+        with open(os.path.join(self._dir, "inputs", "devfd.json"), mode="w") as outfile:
+            json.dump({"w.plain": "data/piped.txt", "w.d": "."}, outfile)
 
         old_cwd = os.getcwd()
+        fd = os.open(os.path.join(self._dir, "inputs", "devfd.json"), os.O_RDONLY)
         try:
+            assert os.path.isfile(f"/dev/fd/{fd}")
             os.chdir(os.path.join(self._dir, "cwd"))
             with LogCapture("miniwdl-run", level=logging.WARNING) as capture:
                 env = WDL.CLI.runner_input_json_file(
                     target.available_inputs,
                     target.name,
-                    os.path.join(self._dir, "inputs", "manifest.json"),
+                    f"/dev/fd/{fd}",
                     None,
                     "/",
-                    resolve_input_dir=False,
                 )
         finally:
             os.chdir(old_cwd)
+            os.close(fd)
         assert not capture.records
         got = {b.name: b.value for b in env}
         assert os.path.realpath(got["plain"].value) == os.path.realpath(
-            os.path.join(self._dir, "cwd", "data", "plain.txt")
+            os.path.join(self._dir, "cwd", "data", "piped.txt")
         )
+        assert os.path.realpath(got["d"].value) == os.path.realpath(os.path.join(self._dir, "cwd"))
 
     def test_input_json_file_warning_uses_caller_logger(self):
         # the consolidated warnings go to the caller-supplied logger (e.g. under
