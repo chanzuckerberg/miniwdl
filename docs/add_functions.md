@@ -29,7 +29,7 @@ class Base:
 
 Given a list of the arguments' WDL data types (`WDL.Type.Base`) and the return type, the `static()` helper decorates a function which takes the argument values (`WDL.Value.Base`) and returns the result value. Miniwdl uses the declared data types to handle type-checking wherever the function is used. The function itself receives the integer argument in a {py:mod}`WDL.Value <WDL.Value>` "box," and similarly boxes its return value.
 
-Notice that we include not only the WDL type signature, but also [PEP 484 type hints](https://peps.python.org/pep-0484/) for the Python functions. The miniwdl codebase uses such type hints throughout, checked using [pyre](https://pyre-check.org/), which you can try with `make check` in the repository directory. When you send a pull request upstream, miniwdl's continuous integration will require pyre's approval.
+Notice that we include not only the WDL type signature, but also [PEP 484 type hints](https://peps.python.org/pep-0484/) for the Python functions. The miniwdl codebase uses such type hints throughout, checked using [mypy](https://mypy-lang.org/), which you can try with `make check` in the repository directory (alongside the `ruff` linter and formatter). When you send a pull request upstream, miniwdl's continuous integration will require their approval.
 
 **You can find the complete git diff for this and the following examples on the [codelab-stdlib-functions](https://github.com/chanzuckerberg/miniwdl/pull/318/files) branch.**
 
@@ -113,11 +113,11 @@ class _ChooseRandom(EagerFunction):
 Continuing,
 
 ```python3
-    def _call_eager(self, expr: "Expr.Apply", arguments: List[Value.Base]) -> Value.Base:
+    def _call_eager(self, expr: "Expr.Apply", arguments: list[Value.Base]) -> Value.Base:
         import random
 
         if not arguments[0].value or (len(arguments) > 1 and not arguments[1].value):
-            raise Error.RuntimeError("empty array passed to choose_random()")
+            raise Error.EvalError(expr, "empty array passed to choose_random()")
         item0 = random.choice(arguments[0].value)
         if len(arguments) == 1:
             return item0
@@ -125,7 +125,7 @@ Continuing,
         return Value.Pair(item0.type, item1.type, (item0, item1))
 ```
 
-`_call_eager()` is invoked once the arguments have been evaluated to WDL values at runtime. It proceeds to construct the return value based on the one or two array arguments. (It's also possible to implement non-eager functions, where the implementation is given the environment and argument expressions, and decides when/whether to evaluate them.)
+`_call_eager()` is invoked once the arguments have been evaluated to WDL values at runtime. It proceeds to construct the return value based on the one or two array arguments. Raising `Error.EvalError` with the `expr` attaches the source position of the function call to the error message. (It's also possible to implement non-eager functions, where the implementation is given the environment and argument expressions, and decides when/whether to evaluate them.)
 
 ```bash
 python3 -m WDL run --dir /tmp <(echo '
