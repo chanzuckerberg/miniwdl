@@ -11,7 +11,9 @@ import platform
 import textwrap
 from testfixtures import LogCapture, log_capture
 from .context import WDL
+from WDL import Env, StdLib, Value
 from WDL.runtime import task as runtime_task
+from WDL.runtime.task import _eval_task_hints
 from WDL.runtime import _io_helpers as runtime_io_helpers
 from WDL.runtime import download as runtime_download
 from WDL.runtime.cache import CallCacheAddPaths
@@ -2501,6 +2503,81 @@ class RuntimeOverride(RunnerTestCase):
             outp = self._run(wdl, {"requirements.requirements": "bogus"})
 
 
+class TestHintsCLIInputs(unittest.TestCase):
+    def test_cli_hints_parity(self):
+        # command-line t.hints.k=v inputs (WDL.CLI.runner_input) are handled
+        # exactly like JSON input hints overrides: accepted against the
+        # task's _hints placeholder, applied identically by _eval_task_hints,
+        # and rejected identically (at input-read time) when dotted
+        doc = WDL.parse_document(
+            """version 1.2
+            task t {
+                input {
+                    Int n = 4
+                }
+                command <<< true >>>
+                hints {
+                    max_cpu: n * 2
+                    aws: hints {
+                        instance_type: "p5.48xlarge"
+                    }
+                }
+            }
+            workflow wf {
+                call t
+            }
+            """
+        )
+        doc.typecheck()
+        task = doc.tasks[0]
+        wf = doc.workflow
+        assert wf is not None
+        stdlib = StdLib.Base(task.effective_wdl_version)
+        env: Env.Bindings[Value.Base] = Env.Bindings()
+        env = env.bind("n", Value.Int(4))
+        logger = logging.getLogger(self.id())
+
+        def json_call_inputs(key, value):
+            inputs = WDL.values_from_json(
+                {"wf." + key: value}, wf.available_inputs, namespace="wf"
+            )
+            return inputs.enter_namespace("t")
+
+        def cli_call_inputs(arg):
+            _, input_env, _ = WDL.CLI.runner_input(doc, [arg], None, None, None)
+            return input_env.enter_namespace("t")
+
+        # an ordinary top-level override: same binding, same evaluated result
+        # (compared via JSON, as Struct-of-Object values have no equality)
+        json_inputs = json_call_inputs("t.hints.max_cpu", 32)
+        cli_inputs = cli_call_inputs("t.hints.max_cpu=32")
+        self.assertEqual(cli_inputs["hints.max_cpu"], Value.Int(32))
+        self.assertEqual(
+            {
+                k: v.json
+                for k, v in _eval_task_hints(logger, task, cli_inputs, env, stdlib).items()
+            },
+            {
+                k: v.json
+                for k, v in _eval_task_hints(logger, task, json_inputs, env, stdlib).items()
+            },
+        )
+        self.assertEqual(
+            _eval_task_hints(logger, task, cli_inputs, env, stdlib)["max_cpu"],
+            Value.Int(32),
+        )
+
+        # a dotted (below-top-level) override is rejected identically on
+        # both routes, while the inputs are being read: by values_from_json
+        # for JSON, and by runner_input for the command line
+        with self.assertRaises(WDL.Error.InputError) as ctx:
+            json_call_inputs("t.hints.aws.instance_type", "p5.24xlarge")
+        self.assertIn("openwdl/wdl#773", str(ctx.exception))
+        with self.assertRaises(WDL.Error.InputError) as ctx:
+            cli_call_inputs("t.hints.aws.instance_type=p5.24xlarge")
+        self.assertIn("openwdl/wdl#773", str(ctx.exception))
+
+
 class MiscRegressionTests(RunnerTestCase):
     def test_repeated_file_rewriting(self):
         wdl = """
@@ -2583,7 +2660,7 @@ class MiscRegressionTests(RunnerTestCase):
             output {
                 Array[File] files_out = glob("files_out/*")
             }
-            runtime {
+            requirements {
                 container: ["ubuntu:20.04"]
             }
             hints {
