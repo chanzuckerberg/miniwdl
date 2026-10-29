@@ -1155,14 +1155,15 @@ def runner_input_json_file(
             read_result = asyncio.run(make_read_source(False)(input_file, [], None))
             input_json = read_result.source_text
             if not read_result.abspath.startswith(
-                ("http:", "https:", "/dev/", "/proc/")
+                ("http:", "https:", "/dev/stdin", "/dev/fd/", "/proc/")
             ) and os.path.isfile(read_result.abspath):
                 # resolve relative paths in a local input file against its directory, as the
-                # WDL spec suggests. Inline & stdin JSON, http(s) input files, and devices &
-                # pipes (e.g. --input /dev/stdin or process substitution) have no meaningful
-                # containing directory, so their relative paths keep using the working
-                # directory. (/dev/stdin and /dev/fd/N pass isfile() when redirected from a
-                # regular file, hence the explicit /dev/ check.)
+                # WDL spec suggests. Inline & stdin JSON, http(s) input files, and pipes (e.g.
+                # --input /dev/stdin or process substitution) have no meaningful containing
+                # directory, so their relative paths keep using the working directory.
+                # (/dev/stdin and /dev/fd/N pass isfile() when redirected from a regular file,
+                # hence the explicit prefixes; other /dev paths such as /dev/shm can hold
+                # ordinary input files.)
                 input_dir = os.path.dirname(read_result.abspath)
         input_json = YAML(typ="safe", pure=True).load(input_json)
         if not isinstance(input_json, dict):

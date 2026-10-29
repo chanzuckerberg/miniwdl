@@ -1889,6 +1889,27 @@ class TestDirectoryIO(RunnerTestCase):
         )
         assert os.path.realpath(got["d"].value) == os.path.realpath(os.path.join(self._dir, "cwd"))
 
+    @unittest.skipUnless(os.access("/dev/shm", os.W_OK), "requires writable /dev/shm")
+    def test_input_json_file_dev_shm(self):
+        # /dev/shm is an ordinary (in-memory) filesystem, so an input file there resolves
+        # relative paths against its own directory, like anywhere else
+        target = self._input_json_fixture()
+        with tempfile.TemporaryDirectory(dir="/dev/shm") as shm_dir:
+            os.makedirs(os.path.join(shm_dir, "data"))
+            with open(os.path.join(shm_dir, "data", "plain.txt"), mode="w") as outfile:
+                print("shm", file=outfile)
+            with open(os.path.join(shm_dir, "inputs.json"), mode="w") as outfile:
+                json.dump({"w.plain": "data/plain.txt"}, outfile)
+            env = WDL.CLI.runner_input_json_file(
+                target.available_inputs,
+                target.name,
+                os.path.join(shm_dir, "inputs.json"),
+                None,
+                "/",
+            )
+            got = {b.name: b.value for b in env}
+            assert got["plain"].value == os.path.join(shm_dir, "data", "plain.txt")
+
     def test_input_json_file_warning_uses_caller_logger(self):
         # the consolidated warnings go to the caller-supplied logger (e.g. under
         # `miniwdl localize`), not hardcoded to miniwdl-run
