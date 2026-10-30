@@ -229,6 +229,34 @@ class TestStdLib(unittest.TestCase):
         finally:
             WDL.StdLib._parse_tsv_objects = parse_tsv_objects
 
+    def test_read_string_trailing_eol(self):
+        # the WDL spec requires read_string to strip ALL trailing end-of-line
+        # characters (\r and \n), not just one trailing \n
+        class LocalStdLib(WDL.StdLib.Base):
+            def _devirtualize_filename(self, filename: str) -> str:
+                return filename
+
+            def _virtualize_filename(self, filename: str) -> str:
+                return filename
+
+        def eval_read_string(contents: str) -> str:
+            fn = os.path.join(self._dir, "read_string.txt")
+            with open(fn, "w", newline="") as outfile:
+                outfile.write(contents)
+            stdlib = LocalStdLib("1.2")
+            ex = WDL.parse_expr(f'read_string("{fn}")', version="1.2").infer_type(
+                WDL.Env.Bindings(), stdlib
+            )
+            return ex.eval(WDL.Env.Bindings(), stdlib).value
+
+        self.assertEqual(eval_read_string("hello"), "hello")
+        self.assertEqual(eval_read_string("hello\n"), "hello")
+        self.assertEqual(eval_read_string("hello\n\n\n"), "hello")
+        self.assertEqual(eval_read_string("hello\r\n\r\n"), "hello")
+        self.assertEqual(eval_read_string("hello\nworld\n\n"), "hello\nworld")
+        self.assertEqual(eval_read_string(""), "")
+        self.assertEqual(eval_read_string("\n\n"), "")
+
     def _eval_expr(self, expr: str, env=None, version: str = "development"):
         env = env or WDL.Env.Bindings()
         type_env = WDL.Env.Bindings()
