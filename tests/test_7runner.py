@@ -3100,8 +3100,7 @@ class TestPassthruEnv(RunnerTestCase):
             out["out"],
             """stringvalue
 
-set123
-""",
+set123""",
         )
         env = {
             "TEST_ENV_VAR": "passthru_test_success",
@@ -3113,8 +3112,7 @@ set123
             out["out"],
             """stringvalue
 passthru_test_success
-set123
-""",
+set123""",
         )
 
 
