@@ -301,7 +301,7 @@ class CircularDependencies(ValidationError):
             None,
         )
         if nm:
-            nm += " involving " + nm
+            msg += " involving " + nm
         super().__init__(node, msg)
 
 
