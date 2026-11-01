@@ -127,7 +127,15 @@ def error_json(
         from_run = None
         from_dir = None
         from_pos = pos
+        seen: set[tuple[int, bool]] = set()
+        cyclic = False
         while isinstance(from_exn, RunFailed):
+            if (id(from_exn), cause is not None) in seen:
+                # a repeated (exception, override-pending) state means there is no
+                # terminal cause to report
+                cyclic = True
+                break
+            seen.add((id(from_exn), cause is not None))
             from_pos = getattr(getattr(from_exn, "exe"), "pos", from_pos)
             from_dir = getattr(from_exn, "run_dir")
             from_run = getattr(from_exn, "run_id")
@@ -135,9 +143,11 @@ def error_json(
             if next_exn is None or next_exn is from_exn:
                 break
             from_exn = next_exn
-            from_pos = getattr(from_exn, "pos", from_pos)
+            next_pos = getattr(from_exn, "pos", None)
+            if isinstance(next_pos, SourcePosition):
+                from_pos = next_pos
             cause = None
-        if from_exn and from_exn is not exn:
+        if not cyclic and from_exn and from_exn is not exn:
             info["cause"] = error_json(from_exn)
             info["cause"]["run"] = from_run
             info["cause"]["dir"] = from_dir
