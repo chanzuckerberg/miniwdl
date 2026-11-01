@@ -1,5 +1,6 @@
 import unittest
 import logging
+import io
 import json
 import tempfile
 import random
@@ -17,7 +18,7 @@ from WDL.runtime import _io_helpers as runtime_io_helpers
 from WDL.runtime import download as runtime_download
 from WDL.runtime.cache import CallCacheAddPaths
 from unittest.mock import patch
-from contextlib import ExitStack
+from contextlib import ExitStack, redirect_stdout
 
 
 class RunnerTestCase(unittest.TestCase):
@@ -307,6 +308,23 @@ class TestLocalize(unittest.TestCase):
             self.assertIn("cfg", captured)
             self.assertEqual(captured["cfg"]["download_cache"]["dir"], cache_dir)
             self.assertFalse(captured["cfg"]["download_cache"].get_bool("get"))
+
+
+class TestEvalExpr(unittest.TestCase):
+    def test_declaration_values_are_coerced_to_declared_type(self):
+        # miniwdl eval must bind each declaration's value coerced to its declared
+        # type, as the runner does, so a Float initialized from an Int literal
+        # reports (and propagates) as a Float
+        stdout = io.StringIO()
+        with redirect_stdout(stdout):
+            WDL.CLI.eval_expr(["Float f = 1"], "f")
+        self.assertEqual(json.loads(stdout.getvalue()), 1.0)
+        self.assertEqual(stdout.getvalue().strip(), "1.0")
+
+        stdout = io.StringIO()
+        with redirect_stdout(stdout):
+            WDL.CLI.eval_expr(["Array[Float] a = [1, 2]"], "a")
+        self.assertEqual(json.loads(stdout.getvalue()), [1.0, 2.0])
 
 
 class TestDirectoryIO(RunnerTestCase):

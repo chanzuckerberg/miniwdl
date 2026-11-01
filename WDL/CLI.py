@@ -2116,7 +2116,9 @@ def eval_expr(decl, expr, wdl_version="development", check_quant=True, report_ty
             decl_ast = parse_bound_decl(a_decl, wdl_version)
             decl_ast.typecheck(type_env, stdlib, Env.Bindings(), check_quant=check_quant)
             type_env = decl_ast.add_to_type_env(Env.Bindings(), type_env)
-            value_env = value_env.bind(decl_ast.name, decl_ast.expr.eval(value_env, stdlib))
+            value_env = value_env.bind(
+                decl_ast.name, decl_ast.expr.eval(value_env, stdlib).coerce(decl_ast.type)
+            )
         except Exception as exn:
             setattr(exn, "source_text", a_decl)  # for print_error()
             raise
