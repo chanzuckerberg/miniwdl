@@ -187,8 +187,8 @@ class TaskOutputStdLib(TaskStdLib):
             if pat.startswith("..") or "/.." in pat:
                 raise OutputError("glob() pattern must not use .. uplevels")
             pat = pat.removeprefix("./")
-            # glob the host directory
-            pat = os.path.join(lib.container.host_work_dir(), pat)
+            # glob the host directory (escaping any glob metacharacters in its path)
+            pat = os.path.join(glob.escape(lib.container.host_work_dir()), pat)
             host_files = sorted(fn for fn in glob.glob(pat) if os.path.isfile(fn))
             # convert the host filenames to in-container filenames
             container_files = []
