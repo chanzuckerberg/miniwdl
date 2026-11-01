@@ -125,13 +125,16 @@ def error_json(
         # follow __cause__s to find the original triggering exception
         from_exn: BaseException = exn
         from_run = None
-        from_dir = dir
+        from_dir = None
         from_pos = pos
         while isinstance(from_exn, RunFailed):
             from_pos = getattr(getattr(from_exn, "exe"), "pos", from_pos)
             from_dir = getattr(from_exn, "run_dir")
             from_run = getattr(from_exn, "run_id")
-            from_exn = cause or from_exn.__cause__ or from_exn
+            next_exn = cause or from_exn.__cause__
+            if next_exn is None or next_exn is from_exn:
+                break
+            from_exn = next_exn
             from_pos = getattr(from_exn, "pos", from_pos)
             cause = None
         if from_exn and from_exn is not exn:

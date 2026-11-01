@@ -6,6 +6,7 @@ import random
 import os
 import shutil
 import time
+import threading
 import docker
 import platform
 import textwrap
@@ -87,6 +88,48 @@ class TestRunSelfTest(unittest.TestCase):
                 with self.assertRaises(AssertionError):
                     WDL.CLI.run_self_test(dir=dn, as_me=False, cfg=None, log_json=False)
             runner_mock.assert_called_once()
+
+
+class TestErrorJson(unittest.TestCase):
+    def _run_failed(self, run_id="TEST_RUN"):
+        task = WDL.parse_document(
+            "version 1.0\ntask t {\n command {\n  echo hi\n }\n}\n"
+        ).tasks[0]
+        return WDL.runtime.RunFailed(task, run_id, "/tmp/test_run_dir")
+
+    def test_unchained_run_failed(self):
+        # error_json() must return promptly for a RunFailed with no chained cause;
+        # run it in a thread so a regression fails this test instead of hanging the suite
+        info = {}
+        thread = threading.Thread(
+            target=lambda: info.update(WDL.runtime.error_json(self._run_failed())),
+            daemon=True,
+        )
+        thread.start()
+        thread.join(timeout=10)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(info["error"], "RunFailed")
+        self.assertEqual(info["task"], "t")
+        self.assertEqual(info["run"], "TEST_RUN")
+        self.assertNotIn("cause", info)
+
+    def test_chained_run_failed(self):
+        exn = self._run_failed()
+        exn.__cause__ = ValueError("boom")
+        info = WDL.runtime.error_json(exn)
+        self.assertEqual(info["cause"]["error"], "ValueError")
+        self.assertEqual(info["cause"]["message"], "boom")
+        self.assertEqual(info["cause"]["run"], "TEST_RUN")
+        self.assertEqual(info["cause"]["dir"], "/tmp/test_run_dir")
+
+    def test_nested_run_failed(self):
+        inner = self._run_failed(run_id="INNER_RUN")
+        inner.__cause__ = ValueError("boom")
+        outer = self._run_failed(run_id="OUTER_RUN")
+        outer.__cause__ = inner
+        info = WDL.runtime.error_json(outer)
+        self.assertEqual(info["cause"]["error"], "ValueError")
+        self.assertEqual(info["cause"]["run"], "INNER_RUN")
 
 
 class TestDirectoryIO(RunnerTestCase):
