@@ -347,6 +347,29 @@ Int count = 12
             self.assertEqual(cached, cache.get_download(uri_canonical, directory=True))
             self.assertTrue(os.path.isdir(cached))
 
+    def test_download_path_rejects_dot_segments(self):
+        cfg = WDL.runtime.config.Loader(self.logger, [])
+        cfg.override(
+            {
+                "download_cache": {
+                    "put": True,
+                    "get": True,
+                    "dir": os.path.join(self._dir, "download_cache"),
+                }
+            }
+        )
+        with CallCache(cfg=cfg, logger=self.logger) as cache:
+            # a trailing ".." segment would otherwise map to a parent cache
+            # directory, which get_download could hand to a task as its input
+            self.assertIsNone(cache.download_path("s3://bucket/dir/..", directory=True))
+            self.assertIsNone(cache.download_path("s3://bucket/dir/.."))
+            self.assertIsNone(cache.download_path("s3://bucket/dir/../other.txt"))
+            self.assertIsNone(cache.download_path("s3://bucket/dir/.", directory=True))
+            self.assertIsNone(cache.download_path("s3://bucket/dir//other.txt"))
+            # ordinary URIs remain cacheable
+            self.assertIsNotNone(cache.download_path("s3://bucket/dir/other.txt"))
+            self.assertIsNotNone(cache.download_path("s3://bucket/dir", directory=True))
+
     def test_a_task_with_the_same_inputs_and_different_commands_doesnt_pull_from_the_cache(self):
         # run task twice, once with original wdl, once with updated wdl command, check _try_task  called for second run
         new_test_wdl: str = R"""

@@ -275,6 +275,10 @@ class CallCache(AbstractContextManager):
             if next((pat for pat in enable if fnmatchcase(uri, pat)), False) and not next(
                 (pat for pat in disable if fnmatchcase(uri, pat)), False
             ):
+                # reject dot/empty path segments: the final segment is used verbatim
+                # below, so ".." would map outside the item's own cache directory
+                if any(seg in ("", ".", "..") for seg in parts.path.split("/")[1:]):
+                    return None
                 (dn, fn) = os.path.split(parts.path)
                 if fn:
                     # formulate local subdirectory of the cache directory in which to put the
