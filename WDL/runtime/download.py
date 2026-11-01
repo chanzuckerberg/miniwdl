@@ -87,6 +87,11 @@ def run(
     from .error import DownloadFailed, RunFailed, Terminated
     from .task import run_local_task
 
+    # reject URIs whose final path segment is "." or "..": they cannot name a
+    # downloadable file or directory, and ".." would escape the download directory
+    if urlparse(uri).path.rstrip("/").split("/")[-1] in (".", ".."):
+        raise DownloadFailed(uri, f"download URI path ends with '.' or '..': {uri}")
+
     gen = _downloader(cfg, uri, directory=directory)
     assert gen
     try:

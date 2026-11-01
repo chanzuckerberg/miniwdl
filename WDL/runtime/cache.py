@@ -111,6 +111,8 @@ class CallCache(AbstractContextManager):
     # runs; we just want to remember them for potential reuse later in the current run.
     _workflow_downloads: dict[str, str]
     _workflow_directory_downloads: dict[str, str]
+    # URIs already warned about as uncacheable (see download_path), to warn once per URI
+    _warned_uncacheable_downloads: set[str]
     _entry_add_paths: dict[str, CallCacheAddPaths]
     _lock: Lock
 
@@ -120,6 +122,7 @@ class CallCache(AbstractContextManager):
         self._flocker = FlockHolder(self._logger)
         self._workflow_downloads = {}
         self._workflow_directory_downloads = {}
+        self._warned_uncacheable_downloads = set()
         self._entry_add_paths = {}
         self._lock = Lock()
         self._download_cache_dir = cfg["download_cache"]["dir"]
@@ -278,6 +281,14 @@ class CallCache(AbstractContextManager):
                 # reject dot/empty path segments: the final segment is used verbatim
                 # below, so ".." would map outside the item's own cache directory
                 if any(seg in ("", ".", "..") for seg in parts.path.split("/")[1:]):
+                    if uri not in self._warned_uncacheable_downloads:
+                        self._warned_uncacheable_downloads.add(uri)
+                        self._logger.warning(
+                            _(
+                                "download URI not cacheable: path has a dot or empty segment",
+                                uri=uri,
+                            )
+                        )
                     return None
                 (dn, fn) = os.path.split(parts.path)
                 if fn:
