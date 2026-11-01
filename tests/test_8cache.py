@@ -374,6 +374,16 @@ Int count = 12
             self.assertIsNotNone(cache.download_path("s3://bucket/dir/other.txt"))
             self.assertIsNotNone(cache.download_path("s3://bucket/dir", directory=True))
 
+    def test_download_path_no_warning_when_cache_disabled(self):
+        # with the download cache disabled (the default), download_path still
+        # returns None for such URIs, but must not warn about a cache the
+        # user never enabled
+        cfg = WDL.runtime.config.Loader(self.logger, [])
+        with CallCache(cfg=cfg, logger=self.logger) as cache:
+            with self.assertNoLogs(self.logger, level="WARNING"):
+                self.assertIsNone(cache.download_path("s3://bucket/dir//x.txt"))
+                self.assertIsNone(cache.download_path("s3://bucket/dir/.."))
+
     def test_download_run_rejects_final_dot_segment(self):
         # the downloader itself refuses URIs ending in "." or "..", before any
         # downloader task is built (no container needed to test the rejection)

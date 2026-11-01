@@ -281,7 +281,13 @@ class CallCache(AbstractContextManager):
                 # reject dot/empty path segments: the final segment is used verbatim
                 # below, so ".." would map outside the item's own cache directory
                 if any(seg in ("", ".", "..") for seg in parts.path.split("/")[1:]):
-                    if uri not in self._warned_uncacheable_downloads:
+                    # warn only when the download cache is enabled; with it disabled
+                    # (the default), download_path is still consulted on every URI
+                    # input, and the bypass is of no consequence to the user
+                    if (
+                        self._cfg["download_cache"].get_bool("get")
+                        or self._cfg["download_cache"].get_bool("put")
+                    ) and uri not in self._warned_uncacheable_downloads:
                         self._warned_uncacheable_downloads.add(uri)
                         self._logger.warning(
                             _(
