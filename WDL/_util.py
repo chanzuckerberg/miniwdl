@@ -471,6 +471,12 @@ def configure_logger(
             if tty:
                 sys.stderr.write(ANSI.CLEAR)  # wipe the status line
                 sys.stderr.write(ANSI.SHOW_CURSOR)  # un-hide cursor
+                # undo the monkey-patch & singleton asserted above: otherwise they
+                # leak into any later configure_logger() in this process, whose
+                # coloredlogs.install() would re-instantiate this class and trip
+                # the singleton assertion
+                coloredlogs.StandardErrorHandler = _StatusLineStandardErrorHandler.__base__  # type: ignore
+                _StatusLineStandardErrorHandler._singleton = None
 
 
 _TAIL_CHUNK_BYTES = 65536

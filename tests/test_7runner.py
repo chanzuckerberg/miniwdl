@@ -279,8 +279,6 @@ class TestLocalize(unittest.TestCase):
                 cfgfile.write(
                     textwrap.dedent(
                         f"""\
-                        [file_io]
-                        root = {dn}
                         [download_cache]
                         put = true
                         get = true
@@ -307,16 +305,8 @@ class TestLocalize(unittest.TestCase):
                 )
 
             self.assertIn("cfg", captured)
-            effective_cfg = captured["cfg"]
-            self.assertEqual(
-                effective_cfg["download_cache"]["dir"],
-                cache_dir,
-                "localize did not use the download_cache dir from --cfg",
-            )
-            self.assertFalse(
-                effective_cfg["download_cache"].get_bool("get"),
-                "localize did not apply the --no-cache override from --cfg",
-            )
+            self.assertEqual(captured["cfg"]["download_cache"]["dir"], cache_dir)
+            self.assertFalse(captured["cfg"]["download_cache"].get_bool("get"))
 
 
 class TestDirectoryIO(RunnerTestCase):
