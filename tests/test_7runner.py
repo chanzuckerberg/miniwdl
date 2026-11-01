@@ -245,6 +245,29 @@ class TestErrorJson(unittest.TestCase):
         self.assertNotIn("cause", info)
 
 
+class TestConfigLoader(unittest.TestCase):
+    def test_percent_in_config_file_values(self):
+        # config values containing % must load literally; configparser's default
+        # interpolation used to raise InterpolationSyntaxError on them
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".cfg", delete=False
+        ) as cfgfile:
+            cfgfile.write('[task_runtime]\nenv = {"GREETING": "100%"}\n')
+            cfgfile.write("[file_io]\nnote = 100% coverage\n")
+            cfgfn = cfgfile.name
+        try:
+            cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [cfgfn])
+            self.assertEqual(cfg["task_runtime"].get_dict("env"), {"GREETING": "100%"})
+            self.assertEqual(cfg["file_io"].get("note"), "100% coverage")
+        finally:
+            os.unlink(cfgfn)
+
+    def test_percent_in_override_values(self):
+        cfg = WDL.runtime.config.Loader(logging.getLogger(self.id()), [])
+        cfg.override({"task_runtime": {"env": {"GREETING": "100%"}}})
+        self.assertEqual(cfg["task_runtime"].get_dict("env"), {"GREETING": "100%"})
+
+
 class TestDirectoryIO(RunnerTestCase):
     def test_coercion(self):
         assert WDL.Type.Directory().coerces(WDL.Type.String())
