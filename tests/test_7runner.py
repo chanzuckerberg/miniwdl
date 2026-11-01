@@ -310,7 +310,7 @@ class TestLocalize(unittest.TestCase):
             self.assertFalse(captured["cfg"]["download_cache"].get_bool("get"))
 
 
-class TestEvalExpr(unittest.TestCase):
+class TestEvalCLI(unittest.TestCase):
     def test_declaration_values_are_coerced_to_declared_type(self):
         # miniwdl eval must bind each declaration's value coerced to its declared
         # type, as the runner does, so a Float initialized from an Int literal
