@@ -395,7 +395,10 @@ def configure_logger(
 
         def __init__(self, *args, **kwargs):
             super().__init__(*args, **kwargs)
-            assert not self.__class__._singleton
+            assert not self.__class__._singleton, (
+                "status-line log handler already active in this process: at most one "
+                "configure_logger() status-line context may be live at a time"
+            )
             self.__class__._singleton = self
 
         def emit(self, record: logging.LogRecord) -> None:
@@ -448,7 +451,8 @@ def configure_logger(
             fmt = COLORED_LOGGING_FORMAT
 
             # monkey-patch _StatusLineStandardErrorHandler over coloredlogs.StandardErrorHandler for
-            # coloredlogs.install() to instantiate
+            # coloredlogs.install() to instantiate (undone on exit below; the handler
+            # is a process-wide singleton)
             coloredlogs.StandardErrorHandler = _StatusLineStandardErrorHandler  # type: ignore
             sys.stderr.write(ANSI.HIDE_CURSOR)  # hide cursor
 
