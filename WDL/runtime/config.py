@@ -100,9 +100,11 @@ class Loader:
         self._used = set()
         self._used_env = {"MINIWDL_CFG"}
 
-        self._defaults = configparser.ConfigParser()
-        self._options = configparser.ConfigParser()
-        self._overrides = configparser.ConfigParser()
+        # interpolation=None: config values are literal (the loader does its own
+        # $VAR expansion); configparser interpolation would crash on values with %
+        self._defaults = configparser.ConfigParser(interpolation=None)
+        self._options = configparser.ConfigParser(interpolation=None)
+        self._overrides = configparser.ConfigParser(interpolation=None)
 
         # load default.cfg
         default_cfg = os.path.join(os.path.dirname(__file__), "config_templates", "default.cfg")
