@@ -136,17 +136,24 @@ def error_json(
                 cyclic = True
                 break
             seen.add((id(from_exn), cause is not None))
+            # descend one wrapper per iteration; from_run/from_dir end up
+            # holding the innermost wrapper's values
             from_pos = getattr(getattr(from_exn, "exe"), "pos", from_pos)
             from_dir = getattr(from_exn, "run_dir")
             from_run = getattr(from_exn, "run_id")
+            # a caller-supplied cause overrides the first hop only
             next_exn = cause or from_exn.__cause__
             if next_exn is None or next_exn is from_exn:
                 break
             from_exn = next_exn
+            # adopt the terminal exception's own position when it has a real
+            # one; a pos of None must not erase the wrapper's position
             next_pos = getattr(from_exn, "pos", None)
             if isinstance(next_pos, SourcePosition):
                 from_pos = next_pos
             cause = None
+        # report the terminal exception as the cause, annotated with the
+        # innermost wrapper's run/dir and the position resolved above
         if not cyclic and from_exn and from_exn is not exn:
             info["cause"] = error_json(from_exn)
             info["cause"]["run"] = from_run
