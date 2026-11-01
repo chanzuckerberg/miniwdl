@@ -6,6 +6,7 @@ import random
 import os
 import shutil
 import time
+import multiprocessing
 import docker
 import platform
 import textwrap
@@ -87,6 +88,161 @@ class TestRunSelfTest(unittest.TestCase):
                 with self.assertRaises(AssertionError):
                     WDL.CLI.run_self_test(dir=dn, as_me=False, cfg=None, log_json=False)
             runner_mock.assert_called_once()
+
+
+def _run_error_json_request(exn, kwargs, conn):
+    try:
+        conn.send(WDL.runtime.error_json(exn, **kwargs))
+    finally:
+        conn.close()
+
+
+class TestErrorJson(unittest.TestCase):
+    def _task(self, second=False):
+        doc = WDL.parse_document(
+            "version 1.0\n"
+            "task t {\n command {\n  echo hi\n }\n}\n"
+            "task t2 {\n command {\n  echo hi\n }\n}\n"
+        )
+        return doc.tasks[1] if second else doc.tasks[0]
+
+    def _run_failed(self, run_id="TEST_RUN", run_dir="/tmp/test_run_dir", second_task=False):
+        return WDL.runtime.RunFailed(self._task(second_task), run_id, run_dir)
+
+    def _error_json_no_hang(self, exn, **kwargs):
+        # use a process rather than a thread so a hung call can be terminated
+        ctx = multiprocessing.get_context("fork")
+        parent_conn, child_conn = ctx.Pipe(duplex=False)
+        proc = ctx.Process(
+            target=_run_error_json_request, args=(exn, kwargs, child_conn), daemon=True
+        )
+        proc.start()
+        child_conn.close()
+        try:
+            if parent_conn.poll(timeout=10):
+                try:
+                    return parent_conn.recv()
+                except EOFError:
+                    self.fail("error_json() crashed in the child process")
+            proc.terminate()
+            self.fail("error_json() did not return within 10 seconds")
+        finally:
+            parent_conn.close()
+            proc.join(timeout=5)
+            if proc.is_alive():
+                proc.kill()
+                proc.join()
+
+    def test_unchained_run_failed(self):
+        info = self._error_json_no_hang(self._run_failed())
+        self.assertEqual(info["error"], "RunFailed")
+        self.assertEqual(info["task"], "t")
+        self.assertEqual(info["run"], "TEST_RUN")
+        self.assertNotIn("cause", info)
+
+    def test_chained_run_failed(self):
+        exn = self._run_failed()
+        leaf = ValueError("boom")
+        leaf.pos = self._task(second=True).pos
+        exn.__cause__ = leaf
+        info = WDL.runtime.error_json(exn)
+        self.assertEqual(info["cause"]["error"], "ValueError")
+        self.assertEqual(info["cause"]["message"], "boom")
+        self.assertEqual(info["cause"]["run"], "TEST_RUN")
+        self.assertEqual(info["cause"]["dir"], "/tmp/test_run_dir")
+        self.assertEqual(info["cause"]["pos"]["line"], leaf.pos.line)
+
+    def test_chained_run_failed_leaf_without_pos(self):
+        # a leaf with pos=None must preserve the wrapper's source position
+        exn = self._run_failed()
+        leaf = ValueError("boom")
+        leaf.pos = None
+        exn.__cause__ = leaf
+        info = WDL.runtime.error_json(exn)
+        self.assertEqual(info["cause"]["error"], "ValueError")
+        self.assertEqual(info["cause"]["message"], "boom")
+        self.assertEqual(info["cause"]["pos"]["line"], self._task().pos.line)
+
+    def test_nested_run_failed(self):
+        inner = self._run_failed(run_id="INNER_RUN", run_dir="/tmp/inner_dir", second_task=True)
+        inner.__cause__ = ValueError("boom")
+        outer = self._run_failed(run_id="OUTER_RUN", run_dir="/tmp/outer_dir")
+        outer.__cause__ = inner
+        info = WDL.runtime.error_json(outer)
+        self.assertEqual(info["run"], "OUTER_RUN")
+        self.assertEqual(info["dir"], "/tmp/outer_dir")
+        self.assertEqual(info["pos"]["line"], self._task().pos.line)
+        self.assertEqual(info["cause"]["error"], "ValueError")
+        self.assertEqual(info["cause"]["run"], "INNER_RUN")
+        self.assertEqual(info["cause"]["dir"], "/tmp/inner_dir")
+        self.assertEqual(info["cause"]["pos"]["line"], self._task(second=True).pos.line)
+
+    def test_nested_unchained_terminal_run_failed(self):
+        inner = self._run_failed(run_id="INNER_RUN")
+        outer = self._run_failed(run_id="OUTER_RUN")
+        outer.__cause__ = inner
+        info = WDL.runtime.error_json(outer)
+        self.assertEqual(info["cause"]["error"], "RunFailed")
+        self.assertEqual(info["cause"]["run"], "INNER_RUN")
+        self.assertNotIn("cause", info["cause"])
+
+    def test_self_chained_terminal_run_failed(self):
+        inner = self._run_failed(run_id="INNER_RUN")
+        inner.__cause__ = inner
+        outer = self._run_failed(run_id="OUTER_RUN")
+        outer.__cause__ = inner
+        info = WDL.runtime.error_json(outer)
+        self.assertEqual(info["cause"]["error"], "RunFailed")
+        self.assertEqual(info["cause"]["run"], "INNER_RUN")
+        self.assertNotIn("cause", info["cause"])
+
+    def test_cause_override(self):
+        # the cause argument supersedes the outer exception's own __cause__ for
+        # the first hop only; the override's own chain is followed afterwards
+        mid = self._run_failed(run_id="MID_RUN", run_dir="/tmp/mid_dir")
+        mid.__cause__ = ValueError("deep")
+        outer = self._run_failed(run_id="OUTER_RUN")
+        outer.__cause__ = ValueError("native")
+        info = WDL.runtime.error_json(outer, cause=mid)
+        self.assertEqual(info["cause"]["error"], "ValueError")
+        self.assertEqual(info["cause"]["message"], "deep")
+        self.assertEqual(info["cause"]["run"], "MID_RUN")
+        self.assertEqual(info["cause"]["dir"], "/tmp/mid_dir")
+
+    def test_cause_override_revisit(self):
+        # revisiting the outer exception after consuming the override need not
+        # indicate a cycle
+        mid = self._run_failed(run_id="MID_RUN", run_dir="/tmp/mid_dir")
+        outer = self._run_failed(run_id="OUTER_RUN", run_dir="/tmp/outer_dir")
+        mid.__cause__ = outer
+        outer.__cause__ = ValueError("boom")
+        info = WDL.runtime.error_json(outer, cause=mid)
+        self.assertEqual(info["cause"]["error"], "ValueError")
+        self.assertEqual(info["cause"]["message"], "boom")
+        self.assertEqual(info["cause"]["run"], "OUTER_RUN")
+        self.assertEqual(info["cause"]["dir"], "/tmp/outer_dir")
+
+    def test_cyclic_run_failed(self):
+        a = self._run_failed(run_id="A_RUN")
+        b = self._run_failed(run_id="B_RUN")
+        a.__cause__ = b
+        b.__cause__ = a
+        info = self._error_json_no_hang(a)
+        self.assertEqual(info["error"], "RunFailed")
+        self.assertEqual(info["run"], "A_RUN")
+        self.assertNotIn("cause", info)
+
+    def test_prefix_into_cyclic_run_failed(self):
+        a = self._run_failed(run_id="A_RUN")
+        b = self._run_failed(run_id="B_RUN")
+        a.__cause__ = b
+        b.__cause__ = a
+        outer = self._run_failed(run_id="OUTER_RUN")
+        outer.__cause__ = a
+        info = self._error_json_no_hang(outer)
+        self.assertEqual(info["error"], "RunFailed")
+        self.assertEqual(info["run"], "OUTER_RUN")
+        self.assertNotIn("cause", info)
 
 
 class TestDirectoryIO(RunnerTestCase):
