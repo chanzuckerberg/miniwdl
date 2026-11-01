@@ -1846,7 +1846,6 @@ def localize(
             """
         localizer = parse_document(localizer_wdl)
         localizer.typecheck()
-        cfg = runtime.config.Loader(logger)
         _subdir, outputs = runtime.run(
             cfg,
             localizer.workflow,
