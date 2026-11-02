@@ -1677,6 +1677,29 @@ class TestStdLib(unittest.TestCase):
             expected_exception=WDL.Error.EvalError,
         )
 
+    def test_glob_metachar_run_dir(self):
+        # the task run directory path may itself contain glob metacharacters
+        # (e.g. via --dir or TMPDIR); glob() must still find the output files
+        self._dir = os.path.join(self._dir, "run[2024]")
+        os.makedirs(self._dir)
+        outputs = self._test_task(R"""
+        version 1.0
+        task hello {
+            command {
+                touch foo bar baz
+            }
+            output {
+                Array[File] filez = glob("ba*")
+                File f1 = glob("foo")[0]
+            }
+        }
+        """)
+        self.assertEqual(len(outputs["filez"]), 2)
+        self.assertTrue(outputs["filez"][0].endswith("/bar"))
+        self.assertTrue(outputs["filez"][1].endswith("/baz"))
+        self.assertTrue(outputs["f1"].endswith("/foo"))
+        assert os.path.isfile(outputs["f1"])
+
     def test_concat(self):
         outputs = self._test_task(R"""
         version 1.0
