@@ -257,6 +257,21 @@ class TestStdLib(unittest.TestCase):
         self.assertEqual(eval_read_string(""), "")
         self.assertEqual(eval_read_string("\n\n"), "")
 
+    def test_nonfunction_stdlib_attribute_call(self):
+        # eval_context & wdl_version are StdLib attributes but not functions;
+        # calling them must raise NoSuchFunction, not a bare AssertionError
+        for name in ("eval_context", "wdl_version"):
+            doc = WDL.parse_document("""
+            version 1.2
+            workflow main {
+                output {
+                    String s = %s()
+                }
+            }
+            """ % name)
+            with self.assertRaises(WDL.Error.NoSuchFunction):
+                doc.typecheck()
+
     def _eval_expr(self, expr: str, env=None, version: str = "development"):
         env = env or WDL.Env.Bindings()
         type_env = WDL.Env.Bindings()
