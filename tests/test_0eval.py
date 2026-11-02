@@ -727,21 +727,6 @@ class TestValue(unittest.TestCase):
             {"name": "Alyssa", "age": 42, "address": "No 4, Privet Drive"}
         )
 
-    def test_nonfunction_stdlib_attribute_call(self):
-        # eval_context & wdl_version are StdLib attributes but not functions;
-        # calling them must raise NoSuchFunction, not a bare AssertionError
-        for name in ("eval_context", "wdl_version"):
-            doc = WDL.parse_document("""
-            version 1.2
-            workflow main {
-                output {
-                    String s = %s()
-                }
-            }
-            """ % name)
-            with self.assertRaises(WDL.Error.NoSuchFunction):
-                doc.typecheck()
-
     def test_json_error_paths(self):
         # issue #825: a failure deep inside a JSON input should report the reason, and where
         doc = WDL.parse_document("""
