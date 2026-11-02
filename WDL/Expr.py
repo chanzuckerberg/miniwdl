@@ -1109,7 +1109,9 @@ class Get(Base):
         # intermediate value, a resolvable identifier, or neither
         assert self._stdlib is not None
         try:
-            self.expr.infer_type(type_env, self._stdlib, self._check_quant)
+            self.expr.infer_type(
+                type_env, self._stdlib, self._check_quant, struct_types=self._struct_types
+            )
         except Error.UnknownIdentifier:
             # Fail...there's one case we may be able to rescue, where expr is a
             # _LeftName inside zero or more Gets representing an incomplete
@@ -1126,7 +1128,9 @@ class Get(Base):
                     message = f"No {self.member} in namespace {self.expr._ident}"
                 raise Error.UnknownIdentifier(self, message=message) from None
             self.expr = Ident(self.pos, self._ident)
-            self.expr.infer_type(type_env, self._stdlib, self._check_quant)
+            self.expr.infer_type(
+                type_env, self._stdlib, self._check_quant, struct_types=self._struct_types
+            )
             self.member = None
         # now we've typechecked expr
         ety = self.expr.type
