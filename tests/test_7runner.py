@@ -7,6 +7,7 @@ import random
 import os
 import shutil
 import time
+import threading
 import multiprocessing
 import docker
 import platform
@@ -325,6 +326,71 @@ class TestEvalCLI(unittest.TestCase):
         with redirect_stdout(stdout):
             WDL.CLI.eval_expr(["Array[Float] a = [1, 2]"], "a")
         self.assertEqual(json.loads(stdout.getvalue()), [1.0, 2.0])
+
+
+class TestSubprocessScheduler(unittest.TestCase):
+    def test_release_wakes_all_waiters(self):
+        # releasing a reservation must wake every waiter to re-check its fit
+        # predicate: waiters have different reservations, so waking only one can
+        # strand a later waiter that now fits (lost wakeup)
+        from WDL.runtime.backend.cli_subprocess import _SubprocessScheduler
+
+        _SubprocessScheduler.global_init({"cpu": 4, "mem_bytes": 1})
+        cv = _SubprocessScheduler._cv
+
+        def waiter_count():
+            with cv:
+                return len(cv._waiters)
+
+        def wait_until(predicate):
+            t0 = time.time()
+            while not predicate():
+                self.assertLess(time.time() - t0, 10)
+                time.sleep(0.01)
+
+        def spawn(sched):
+            entered = threading.Event()
+
+            def run():
+                with sched:
+                    entered.set()
+
+            thread = threading.Thread(target=run, daemon=True)
+            thread.start()
+            return thread, entered
+
+        big = _SubprocessScheduler(3, 0)  # holds 3 of 4 cpu
+        filler = _SubprocessScheduler(1, 0)  # holds the remaining cpu
+        large = _SubprocessScheduler(2, 0)  # fits only once big releases
+        small = _SubprocessScheduler(1, 0)  # fits once either holder releases
+        big.__enter__()
+        filler.__enter__()
+        released = set()
+
+        def release(sched):
+            if sched not in released:
+                released.add(sched)
+                sched.__exit__()
+
+        try:
+            # queue large ahead of small in the condition's wait queue
+            large_thread, large_entered = spawn(large)
+            wait_until(lambda: waiter_count() == 1)
+            small_thread, small_entered = spawn(small)
+            wait_until(lambda: waiter_count() == 2)
+
+            # releasing filler leaves room for small but not large; small must
+            # enter even though large is ahead of it in the queue
+            release(filler)
+            self.assertTrue(small_entered.wait(timeout=10))
+            small_thread.join(timeout=10)
+
+            release(big)
+            self.assertTrue(large_entered.wait(timeout=10))
+            large_thread.join(timeout=10)
+        finally:
+            release(filler)
+            release(big)
 
 
 class TestDirectoryIO(RunnerTestCase):

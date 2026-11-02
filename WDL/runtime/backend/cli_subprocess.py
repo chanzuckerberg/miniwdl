@@ -284,4 +284,6 @@ class _SubprocessScheduler(contextlib.AbstractContextManager):
             assert 0 <= self._state["used_cpu"] <= self._state["host_cpu"]
             self._state["used_memory"] = self._state["used_memory"] - self.memory_reservation
             assert 0 <= self._state["used_memory"] <= self._state["host_memory"]
-            self._cv.notify()
+            # notify_all: waiters have heterogeneous fit predicates, so a single
+            # wakeup can be consumed by a waiter that still doesn't fit
+            self._cv.notify_all()
