@@ -1268,16 +1268,16 @@ class Apply(Base):
 
     def _infer_type(self, type_env: Env.Bindings[Type.Base]) -> Type.Base:
         f = getattr(self._stdlib, self.function_name, None)
-        if not f:
+        if not isinstance(f, StdLib.Function):
             raise Error.NoSuchFunction(self, self.function_name) from None
-        assert isinstance(f, StdLib.Function)
         return f.infer_type(self)
 
     def _eval(self, env: Env.Bindings[Value.Base], stdlib: StdLib.Base) -> Value.Base:
         """"""
 
         f = getattr(stdlib, self.function_name, None)
-        assert isinstance(f, StdLib.Function)
+        if not isinstance(f, StdLib.Function):
+            raise Error.NoSuchFunction(self, self.function_name) from None
         return f(self, env, stdlib)
 
 
