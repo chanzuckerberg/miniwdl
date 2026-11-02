@@ -152,7 +152,7 @@ class Base:
         static([Type.File()], Type.Int(), "read_int")(self._read(lambda s: Value.Int(int(s))))
         static([Type.File()], Type.Boolean(), "read_boolean")(self._read(_parse_boolean))
         static([Type.File()], Type.String(), "read_string")(
-            self._read(lambda s: Value.String(s.removesuffix("\n")))
+            self._read(lambda s: Value.String(s.rstrip("\r\n")))
         )
         static([Type.File()], Type.Float(), "read_float")(
             self._read(lambda s: Value.Float(float(s)))

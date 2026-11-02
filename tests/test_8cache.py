@@ -13,6 +13,7 @@ from unittest.mock import MagicMock, patch
 from .context import WDL
 from WDL import values_from_json, values_to_json
 from WDL.runtime.cache import CallCache, CallCacheAddPaths, digest_inputs
+from WDL.runtime import download as runtime_download
 
 
 class TestCallCache(unittest.TestCase):
@@ -346,6 +347,58 @@ Int count = 12
             cached = cache.put_download(uri_slash, downloaded, directory=True)
             self.assertEqual(cached, cache.get_download(uri_canonical, directory=True))
             self.assertTrue(os.path.isdir(cached))
+
+    def test_download_path_rejects_dot_segments(self):
+        cfg = WDL.runtime.config.Loader(self.logger, [])
+        cfg.override(
+            {
+                "download_cache": {
+                    "put": True,
+                    "get": True,
+                    "dir": os.path.join(self._dir, "download_cache"),
+                }
+            }
+        )
+        with CallCache(cfg=cfg, logger=self.logger) as cache:
+            # a trailing ".." segment would otherwise map to a parent cache
+            # directory, which get_download could hand to a task as its input;
+            # the bypass is logged (once per URI)
+            with self.assertLogs(self.logger, level="WARNING") as logs:
+                self.assertIsNone(cache.download_path("s3://bucket/dir/..", directory=True))
+            self.assertTrue(any("dot or empty segment" in line for line in logs.output))
+            self.assertIsNone(cache.download_path("s3://bucket/dir/.."))
+            self.assertIsNone(cache.download_path("s3://bucket/dir/../other.txt"))
+            self.assertIsNone(cache.download_path("s3://bucket/dir/.", directory=True))
+            self.assertIsNone(cache.download_path("s3://bucket/dir//other.txt"))
+            # ordinary URIs remain cacheable
+            self.assertIsNotNone(cache.download_path("s3://bucket/dir/other.txt"))
+            self.assertIsNotNone(cache.download_path("s3://bucket/dir", directory=True))
+
+    def test_download_path_no_warning_when_cache_disabled(self):
+        # with the download cache disabled (the default), download_path still
+        # returns None for such URIs, but must not warn about a cache the
+        # user never enabled
+        cfg = WDL.runtime.config.Loader(self.logger, [])
+        with CallCache(cfg=cfg, logger=self.logger) as cache:
+            with self.assertNoLogs(self.logger, level="WARNING"):
+                self.assertIsNone(cache.download_path("s3://bucket/dir//x.txt"))
+                self.assertIsNone(cache.download_path("s3://bucket/dir/.."))
+
+    def test_download_run_rejects_final_dot_segment(self):
+        # the downloader itself refuses URIs ending in "." or "..", before any
+        # downloader task is built (no container needed to test the rejection)
+        cfg = WDL.runtime.config.Loader(self.logger, [])
+        for uri in (
+            "https://example.com/dir/..",
+            "https://example.com/dir/../",
+            "https://example.com/dir/.",
+            "s3://bucket/dir/..",
+        ):
+            with self.assertRaises(WDL.runtime.DownloadFailed) as ctx:
+                runtime_download.run(cfg, self.logger, uri)
+            self.assertIn("ends with '.' or '..'", str(ctx.exception))
+        with self.assertRaises(WDL.runtime.DownloadFailed):
+            runtime_download.run(cfg, self.logger, "s3://bucket/dir/..", directory=True)
 
     def test_a_task_with_the_same_inputs_and_different_commands_doesnt_pull_from_the_cache(self):
         # run task twice, once with original wdl, once with updated wdl command, check _try_task  called for second run

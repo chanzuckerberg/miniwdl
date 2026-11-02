@@ -229,6 +229,49 @@ class TestStdLib(unittest.TestCase):
         finally:
             WDL.StdLib._parse_tsv_objects = parse_tsv_objects
 
+    def test_read_string_trailing_eol(self):
+        # the WDL spec requires read_string to strip ALL trailing end-of-line
+        # characters (\r and \n), not just one trailing \n
+        class LocalStdLib(WDL.StdLib.Base):
+            def _devirtualize_filename(self, filename: str) -> str:
+                return filename
+
+            def _virtualize_filename(self, filename: str) -> str:
+                return filename
+
+        def eval_read_string(contents: str) -> str:
+            fn = os.path.join(self._dir, "read_string.txt")
+            with open(fn, "w", newline="") as outfile:
+                outfile.write(contents)
+            stdlib = LocalStdLib("1.2")
+            ex = WDL.parse_expr(f'read_string("{fn}")', version="1.2").infer_type(
+                WDL.Env.Bindings(), stdlib
+            )
+            return ex.eval(WDL.Env.Bindings(), stdlib).value
+
+        self.assertEqual(eval_read_string("hello"), "hello")
+        self.assertEqual(eval_read_string("hello\n"), "hello")
+        self.assertEqual(eval_read_string("hello\n\n\n"), "hello")
+        self.assertEqual(eval_read_string("hello\r\n\r\n"), "hello")
+        self.assertEqual(eval_read_string("hello\nworld\n\n"), "hello\nworld")
+        self.assertEqual(eval_read_string(""), "")
+        self.assertEqual(eval_read_string("\n\n"), "")
+
+    def test_nonfunction_stdlib_attribute_call(self):
+        # eval_context & wdl_version are StdLib attributes but not functions;
+        # calling them must raise NoSuchFunction, not a bare AssertionError
+        for name in ("eval_context", "wdl_version"):
+            doc = WDL.parse_document("""
+            version 1.2
+            workflow main {
+                output {
+                    String s = %s()
+                }
+            }
+            """ % name)
+            with self.assertRaises(WDL.Error.NoSuchFunction):
+                doc.typecheck()
+
     def _eval_expr(self, expr: str, env=None, version: str = "development"):
         env = env or WDL.Env.Bindings()
         type_env = WDL.Env.Bindings()
@@ -1648,6 +1691,29 @@ class TestStdLib(unittest.TestCase):
         """,
             expected_exception=WDL.Error.EvalError,
         )
+
+    def test_glob_metachar_run_dir(self):
+        # the task run directory path may itself contain glob metacharacters
+        # (e.g. via --dir or TMPDIR); glob() must still find the output files
+        self._dir = os.path.join(self._dir, "run[2024]")
+        os.makedirs(self._dir)
+        outputs = self._test_task(R"""
+        version 1.0
+        task hello {
+            command {
+                touch foo bar baz
+            }
+            output {
+                Array[File] filez = glob("ba*")
+                File f1 = glob("foo")[0]
+            }
+        }
+        """)
+        self.assertEqual(len(outputs["filez"]), 2)
+        self.assertTrue(outputs["filez"][0].endswith("/bar"))
+        self.assertTrue(outputs["filez"][1].endswith("/baz"))
+        self.assertTrue(outputs["f1"].endswith("/foo"))
+        assert os.path.isfile(outputs["f1"])
 
     def test_concat(self):
         outputs = self._test_task(R"""

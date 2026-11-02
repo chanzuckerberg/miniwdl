@@ -49,6 +49,17 @@ The default local scheduler observes these task `requirements {}` attributes (in
 * `docker_network` (String): name of a Docker network to which to attach the container, e.g. "host"; the network name must also appear in the configuration option `[docker_swarm] allow_networks` JSON list.
 * `privileged` (Boolean): if true, *and* configuration option `[task_runtime] allow_privileged = true`, then run task containers with privileged capabilities. (Not recommended, for security & portability reasons.)
 
+## Relative paths in input files
+
+Relative `File` and `Directory` paths in an input file (`--input inputs.json`, JSON or YAML) are resolved against the directory containing that file, as the WDL specification suggests. For compatibility with earlier miniwdl versions:
+
+* If a path doesn't exist relative to the input file but does exist relative to the working directory, miniwdl uses the latter and logs a warning (once per input file). This fallback is deprecated; write such paths relative to the input file, or as absolute paths.
+* If a path exists relative to both, as different files, miniwdl uses the one relative to the input file and logs a warning.
+
+Relative paths resolve against the working directory when there's no local directory to resolve against: inputs given inline, on standard input, or as `name=value` arguments; a pipe such as `--input <(...)`; and, currently, an input file fetched over http(s). URIs are used as given.
+
+A [source ZIP](zip.rst)'s default inputs resolve against the root of the unpacked archive, so bundle any files they reference with `miniwdl zip --add`.
+
 ## File & Directory URI downloads
 
 Instead of local paths for File and Directory inputs, miniwdl can accept URIs and download them automatically on run start. Directory URIs should be distinguished by affixing a trailing slash. The following URI schemes have built-in support, which can be extended with plugins:

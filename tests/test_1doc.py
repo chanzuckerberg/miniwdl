@@ -1922,6 +1922,59 @@ class TestCycleDetection(unittest.TestCase):
         with self.assertRaises(WDL.Error.CircularDependencies):
             doc.typecheck()
 
+    def test_message_names_node(self):
+        # the error message must name a node involved in the cycle, for both
+        # the task declaration graph and the workflow graph checks
+        doc = WDL.parse_document(
+            r"""
+            version 1.0
+            task cyclic {
+                input {
+                    Int i
+                }
+                Int alpha = i + beta
+                Int beta = i - alpha
+
+                command{}
+            }
+            """
+        )
+        with self.assertRaises(WDL.Error.CircularDependencies) as ctx:
+            doc.typecheck()
+        self.assertRegex(str(ctx.exception), r"^circular dependencies involving (alpha|beta)$")
+
+        add = r"""
+        task add {
+            input {
+                Int lhs
+                Int rhs
+            }
+
+            command{}
+
+            output {
+                Int z = lhs + rhs
+            }
+        }
+        """
+        doc = WDL.parse_document(
+            r"""
+            version 1.0
+            workflow cyclic {
+                input {
+                    Int cycle_start = add.z
+                }
+                call add { input: lhs = 0, rhs = cycle_start }
+            }
+            """
+            + add
+        )
+        with self.assertRaises(WDL.Error.CircularDependencies) as ctx:
+            doc.typecheck()
+        self.assertRegex(
+            str(ctx.exception), r"^circular dependencies involving (cycle_start|add)$"
+        )
+
     def test_workflow(self):
         add = r"""
         task add {

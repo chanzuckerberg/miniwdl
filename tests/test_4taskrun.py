@@ -6,6 +6,7 @@ import shutil
 import docker
 import signal
 import time
+import threading
 import json
 import platform
 import multiprocessing
@@ -2196,6 +2197,123 @@ class TestHintsEval(unittest.TestCase):
         warnings = "\n".join(logs.output)
         self.assertIn("max_cpu", warnings)
         self.assertIn("bad_env", warnings)
+
+
+class TestSubprocessScheduler(unittest.TestCase):
+    def test_release_wakes_all_waiters(self):
+        # Releasing a reservation must wake every waiter to re-check its fit
+        # predicate: with notify(), one release wakes a single waiter, which
+        # strands any other waiter that now fits (lost wakeup) -- either a
+        # smaller waiter queued behind a larger one that still doesn't fit,
+        # or the remaining waiters when one release frees room for several.
+        from WDL.runtime.backend.cli_subprocess import _SubprocessScheduler
+
+        # global_init() resets process-wide scheduler state, and the
+        # subprocess backend initializes it only once per process; save it
+        # here and restore it in the finally, so later tests in this process
+        # still see the host's real resource limits.
+        saved_cv = getattr(_SubprocessScheduler, "_cv", None)
+        saved_state = dict(_SubprocessScheduler._state)
+
+        held = []
+        threads = []
+        hold_open_events = []
+
+        def hold(sched):
+            sched.__enter__()
+            held.append(sched)
+            return sched
+
+        def release(sched):
+            if sched in held:
+                held.remove(sched)
+                sched.__exit__()
+
+        try:
+            _SubprocessScheduler.global_init({"cpu": 4, "mem_bytes": 1})
+
+            def waiter_count():
+                # _waiters is a CPython implementation detail of
+                # threading.Condition; acceptable here to observe the wait
+                # queue directly instead of inferring it from timing.
+                with _SubprocessScheduler._cv:
+                    return len(_SubprocessScheduler._cv._waiters)
+
+            def wait_until(predicate):
+                t0 = time.time()
+                while not predicate():
+                    self.assertLess(time.time() - t0, 10)
+                    time.sleep(0.01)
+
+            def spawn(sched, hold_open=None):
+                entered = threading.Event()
+
+                def run():
+                    with sched:
+                        entered.set()
+                        if hold_open is not None:
+                            hold_open.wait()
+
+                thread = threading.Thread(target=run, daemon=True)
+                thread.start()
+                threads.append(thread)
+                return entered
+
+            # Heterogeneous waiters: a 2-cpu waiter queued ahead of a 1-cpu
+            # waiter; releasing the 1-cpu holder makes room only for the
+            # smaller waiter, which must enter despite being behind the
+            # larger one in the queue.
+            big = hold(_SubprocessScheduler(3, 0))  # holds 3 of 4 cpu
+            filler = hold(_SubprocessScheduler(1, 0))  # holds the remaining cpu
+            large_entered = spawn(_SubprocessScheduler(2, 0))
+            wait_until(lambda: waiter_count() == 1)
+            small_entered = spawn(_SubprocessScheduler(1, 0))
+            wait_until(lambda: waiter_count() == 2)
+
+            release(filler)
+            self.assertTrue(small_entered.wait(timeout=10))
+            release(big)
+            self.assertTrue(large_entered.wait(timeout=10))
+            for thread in threads:
+                thread.join(timeout=10)
+            threads.clear()
+
+            # Identical waiters: one 4-cpu holder, four 1-cpu waiters; the
+            # single release frees room for all of them, and all must enter.
+            # Each waiter holds its reservation until all four are inside:
+            # were it to release on entry, that release would wake the next
+            # waiter in turn, and the case would pass even without the fix.
+            _SubprocessScheduler.global_init({"cpu": 4, "mem_bytes": 1})
+            holder = hold(_SubprocessScheduler(4, 0))
+            all_inside = threading.Event()
+            hold_open_events.append(all_inside)
+            waiters_entered = [
+                spawn(_SubprocessScheduler(1, 0), hold_open=all_inside) for _ in range(4)
+            ]
+            wait_until(lambda: waiter_count() == 4)
+            release(holder)
+            for entered in waiters_entered:
+                self.assertTrue(entered.wait(timeout=10))
+            all_inside.set()
+            for thread in threads:
+                thread.join(timeout=10)
+            threads.clear()
+        finally:
+            for event in hold_open_events:
+                event.set()
+            while held:
+                release(held[0])
+            for thread in threads:
+                thread.join(timeout=10)
+            if saved_cv is None:
+                try:
+                    del _SubprocessScheduler._cv
+                except AttributeError:
+                    pass
+            else:
+                _SubprocessScheduler._cv = saved_cv
+            _SubprocessScheduler._state.clear()
+            _SubprocessScheduler._state.update(saved_state)
 
 
 class TestSwarmMiscConfigUidGid(unittest.TestCase):
