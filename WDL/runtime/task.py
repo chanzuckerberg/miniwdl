@@ -220,6 +220,12 @@ def run_local_task(  # type: ignore[return]
                 _eval_task_runtime(
                     cfg, logger, run_id, task, posix_inputs, container, container_env, stdlib
                 )
+
+                # evaluate hints{} and hand the values to the container, which
+                # may use or ignore them (see TaskContainer.process_hints)
+                hints_values = _eval_task_hints(logger, task, posix_inputs, container_env, stdlib)
+                container.process_hints(logger, hints_values)
+
                 if wdl_version_geq(task.effective_wdl_version, WDLVersion.V1_2):
                     container.build_task_runtime_info_struct(logger, run_id, task)
                     assert container.task_runtime_info_struct is not None
@@ -721,6 +727,66 @@ def _eval_task_runtime(
     ]
     if unused_keys:
         logger.warning(_("ignored runtime settings", keys=unused_keys))
+
+
+def _eval_hint_value(
+    v: Tree.HintValue, env: Env.Bindings[Value.Base], stdlib: StdLib.Base
+) -> Value.Base:
+    # recursively evaluate a task hints value: expressions evaluate to their
+    # WDL.Value; nested hints{...} objects and input{...}/output{...} blocks
+    # become Value.Struct of Type.Object (the input/output block kind follows
+    # from the key the block is stored under, so it isn't retained in the
+    # evaluated value)
+    if isinstance(v, Expr.Base):
+        return v.eval(env, stdlib)
+    members: dict[str, Value.Base] = {}
+    member_types: dict[str, Type.Base] = {}
+    for k, vv in v.values.items():
+        members[k] = _eval_hint_value(vv, env, stdlib)
+        member_types[k] = members[k].type
+    return Value.Struct(Type.Object(member_types), members)
+
+
+def _eval_task_hints(
+    logger: logging.Logger,
+    task: Tree.Task,
+    inputs: Env.Bindings[Value.Base],
+    env: Env.Bindings[Value.Base],
+    stdlib: StdLib.Base,
+) -> dict[str, Value.Base]:
+    """
+    Evaluate a task's ``hints{}`` section to ``dict[str, Value.Base]``, for
+    consumption by the task's container (see
+    :meth:`WDL.runtime.task_container.TaskContainer.process_hints`), mirroring
+    :func:`_eval_task_runtime`: the hint expressions are evaluated in the task
+    input environment ``env``, then hint overrides from the input JSON (the
+    ``hints`` namespace of ``inputs``) supersede them per top-level key (the
+    superseded expression is not evaluated). Nested ``hints{...}`` objects and
+    ``input{...}``/``output{...}`` blocks evaluate to :class:`WDL.Value.Struct`
+    of :class:`WDL.Type.Object`, the shape JSON overrides arrive in. A hint
+    whose expression fails to evaluate is dropped individually, with a logged
+    warning naming the key: a task execution never fails due to a hint
+    (WDL 1.2 spec, Hints section).
+    """
+    hint_bindings = list(inputs.enter_namespace("hints"))
+    Tree._validate_hint_override_names(task.hints, [b.name for b in hint_bindings])
+    overrides: dict[str, Value.Base] = {b.name: b.value for b in hint_bindings}
+
+    ans: dict[str, Value.Base] = {}
+    for key, v in task.hints.items():
+        if key not in overrides:
+            try:
+                ans[key] = _eval_hint_value(v, env, stdlib)
+            except Exception as exn:
+                logger.warning(
+                    _(
+                        "task hint could not be evaluated; dropping it",
+                        hint=key,
+                        error=str(exn),
+                    )
+                )
+    ans.update(overrides)
+    return ans
 
 
 def _try_task(

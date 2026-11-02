@@ -184,7 +184,9 @@ The runner supports versions 1.2, 1.1, 1.0, and draft-2 of the [WDL specificatio
   * The `read_object()` and `read_objects()` library functions are available *only* for initializing structs and `Map[String,String]`
 * A task may only *output* files created within/beneath its container's initial working directory, not e.g. under `/tmp` ([#214](https://github.com/chanzuckerberg/miniwdl/issues/214))
 * The following task `requirements` are ignored: `disks`, `fpga`, `gpu` (but see the [GPU section](#using-nvidia-gpu) above)
-* WDL 1.2 task/workflow `hints` sections are parsed but ignored, including `allow_nested_inputs`
+* WDL 1.2 task `hints` sections are evaluated and passed to the container backend, which may use or ignore them (the specification allows an engine to ignore any hint). An individual hint can be overridden from the input JSON or command line by its top-level key (e.g. `wf.task.hints.max_cpu=16`); an override addressing a value below the top-level key (e.g. `wf.task.hints.aws.instance_type`), or targeting a key declared with a `hints{}`/`input{}`/`output{}` block, is rejected as an input error -- the specification is ambiguous about nested hint overrides (see [openwdl/wdl#773](https://github.com/openwdl/wdl/issues/773))
+* Workflow `hints` sections are parsed and type-checked, but not otherwise acted on; `allow_nested_inputs` is not implemented
+* `miniwdl check` rejects some WDL 1.2 documents that earlier versions accepted: task hints with ill-typed values for reserved keys (e.g. `max_cpu`), a task declaring both `runtime` and `hints` sections (mutually exclusive in WDL 1.2), and `inputs`/`outputs` hint blocks whose keys don't name parameters in the task's `input`/`output` sections
 
 Please [file an issue](https://github.com/chanzuckerberg/miniwdl/issues?q=is%3Aopen+is%3Aissue+label%3Ainterop) for any other incompatibilities observed.
 

@@ -106,10 +106,10 @@ task inspect_inputs {
       }
     }
     outputs: output {
-      summary: hints {
+      report.summary: hints {
         max_size: "4 KiB"
       },
-      bundle: hints {
+      report.bundle: hints {
         max_size: "16 KiB"
       }
     }
