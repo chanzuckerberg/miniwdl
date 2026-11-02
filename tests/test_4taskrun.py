@@ -1666,6 +1666,7 @@ class TestSubprocessScheduler(unittest.TestCase):
 
         held = []
         threads = []
+        hold_open_events = []
 
         def hold(sched):
             sched.__enter__()
@@ -1693,12 +1694,14 @@ class TestSubprocessScheduler(unittest.TestCase):
                     self.assertLess(time.time() - t0, 10)
                     time.sleep(0.01)
 
-            def spawn(sched):
+            def spawn(sched, hold_open=None):
                 entered = threading.Event()
 
                 def run():
                     with sched:
                         entered.set()
+                        if hold_open is not None:
+                            hold_open.wait()
 
                 thread = threading.Thread(target=run, daemon=True)
                 thread.start()
@@ -1726,14 +1729,27 @@ class TestSubprocessScheduler(unittest.TestCase):
 
             # Identical waiters: one 4-cpu holder, four 1-cpu waiters; the
             # single release frees room for all of them, and all must enter.
+            # Each waiter holds its reservation until all four are inside:
+            # were it to release on entry, that release would wake the next
+            # waiter in turn, and the case would pass even without the fix.
             _SubprocessScheduler.global_init({"cpu": 4, "mem_bytes": 1})
             holder = hold(_SubprocessScheduler(4, 0))
-            waiters_entered = [spawn(_SubprocessScheduler(1, 0)) for _ in range(4)]
+            all_inside = threading.Event()
+            hold_open_events.append(all_inside)
+            waiters_entered = [
+                spawn(_SubprocessScheduler(1, 0), hold_open=all_inside) for _ in range(4)
+            ]
             wait_until(lambda: waiter_count() == 4)
             release(holder)
             for entered in waiters_entered:
                 self.assertTrue(entered.wait(timeout=10))
+            all_inside.set()
+            for thread in threads:
+                thread.join(timeout=10)
+            threads.clear()
         finally:
+            for event in hold_open_events:
+                event.set()
             while held:
                 release(held[0])
             for thread in threads:
