@@ -727,6 +727,26 @@ class TestValue(unittest.TestCase):
             {"name": "Alyssa", "age": 42, "address": "No 4, Privet Drive"}
         )
 
+    def test_struct_literal_member_access(self):
+        # member access directly on a struct literal must typecheck & evaluate
+        doc = WDL.parse_document("""
+        version 1.2
+        struct Person {
+            String name
+            Int age
+        }
+        workflow main {
+            output {
+                String name = Person {name: "Alyssa", age: 42}.name
+                Int age = Person {name: "Alyssa", age: 42}.age
+            }
+        }
+        """)
+        doc.typecheck()
+        stdlib = WDL.StdLib.Base("1.2")
+        outputs = {decl.name: decl.expr.eval([], stdlib).value for decl in doc.workflow.outputs}
+        self.assertEqual(outputs, {"name": "Alyssa", "age": 42})
+
     def test_json_error_paths(self):
         # issue #825: a failure deep inside a JSON input should report the reason, and where
         doc = WDL.parse_document("""
