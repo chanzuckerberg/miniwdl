@@ -91,6 +91,11 @@ def run(
     # downloadable file or directory, and ".." would escape the download directory
     if urlparse(uri).path.rstrip("/").split("/")[-1] in (".", ".."):
         raise DownloadFailed(uri, f"download URI path ends with '.' or '..': {uri}")
+    # directory downloaders derive their name from the raw URI, so for directory
+    # downloads also reject a '.' or '..' final segment carried by a query or
+    # fragment suffix, which the parsed-path check does not see
+    if directory and os.path.basename(uri.removesuffix("/")) in (".", ".."):
+        raise DownloadFailed(uri, f"download URI ends with '.' or '..': {uri}")
 
     gen = _downloader(cfg, uri, directory=directory)
     assert gen
