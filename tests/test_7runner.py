@@ -2293,8 +2293,10 @@ class TestCallAfter(RunnerTestCase):
 
 class TestDownloadDotSegmentGuard(unittest.TestCase):
     def test_run_rejects_dot_segments(self):
-        # Reject final '.'/'..' segments in either the parsed path or the raw URI,
-        # including those in query or fragment suffixes used by directory downloaders.
+        # Reject a final '.'/'..' segment in the parsed path for all downloads.
+        # For directory downloads, also reject one in the raw URI (possibly in a
+        # query or fragment suffix), from which the directory name is derived;
+        # file downloads accept those, as no name is derived from the URI.
         logger = logging.getLogger(self.id())
         cfg = WDL.runtime.config.Loader(logger, [])
         fd, downloaded = tempfile.mkstemp(prefix="miniwdl_test_download_")
@@ -2306,29 +2308,47 @@ class TestDownloadDotSegmentGuard(unittest.TestCase):
             seen.append(uri)
             yield {"outputs": {"file": downloaded, "directory": tempfile.gettempdir()}}
 
-        rejected = [
-            "s3://bucket/../",
+        def run(uri, directory):
+            with patch.object(runtime_download, "_downloader", return_value=fake_downloader):
+                return runtime_download.run(cfg, logger, uri, directory=directory)
+
+        # final '.'/'..' segment in the parsed path: rejected for all downloads
+        for uri in ("s3://bucket/../", "s3://bucket/dir/."):
+            for directory in (False, True):
+                with self.subTest(uri=uri, directory=directory):
+                    with self.assertRaises(WDL.runtime.DownloadFailed) as cm:
+                        run(uri, directory)
+                    self.assertTrue(
+                        str(cm.exception).startswith("download URI path ends with '.' or '..'")
+                    )
+        self.assertEqual(seen, [])
+
+        # final '.'/'..' segment only in the raw URI (query or fragment):
+        # rejected for directory downloads, accepted for file downloads
+        raw_only = [
             "s3://bucket/safe?x/../",
             "s3://bucket/safe?x/.",
             "s3://bucket/dir#frag/../",
             "gs://bucket/dir#frag/.",
+            "https://host/download?path=data/..",
+            "https://host/api/export?dir=/results/.",
+            "https://host/app/file.tsv#/..",
         ]
-        for uri in rejected:
-            for directory in (False, True):
-                with self.subTest(uri=uri, directory=directory):
-                    with patch.object(
-                        runtime_download, "_downloader", return_value=fake_downloader
-                    ):
-                        with self.assertRaises(WDL.runtime.DownloadFailed):
-                            runtime_download.run(cfg, logger, uri, directory=directory)
-        self.assertEqual(seen, [])
+        for uri in raw_only:
+            with self.subTest(uri=uri, directory=True):
+                with self.assertRaises(WDL.runtime.DownloadFailed) as cm:
+                    run(uri, True)
+                self.assertTrue(
+                    str(cm.exception).startswith("download URI ends with '.' or '..'")
+                )
+            with self.subTest(uri=uri, directory=False):
+                self.assertEqual(run(uri, False), downloaded)
+        self.assertEqual(seen, raw_only)
 
-        # an ordinary query string is not a rejection
+        # an ordinary query string is not a rejection in either mode
         uri = "https://example.org/file.txt?versionId=abc&part=..x"
-        with patch.object(runtime_download, "_downloader", return_value=fake_downloader):
-            self.assertEqual(runtime_download.run(cfg, logger, uri), downloaded)
-        self.assertEqual(seen, [uri])
-
+        self.assertEqual(run(uri, False), downloaded)
+        self.assertEqual(run(uri, True), tempfile.gettempdir())
 
 class TestDownload(RunnerTestCase):
     count_wdl: str = R"""
