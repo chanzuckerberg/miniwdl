@@ -2291,6 +2291,45 @@ class TestCallAfter(RunnerTestCase):
             """)
 
 
+class TestDownloadDotSegmentGuard(unittest.TestCase):
+    def test_run_rejects_dot_segments(self):
+        # Reject final '.'/'..' segments in either the parsed path or the raw URI,
+        # including those in query or fragment suffixes used by directory downloaders.
+        logger = logging.getLogger(self.id())
+        cfg = WDL.runtime.config.Loader(logger, [])
+        fd, downloaded = tempfile.mkstemp(prefix="miniwdl_test_download_")
+        os.close(fd)
+        self.addCleanup(os.unlink, downloaded)
+        seen = []
+
+        def fake_downloader(cfg2, logger2, uri, **kwargs):
+            seen.append(uri)
+            yield {"outputs": {"file": downloaded, "directory": tempfile.gettempdir()}}
+
+        rejected = [
+            "s3://bucket/../",
+            "s3://bucket/safe?x/../",
+            "s3://bucket/safe?x/.",
+            "s3://bucket/dir#frag/../",
+            "gs://bucket/dir#frag/.",
+        ]
+        for uri in rejected:
+            for directory in (False, True):
+                with self.subTest(uri=uri, directory=directory):
+                    with patch.object(
+                        runtime_download, "_downloader", return_value=fake_downloader
+                    ):
+                        with self.assertRaises(WDL.runtime.DownloadFailed):
+                            runtime_download.run(cfg, logger, uri, directory=directory)
+        self.assertEqual(seen, [])
+
+        # an ordinary query string is not a rejection
+        uri = "https://example.org/file.txt?versionId=abc&part=..x"
+        with patch.object(runtime_download, "_downloader", return_value=fake_downloader):
+            self.assertEqual(runtime_download.run(cfg, logger, uri), downloaded)
+        self.assertEqual(seen, [uri])
+
+
 class TestDownload(RunnerTestCase):
     count_wdl: str = R"""
         version 1.0
