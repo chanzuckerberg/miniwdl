@@ -304,8 +304,7 @@ class TestHintsTypecheck(unittest.TestCase):
             'max_cpu: "lots"',  # String does not satisfy Int|Float here
             "max_memory: 1.5",  # Float is not Int|String
             "maxCpu: true",  # camelCase alias, not Int|Float
-            "disks: 42",  # not String|Map[String,String]
-            'disks: {"/mnt": 3}',  # map values must be String
+            "disks: 42",  # not String|Map
             'gpu: [1]',  # not Int|String
         ]
         for hint in violations:
@@ -357,6 +356,26 @@ class TestHintsTypecheck(unittest.TestCase):
                     fpga: 1
                     short_task: false
                     custom_anything: [1, "two", true]
+                }
+            }
+            """
+        )
+        doc.typecheck()
+
+    def test_reserved_key_acceptances_lax(self):
+        # the reserved-key check follows Lint's UnexpectedRuntimeValue:
+        # accepted types are type classes checked with isinstance, so map
+        # value types and optionality aren't distinguished
+        doc = WDL.parse_document(
+            """version 1.2
+            task t {
+                input {
+                    Int? n
+                }
+                command <<< true >>>
+                hints {
+                    max_cpu: n
+                    disks: {"/mnt": 3}
                 }
             }
             """

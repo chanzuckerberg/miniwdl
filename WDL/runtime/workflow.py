@@ -76,7 +76,7 @@ from .error import (
     Terminated,
     error_json,
 )
-from .task import run_local_task
+from .task import _validate_hint_override_names, run_local_task
 
 _CallFuture = futures.Future[tuple[str, Env.Bindings[Value.Base]]]
 
@@ -259,7 +259,7 @@ def _validate_workflow_hint_overrides(
     At workflow startup, validate the launch inputs' hint overrides against
     the declared hints of each called task (recursing into subworkflows), so
     a bad override is an input error before any task runs (see
-    Tree._validate_hint_override_names).
+    _validate_hint_override_names in WDL.runtime.task).
     """
     for call in Tree._calls(workflow):
         callee = call.callee
@@ -269,7 +269,7 @@ def _validate_workflow_hint_overrides(
         if isinstance(callee, Tree.Task):
             override_names = [b.name for b in call_inputs.enter_namespace("hints")]
             if override_names:
-                Tree._validate_hint_override_names(callee.hints, override_names)
+                _validate_hint_override_names(callee.hints, override_names)
         elif isinstance(callee, Tree.Workflow):
             _validate_workflow_hint_overrides(callee, call_inputs)
 

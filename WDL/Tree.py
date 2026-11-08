@@ -317,6 +317,18 @@ HintValue = Expr.Base | HintsObject | IOHints
 :class:`HintsObject`, or an :class:`IOHints` block"""
 
 
+def _hint_exprs(
+    hints: dict[str, HintValue],
+) -> Generator[tuple[str, Expr.Base], None, None]:
+    # yield all expressions in a hints section with their key, recursing into
+    # nested HintsObject/IOHints values
+    for k, v in hints.items():
+        if isinstance(v, Expr.Base):
+            yield k, v
+        elif isinstance(v, (HintsObject, IOHints)):
+            yield from _hint_exprs(v.values)
+
+
 class Task(SourceNode):
     """
     WDL task, with its input & output declarations, command, and requirements/runtime
@@ -603,13 +615,10 @@ class Task(SourceNode):
                 # inputs block keys name parameters in the task's input{}
                 # section (private/postinput declarations don't qualify).
                 errors.try1(
-                    _validate_hints_values,
-                    self.hints,
+                    self._validate_hints,
                     {decl.name: type_env[decl.name] for decl in self.inputs or []},
                     {decl.name: decl.type for decl in self.outputs},
                     struct_types,
-                    check_quant=check_quant,
-                    task_name=self.name,
                 )
             # Use separate environments for command/output typechecking, where WDL 1.2+ exposes
             # the task runtime info struct. Keep type_env unchanged so it documents that inputs,
@@ -695,6 +704,87 @@ class Task(SourceNode):
         # normalize whitespace within lines (not leading/trailing)
         source_lines += _source_excerpt(doc, self.pos, [self.command.pos])
         return "\n".join(source_lines).strip()
+
+    def _validate_hints(
+        self,
+        input_types: dict[str, Type.Base],
+        output_types: dict[str, Type.Base],
+        struct_types: Env.Bindings[dict[str, Type.Base]],
+    ) -> None:
+        # Strict validation of the hints structure: reserved keys must have
+        # spec-accepted types, "inputs"/"outputs" blocks must name actual
+        # task inputs/outputs (possibly dotted paths into struct members),
+        # and hints objects cannot be nested (WDL 1.2 spec, Hints section).
+        # The nested functions read the task-level values from this scope, so
+        # only the values under validation vary between recursive calls.
+
+        def validate_io(io: IOHints, decl_types: dict[str, Type.Base]) -> None:
+            # Each key must name one of the task's inputs/outputs (per the
+            # block kind), possibly a dotted path into struct members; each
+            # entry value is itself a hints object, validated recursively.
+            for key, value in io.values.items():
+                parts = key.split(".")
+                key_pos = io.key_pos.get(key, io.pos)
+                if parts[0] not in decl_types:
+                    raise Error.ValidationError(
+                        key_pos, f"task {self.name} has no {io.kind} named '{parts[0]}'"
+                    )
+                ty = decl_types[parts[0]]
+                for part in parts[1:]:
+                    # resolve struct types first: an output declaration's
+                    # struct types may not have been resolved yet here
+                    _resolve_struct_types(key_pos, ty, struct_types)
+                    members = (
+                        ty.members if isinstance(ty, (Type.StructInstance, Type.Object)) else None
+                    )
+                    if members is None or part not in members:
+                        raise Error.NoSuchMember(key_pos, part)
+                    ty = members[part]
+                if isinstance(value, HintsObject):
+                    # the entry value is itself a hints object, so its members
+                    # are validated as members of a hints object (no further
+                    # nesting)
+                    validate(value.values, inside_hints_object=True)
+                elif isinstance(value, IOHints):
+                    raise Error.ValidationError(
+                        value,
+                        "input/output hints blocks may only appear as the 'inputs'/'outputs'"
+                        " task hints, not nested within another input/output hints block",
+                    )
+
+        def validate(values: dict[str, HintValue], inside_hints_object: bool = False) -> None:
+            # Validate one level of the hints structure (the top-level
+            # section, or recursively the members of a nested hints object,
+            # which follow the same rules).
+            for key, value in values.items():
+                if key in ("inputs", "outputs"):
+                    kind = "input" if key == "inputs" else "output"
+                    if not (isinstance(value, IOHints) and value.kind == kind):
+                        raise Error.ValidationError(
+                            value, f"task hint '{key}' must be an {kind} {{ ... }} block"
+                        )
+                    validate_io(value, input_types if kind == "input" else output_types)
+                elif isinstance(value, Expr.Base):
+                    _check_reserved_hint_type(key, value)
+                elif isinstance(value, HintsObject):
+                    if inside_hints_object:
+                        raise Error.ValidationError(
+                            value,
+                            "hints objects cannot be nested: a member of a hints object"
+                            " may not itself have a hints value",
+                        )
+                    validate(value.values, inside_hints_object=True)
+                elif isinstance(value, IOHints):
+                    # the block kind follows from the key: input/output blocks
+                    # are only accepted under the "inputs"/"outputs" keys
+                    # (handled above)
+                    raise Error.ValidationError(
+                        value,
+                        f"task hint '{key}' must not be an input/output block; input/output"
+                        " blocks are only allowed under the 'inputs' and 'outputs' hint keys",
+                    )
+
+        validate(self.hints)
 
 
 class Call(WorkflowNode):
@@ -1893,241 +1983,43 @@ def _check_workflow_hint_literal(expr: Expr.Base) -> None:
         raise Error.ValidationError(expr, "workflow hint values must be literals")
 
 
-def _hint_exprs(
-    hints: dict[str, HintValue],
-) -> Generator[tuple[str, Expr.Base], None, None]:
-    # yield all expressions in a hints section with their key, recursing into
-    # nested HintsObject/IOHints values
-    for k, v in hints.items():
-        if isinstance(v, Expr.Base):
-            yield k, v
-        elif isinstance(v, (HintsObject, IOHints)):
-            yield from _hint_exprs(v.values)
-
-
 # Accepted types for the reserved task hint keys (WDL 1.2 spec, "Reserved Task
 # Hints"), including the spec's camelCase aliases. Hint keys not listed here
 # (nor "inputs"/"outputs") are deliberately unconstrained.
-_TASK_HINT_TYPES: dict[str, tuple[Type.Base, ...]] = {
-    "max_cpu": (Type.Int(), Type.Float()),
-    "maxCpu": (Type.Int(), Type.Float()),
-    "max_memory": (Type.Int(), Type.String()),
-    "maxMemory": (Type.Int(), Type.String()),
-    "disks": (Type.String(), Type.Map((Type.String(), Type.String()))),
-    "gpu": (Type.Int(), Type.String()),
-    "fpga": (Type.Int(), Type.String()),
-    "short_task": (Type.Boolean(),),
-    "localization_optional": (Type.Boolean(),),
-    "localizationOptional": (Type.Boolean(),),
+_TASK_HINT_TYPES: dict[str, tuple[type[Type.Base], ...]] = {
+    "max_cpu": (Type.Int, Type.Float),
+    "maxCpu": (Type.Int, Type.Float),
+    "max_memory": (Type.Int, Type.String),
+    "maxMemory": (Type.Int, Type.String),
+    "disks": (Type.String, Type.Map),
+    "gpu": (Type.Int, Type.String),
+    "fpga": (Type.Int, Type.String),
+    "short_task": (Type.Boolean,),
+    "localization_optional": (Type.Boolean,),
+    "localizationOptional": (Type.Boolean,),
 }
 
 
-def _hint_type_accepted(ty: Type.Base, allowed: Type.Base, check_quant: bool) -> bool:
-    # Is ty one of the spec-accepted types for a reserved hint? This is a
-    # stricter test than WDL type coercion: in particular, a String expression
-    # coerces to Int/Float in WDL, but must not satisfy a reserved hint
-    # accepting only Int|Float (e.g. max_cpu: "lots"). An Int is accepted
-    # wherever a Float is, and Any (e.g. from an empty literal) matches.
-    if isinstance(ty, Type.Any):
-        return True
-    if check_quant and ty.optional and not allowed.optional:
-        return False
-    if type(ty) is not type(allowed):
-        return isinstance(ty, Type.Int) and isinstance(allowed, Type.Float)
-    return all(
-        _hint_type_accepted(ty_param, allowed_param, check_quant)
-        for ty_param, allowed_param in zip(ty.parameters, allowed.parameters)
-    )
-
-
-def _check_reserved_hint_type(key: str, expr: Expr.Base, check_quant: bool) -> None:
+def _check_reserved_hint_type(key: str, expr: Expr.Base) -> None:
     # If key is a reserved task hint, the (already type-inferred) expression's
-    # type must be one of the spec-accepted types.
+    # type must be one of the spec-accepted types. This is a stricter test
+    # than WDL type coercion: a String expression coerces to Int/Float in WDL,
+    # but must not satisfy a reserved hint accepting only Int|Float (e.g.
+    # max_cpu: "lots"). Following Lint's UnexpectedRuntimeValue, the accepted
+    # types are type classes checked with isinstance, so type parameters and
+    # optionality aren't distinguished.
     allowed = _TASK_HINT_TYPES.get(key)
     if allowed is None or expr._type is None:
         return  # unconstrained key, or type inference already failed on the expr
-    if not any(_hint_type_accepted(expr.type, ty, check_quant) for ty in allowed):
+    if not isinstance(expr.type, allowed + (Type.Any,)):
         raise Error.StaticTypeMismatch(
             expr,
-            allowed[0],
+            allowed[0](),
             expr.type,
-            message="task hint '{}' accepts {}".format(key, " or ".join(str(ty) for ty in allowed)),
+            message="task hint '{}' accepts {}".format(
+                key, " or ".join(ty.__name__ for ty in allowed)
+            ),
         )
-
-
-def _struct_member_type(
-    ty: Type.Base,
-    member: str,
-    struct_types: Env.Bindings[dict[str, Type.Base]],
-    node: SourceNode | SourcePosition,
-) -> Type.Base:
-    # Type of a struct member, traversing into StructInstance/Object types
-    members: dict[str, Type.Base] | None = None
-    if isinstance(ty, Type.StructInstance):
-        members = ty.members
-        if members is None and ty.type_name in struct_types:
-            members = struct_types[ty.type_name]
-    elif isinstance(ty, Type.Object):
-        members = ty.members
-    if members is None or member not in members:
-        raise Error.NoSuchMember(node, member)
-    return members[member]
-
-
-def _validate_io_hints(
-    io: IOHints,
-    decl_types: dict[str, Type.Base],
-    input_types: dict[str, Type.Base],
-    output_types: dict[str, Type.Base],
-    struct_types: Env.Bindings[dict[str, Type.Base]],
-    check_quant: bool,
-    task_name: str,
-) -> None:
-    # Each key of an input/output hints block must name one of the task's
-    # inputs/outputs (per the block kind), possibly a dotted path into struct
-    # members; each entry value is itself a hints object, validated recursively.
-    for key, value in io.values.items():
-        parts = key.split(".")
-        key_pos = io.key_pos.get(key, io.pos)
-        if parts[0] not in decl_types:
-            raise Error.ValidationError(
-                key_pos, f"task {task_name} has no {io.kind} named '{parts[0]}'"
-            )
-        ty = decl_types[parts[0]]
-        for part in parts[1:]:
-            ty = _struct_member_type(ty, part, struct_types, key_pos)
-        if isinstance(value, HintsObject):
-            # the entry value is itself a hints object, so its members are
-            # validated as members of a hints object (no further nesting)
-            _validate_hints_values(
-                value.values,
-                input_types,
-                output_types,
-                struct_types,
-                check_quant,
-                inside_hints_object=True,
-                task_name=task_name,
-            )
-        elif isinstance(value, IOHints):
-            raise Error.ValidationError(
-                value,
-                "input/output hints blocks may only appear as the 'inputs'/'outputs'"
-                " task hints, not nested within another input/output hints block",
-            )
-
-
-def _validate_hints_values(
-    values: dict[str, HintValue],
-    input_types: dict[str, Type.Base],
-    output_types: dict[str, Type.Base],
-    struct_types: Env.Bindings[dict[str, Type.Base]],
-    check_quant: bool,
-    inside_hints_object: bool = False,
-    *,
-    task_name: str,
-) -> None:
-    # Validate one level of a task hints structure (the top-level section, or
-    # recursively the members of a nested hints object, which follow the same
-    # rules): reserved keys are type-checked against _TASK_HINT_TYPES,
-    # "inputs"/"outputs" blocks must name actual task inputs/outputs, and the
-    # hints type cannot be nested (WDL 1.2 spec, Hints section).
-    for key, value in values.items():
-        if key in ("inputs", "outputs"):
-            kind = "input" if key == "inputs" else "output"
-            if not (isinstance(value, IOHints) and value.kind == kind):
-                raise Error.ValidationError(
-                    value, f"task hint '{key}' must be an {kind} {{ ... }} block"
-                )
-            _validate_io_hints(
-                value,
-                input_types if kind == "input" else output_types,
-                input_types,
-                output_types,
-                struct_types,
-                check_quant,
-                task_name,
-            )
-        elif isinstance(value, Expr.Base):
-            _check_reserved_hint_type(key, value, check_quant)
-        elif isinstance(value, HintsObject):
-            if inside_hints_object:
-                raise Error.ValidationError(
-                    value,
-                    "hints objects cannot be nested: a member of a hints object"
-                    " may not itself have a hints value",
-                )
-            _validate_hints_values(
-                value.values,
-                input_types,
-                output_types,
-                struct_types,
-                check_quant,
-                inside_hints_object=True,
-                task_name=task_name,
-            )
-        elif isinstance(value, IOHints):
-            # the block kind follows from the key: input/output blocks are
-            # only accepted under the "inputs"/"outputs" keys (handled above)
-            raise Error.ValidationError(
-                value,
-                f"task hint '{key}' must not be an input/output block; input/output"
-                " blocks are only allowed under the 'inputs' and 'outputs' hint keys",
-            )
-
-
-def _find_override_namespace(
-    key_parts: list[str], placeholder_exists: Callable[[str], bool]
-) -> tuple[str, int] | None:
-    # Find a requirements/runtime/hints override namespace within a dotted
-    # input key (e.g. "hints" in "wf.task.hints.max_cpu"): return the
-    # namespace and its index in key_parts, provided the key prefix before
-    # it, suffixed with the corresponding placeholder name ("_requirements",
-    # "_runtime", or "_hints"), names an available input (see
-    # Task.available_inputs). Used when parsing launch inputs, which may
-    # supply arbitrary keys under these namespaces.
-    for override in ("requirements", "runtime", "hints"):
-        idx = next((i for i, term in enumerate(key_parts) if term == override), -1)
-        if (
-            idx >= 0
-            and len(key_parts) > idx + 1
-            and placeholder_exists(".".join(key_parts[:idx] + ["_" + override]))
-        ):
-            return (override, idx)
-    return None
-
-
-def _check_hint_override_name(name: str) -> None:
-    # Reject a hint override name (the part after "hints" in an input key,
-    # e.g. "aws.instance_type") addressing a value below the top-level hint
-    # key. The WDL specification is ambiguous about nested hint overrides,
-    # so miniwdl does not commit to a reading while openwdl/wdl#773 is
-    # unresolved. This check needs no task AST, so it runs while inputs are
-    # parsed (WDL.values_from_json, WDL.CLI.runner_input).
-    if "." in name:
-        raise Error.InputError(
-            f"unsupported hint override '{name}': hint overrides address"
-            " top-level hint keys only; overriding a value within a hint is"
-            " not supported yet (see openwdl/wdl#773)"
-        )
-
-
-def _validate_hint_override_names(
-    task_hints: dict[str, HintValue], override_names: Iterable[str]
-) -> None:
-    # Validate launch-input hint override names against a task's declared
-    # hints: each name must address a top-level hint key (see
-    # _check_hint_override_name), and it may not target a key declared with
-    # a hints{...}/input{...}/output{...} block.
-    for name in override_names:
-        _check_hint_override_name(name)
-        declared = task_hints.get(name)
-        if isinstance(declared, (HintsObject, IOHints)):
-            kind = "hints" if isinstance(declared, HintsObject) else declared.kind
-            raise Error.InputError(
-                f"unsupported hint override '{name}': the '{name}' hint is declared"
-                f" with a {kind} {{ ... }} block, which cannot be overridden yet"
-                " (see openwdl/wdl#773)"
-            )
 
 
 #

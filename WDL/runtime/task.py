@@ -747,6 +747,32 @@ def _eval_hint_value(
     return Value.Struct(Type.Object(member_types), members)
 
 
+def _validate_hint_override_names(
+    task_hints: dict[str, Tree.HintValue], override_names: Iterable[str]
+) -> None:
+    # Validate launch-input hint override names against a task's declared
+    # hints: each name must address a top-level hint key, and it may not
+    # target a key declared with a hints{...}/input{...}/output{...} block.
+    # The dotted-path check repeats the one in WDL._find_override_namespace,
+    # for inputs built through the Python API (bypassing launch-input
+    # parsing).
+    for name in override_names:
+        if "." in name:
+            raise Error.InputError(
+                f"unsupported hint override '{name}': hint overrides address"
+                " top-level hint keys only; overriding a value within a hint is"
+                " not supported yet (see openwdl/wdl#773)"
+            )
+        declared = task_hints.get(name)
+        if isinstance(declared, (Tree.HintsObject, Tree.IOHints)):
+            kind = "hints" if isinstance(declared, Tree.HintsObject) else declared.kind
+            raise Error.InputError(
+                f"unsupported hint override '{name}': the '{name}' hint is declared"
+                f" with a {kind} {{ ... }} block, which cannot be overridden yet"
+                " (see openwdl/wdl#773)"
+            )
+
+
 def _eval_task_hints(
     logger: logging.Logger,
     task: Tree.Task,
@@ -769,7 +795,7 @@ def _eval_task_hints(
     (WDL 1.2 spec, Hints section).
     """
     hint_bindings = list(inputs.enter_namespace("hints"))
-    Tree._validate_hint_override_names(task.hints, [b.name for b in hint_bindings])
+    _validate_hint_override_names(task.hints, [b.name for b in hint_bindings])
     overrides: dict[str, Value.Base] = {b.name: b.value for b in hint_bindings}
 
     ans: dict[str, Value.Base] = {}
