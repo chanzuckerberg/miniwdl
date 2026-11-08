@@ -138,7 +138,7 @@ class Base(SourceNode, ABC):
         If the expression is a literal constant, return its value; otherwise return None. The
         result can be an instance of ``WDL.Value.Null`` which is distinct from None.
         """
-        if isinstance(self, (Boolean, Int, Float)):
+        if isinstance(self, (Boolean, Int, Float, Null)):
             return self._eval(Env.Bindings(), None)  # type: ignore
         return None
 

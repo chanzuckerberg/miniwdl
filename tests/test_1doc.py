@@ -2830,7 +2830,7 @@ class TestStruct(unittest.TestCase):
         }
         """
         with self.assertRaises(WDL.Error.ValidationError):
-            WDL.parse_document(doc)
+            WDL.parse_document(doc).typecheck()
 
         doc = r"""version 1.2
         workflow w {

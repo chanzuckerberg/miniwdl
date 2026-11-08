@@ -47,62 +47,18 @@ def to_float(x):
     return float(x)
 
 
-def _validate_workflow_hint_expr_literal(expr: Expr.Base) -> None:
-    # Check that an expression is a literal, as the WDL 1.2 spec requires of
-    # workflow hint values. Composite literals are checked recursively, so the
-    # error points at the specific non-literal subexpression. (Map keys are
-    # expressions, checked like values: unlike struct member names, a bare
-    # identifier in key position is a name lookup, not a literal.)
-    if isinstance(expr, (Expr.Boolean, Expr.Int, Expr.Float, Expr.Null)):
-        return
-    if isinstance(expr, Expr.String):
-        # literal as long as it has no placeholders interpolating expressions
-        for part in expr.parts:
-            if isinstance(part, Expr.Placeholder):
-                raise Error.ValidationError(
-                    part.expr.pos,
-                    "workflow hint values must be literals; expressions are not allowed",
-                )
-        return
-    if isinstance(expr, Expr.Array):
-        for item in expr.items:
-            _validate_workflow_hint_expr_literal(item)
-        return
-    if isinstance(expr, Expr.Pair):
-        _validate_workflow_hint_expr_literal(expr.left)
-        _validate_workflow_hint_expr_literal(expr.right)
-        return
-    if isinstance(expr, Expr.Map):
-        for k, v in expr.items:
-            if not isinstance(k, (Expr.Boolean, Expr.Int, Expr.Float, Expr.String)):
-                raise Error.ValidationError(
-                    k.pos, "workflow hint object keys must be literal values"
-                )
-            _validate_workflow_hint_expr_literal(k)
-            _validate_workflow_hint_expr_literal(v)
-        return
-    if isinstance(expr, Expr.Struct):
-        for v in expr.members.values():
-            _validate_workflow_hint_expr_literal(v)
-        return
-    raise Error.ValidationError(
-        expr.pos, "workflow hint values must be literals; expressions are not allowed"
-    )
-
-
-def _validate_workflow_hint_literal(node: Tree.HintValue) -> None:
-    # Validate a parsed hints value (from the grammar productions shared by task
-    # and workflow hints sections) for a workflow hints section: only the
-    # spec's literal-values rule is enforced here.
+def _validate_workflow_hint_blocks(node: Tree.HintValue) -> None:
+    # Reject input/output blocks in a workflow hints section (they're only
+    # meaningful for tasks). The spec's literal-values rule for workflow hints
+    # is enforced in Workflow.typecheck (WDL.Tree), not here.
     if isinstance(node, Tree.HintsObject):
         for v in node.values.values():
-            _validate_workflow_hint_literal(v)
+            _validate_workflow_hint_blocks(v)
         return
     if isinstance(node, Tree.IOHints):
         raise Error.ValidationError(
             node.pos, "input/output blocks are not allowed in workflow hints"
         )
-    _validate_workflow_hint_expr_literal(node)
 
 
 class _SourcePositionTransformerMixin:
@@ -756,7 +712,7 @@ class _DocTransformer(_ExprTransformer):
         wf_hints_pos = None
         if hints_section is not None:
             assert isinstance(hints_section, Tree.HintsObject)
-            _validate_workflow_hint_literal(hints_section)
+            _validate_workflow_hint_blocks(hints_section)
             wf_hints = hints_section.values
             wf_hints_pos = hints_section.pos
         return Tree.Workflow(

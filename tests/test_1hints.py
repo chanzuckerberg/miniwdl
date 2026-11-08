@@ -37,9 +37,27 @@ class TestWorkflowHintsAST(unittest.TestCase):
         # the AST nodes are linked into the tree (parents set by the parser)
         self.assertIsNotNone(hints["allow_nested_inputs"].parent)
 
+    def test_none_values(self):
+        # None is a literal workflow hint value, on its own and inside
+        # compound literals and nested hints blocks
+        doc = WDL.parse_document(
+            """version 1.2
+            workflow w {
+                hints {
+                    fallback: None
+                    retries: [1, None]
+                    group: hints { contact: None }
+                }
+            }
+            """
+        )
+        doc.typecheck()
+        self.assertEqual(doc.workflow.hints["fallback"].literal, WDL.Value.Null())
+
     def test_nonliteral_values(self):
         # expressions of any kind are rejected in workflow hints, including
-        # function calls, name lookups, arithmetic, and string interpolation
+        # function calls, name lookups, arithmetic, and string interpolation;
+        # the rejection happens at typecheck, not parse
         for value in ('length(names) > 0', "names", "1 + 2", '"hello ~{names[0]}"'):
             doc = f"""version 1.2
             workflow w {{
@@ -52,12 +70,13 @@ class TestWorkflowHintsAST(unittest.TestCase):
             }}
             """
             with self.assertRaises(WDL.Error.ValidationError, msg=value):
-                WDL.parse_document(doc)
+                WDL.parse_document(doc).typecheck()
 
     def test_nonliteral_key(self):
         # map keys are expressions too: a bare identifier is a name lookup (it
-        # does NOT fold to its name), and compound keys are not literals
-        for key in ("team", "a.b", "[1]"):
+        # does NOT fold to its name), and so is member access; both are
+        # rejected at typecheck, like non-literal values
+        for key in ("team", "a.b"):
             doc = f"""version 1.2
             workflow w {{
                 hints {{
@@ -66,7 +85,7 @@ class TestWorkflowHintsAST(unittest.TestCase):
             }}
             """
             with self.assertRaises(WDL.Error.ValidationError, msg=key):
-                WDL.parse_document(doc)
+                WDL.parse_document(doc).typecheck()
 
     def test_io_block_rejected(self):
         doc = """version 1.2

@@ -1401,15 +1401,21 @@ class Workflow(SourceNode):
             for b in self.available_inputs:
                 errors.try1(_check_serializable_map_keys, b.value.type, b.name, b.value)
             # 4. infer types of the workflow hints expressions, using an
-            #    empty type environment (workflow hint values are literals)
+            #    empty type environment (workflow hint values are literals);
+            #    then check each one is a literal, which relies on the
+            #    inferred types (Expr.Base.literal)
             for hint_expr in _hint_exprs(self.hints):
-                errors.try1(
-                    hint_expr.infer_type,
-                    Env.Bindings(),
-                    stdlib,
-                    check_quant=check_quant,
-                    struct_types=doc._struct_types,
-                )
+                if (
+                    errors.try1(
+                        hint_expr.infer_type,
+                        Env.Bindings(),
+                        stdlib,
+                        check_quant=check_quant,
+                        struct_types=doc._struct_types,
+                    )
+                    is not None
+                ):
+                    errors.try1(_check_workflow_hint_literal, hint_expr)
             # 5. convert deprecated output_idents, if any, to output declarations
             if self._output_idents:
                 self._rewrite_output_idents()
@@ -1856,6 +1862,12 @@ def _load(
             import_max_depth=import_max_depth,
         )
     )
+
+
+def _check_workflow_hint_literal(expr: Expr.Base) -> None:
+    # workflow hint values must be literals (WDL 1.2 spec)
+    if expr.literal is None:
+        raise Error.ValidationError(expr, "workflow hint values must be literals")
 
 
 def _hint_exprs(hints: dict[str, HintValue]) -> Generator[Expr.Base, None, None]:
