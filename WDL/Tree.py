@@ -576,15 +576,26 @@ class Task(SourceNode):
                 # (At this stage we don't care about the overall expression type, just that it
                 #  typechecks internally.)
             # Typecheck hints expressions, in the same environment as runtime
-            # expressions (task inputs & postinputs, without task.*)
-            for hint_expr in _hint_exprs(self.hints):
-                errors.try1(
-                    hint_expr.infer_type,
-                    type_env,
-                    stdlib,
-                    check_quant=check_quant,
-                    struct_types=struct_types,
-                )
+            # expressions (task inputs & postinputs, without task.*). Hint
+            # values cross the JSON boundary (overrides, backends), so their
+            # map keys are checked like input/output keys.
+            for hint_name, hint_expr in _hint_exprs(self.hints):
+                if (
+                    errors.try1(
+                        hint_expr.infer_type,
+                        type_env,
+                        stdlib,
+                        check_quant=check_quant,
+                        struct_types=struct_types,
+                    )
+                    is not None
+                ):
+                    errors.try1(
+                        _check_serializable_map_keys,
+                        hint_expr.type,
+                        f"task hint '{hint_name}'",
+                        hint_expr,
+                    )
             if self.hints:
                 # Strict validation of the hints structure: reserved keys must
                 # have spec-accepted types, and input/output blocks may only
@@ -623,7 +634,9 @@ class Task(SourceNode):
                 ).typecheck(Type.String())
             )
             for b in self.available_inputs:
-                errors.try1(_check_serializable_map_keys, b.value.type, b.name, b.value)
+                errors.try1(
+                    _check_serializable_map_keys, b.value.type, f"input/output {b.name}", b.value
+                )
             # Add output declarations to type environment
             for decl in self.outputs:
                 type_env2 = errors.try1(decl.add_to_type_env, struct_types, output_env)
@@ -636,7 +649,9 @@ class Task(SourceNode):
                 errors.try1(
                     decl.typecheck, output_env, stdlib, struct_types, check_quant=check_quant
                 )
-                errors.try1(_check_serializable_map_keys, decl.type, decl.name, decl)
+                errors.try1(
+                    _check_serializable_map_keys, decl.type, f"input/output {decl.name}", decl
+                )
 
         # check for cyclic dependencies among decls
         _detect_cycles(
@@ -1399,12 +1414,14 @@ class Workflow(SourceNode):
             if errors.try1(_typecheck_workflow_body, doc, stdlib, check_quant) is False:
                 self.complete_calls = False
             for b in self.available_inputs:
-                errors.try1(_check_serializable_map_keys, b.value.type, b.name, b.value)
+                errors.try1(
+                    _check_serializable_map_keys, b.value.type, f"input/output {b.name}", b.value
+                )
             # 4. infer types of the workflow hints expressions, using an
             #    empty type environment (workflow hint values are literals);
             #    then check each one is a literal, which relies on the
             #    inferred types (Expr.Base.literal)
-            for hint_expr in _hint_exprs(self.hints):
+            for hint_name, hint_expr in _hint_exprs(self.hints):
                 if (
                     errors.try1(
                         hint_expr.infer_type,
@@ -1416,6 +1433,12 @@ class Workflow(SourceNode):
                     is not None
                 ):
                     errors.try1(_check_workflow_hint_literal, hint_expr)
+                    errors.try1(
+                        _check_serializable_map_keys,
+                        hint_expr.type,
+                        f"workflow hint '{hint_name}'",
+                        hint_expr,
+                    )
             # 5. convert deprecated output_idents, if any, to output declarations
             if self._output_idents:
                 self._rewrite_output_idents()
@@ -1870,12 +1893,14 @@ def _check_workflow_hint_literal(expr: Expr.Base) -> None:
         raise Error.ValidationError(expr, "workflow hint values must be literals")
 
 
-def _hint_exprs(hints: dict[str, HintValue]) -> Generator[Expr.Base, None, None]:
-    # yield all expressions in a task hints section, recursing into nested
-    # HintsObject/IOHints values
-    for v in hints.values():
+def _hint_exprs(
+    hints: dict[str, HintValue],
+) -> Generator[tuple[str, Expr.Base], None, None]:
+    # yield all expressions in a hints section with their key, recursing into
+    # nested HintsObject/IOHints values
+    for k, v in hints.items():
         if isinstance(v, Expr.Base):
-            yield v
+            yield k, v
         elif isinstance(v, (HintsObject, IOHints)):
             yield from _hint_exprs(v.values)
 
@@ -2552,18 +2577,19 @@ def _add_struct_instance_to_type_env(
     return ans
 
 
-def _check_serializable_map_keys(t: Type.Base, name: str, node: SourceNode) -> None:
-    # For any Map[K,V] in an input or output declaration, K must be coercible to & from String, so
+def _check_serializable_map_keys(t: Type.Base, context: str, node: SourceNode) -> None:
+    # For any Map[K,V] in a value that crosses the JSON boundary (an input or
+    # output declaration, a hint), K must be coercible to & from String, so
     # that it can be de/serialized as JSON.
     if isinstance(t, Type.Map):
         kt = t.item_type[0]
         if not kt.coerces(Type.String()) or not Type.String().coerces(kt):
             raise Error.ValidationError(
                 node,
-                f"{t!s} may not be used in input/output {name} because the keys cannot be written to/from JSON",
+                f"{t!s} may not be used in {context} because the keys cannot be written to/from JSON",
             )
     for p in t.parameters:
-        _check_serializable_map_keys(p, name, node)
+        _check_serializable_map_keys(p, context, node)
 
 
 def _describe_struct_types(exe: Task | Workflow) -> dict[str, str]:

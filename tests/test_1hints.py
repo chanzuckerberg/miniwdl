@@ -87,6 +87,21 @@ class TestWorkflowHintsAST(unittest.TestCase):
             with self.assertRaises(WDL.Error.ValidationError, msg=key):
                 WDL.parse_document(doc).typecheck()
 
+    def test_compound_map_key(self):
+        # a compound map key is a literal, so the literal check passes it;
+        # it's rejected by the map-key rule for values crossing the JSON
+        # boundary (like input/output keys), naming the hint
+        doc = """version 1.2
+        workflow w {
+            hints {
+                labels: {[1]: "x"}
+            }
+        }
+        """
+        with self.assertRaises(WDL.Error.ValidationError) as ctx:
+            WDL.parse_document(doc).typecheck()
+        self.assertIn("workflow hint 'labels'", str(ctx.exception))
+
     def test_io_block_rejected(self):
         doc = """version 1.2
         workflow w {
@@ -228,6 +243,24 @@ class TestHintsTypecheck(unittest.TestCase):
         )
         with self.assertRaises(WDL.Error.IncompatibleOperand):
             doc.typecheck()
+
+    def test_compound_map_key(self):
+        # task hint values cross the JSON boundary (overrides, backends), so
+        # their map keys are checked like input/output keys; a compound key
+        # is rejected at typecheck, naming the hint
+        doc = WDL.parse_document(
+            """version 1.2
+            task t {
+                command <<< true >>>
+                hints {
+                    labels: {[1]: "x"}
+                }
+            }
+            """
+        )
+        with self.assertRaises(WDL.Error.ValidationError) as ctx:
+            doc.typecheck()
+        self.assertIn("task hint 'labels'", str(ctx.exception))
 
     def test_environment_parity_with_requirements(self):
         # hints expressions see task inputs & postinputs, but neither the
