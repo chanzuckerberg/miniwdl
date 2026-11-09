@@ -788,17 +788,16 @@ def _eval_task_hints(
     stdlib: StdLib.Base,
 ) -> dict[str, Value.Base]:
     """
-    Evaluate a task's ``hints{}`` section to ``dict[str, Value.Base]``, for
-    consumption by the task's container (see
-    :meth:`WDL.runtime.task_container.TaskContainer.process_hints`), mirroring
-    :func:`_eval_task_runtime`: the hint expressions are evaluated in the task
-    input environment ``env``, then hint overrides from the input JSON (the
-    ``hints`` namespace of ``inputs``) supersede them per top-level key (the
-    superseded expression is not evaluated). Nested ``hints{...}`` objects and
-    ``input{...}``/``output{...}`` blocks evaluate to :class:`WDL.Value.Struct`
-    of :class:`WDL.Type.Object`, the shape JSON overrides arrive in. A hint
-    whose expression fails to evaluate is dropped individually, with a logged
-    warning naming the key: a task execution never fails due to a hint
+    Evaluate a task's ``hints{}`` section to ``dict[str, Value.Base]`` for
+    :meth:`WDL.runtime.task_container.TaskContainer.process_hints`.
+
+    Like :func:`_eval_task_runtime`, evaluate hint expressions in the task input
+    environment ``env``. Input JSON overrides in the ``hints`` namespace of
+    ``inputs`` replace top-level keys without evaluating superseded expressions.
+    Nested ``hints{...}`` objects and ``input{...}``/``output{...}`` blocks evaluate
+    to :class:`WDL.Value.Struct` of :class:`WDL.Type.Object`, the same shape as JSON
+    overrides. Drop each hint whose expression fails to evaluate and log a warning
+    naming its key: a task execution never fails due to a hint
     (WDL 1.2 spec, Hints section).
     """
     hint_bindings = list(inputs.enter_namespace("hints"))

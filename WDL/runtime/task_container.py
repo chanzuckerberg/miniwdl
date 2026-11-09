@@ -325,15 +325,13 @@ class TaskContainer(ABC):
 
     def process_hints(self, logger: logging.Logger, hints_eval: dict[str, Value.Base]) -> None:
         """
-        Given the evaluated values from the task hints{} section, populate
-        self.hints_values for the backend's optional use.
+        Store evaluated task hints{} in self.hints_values for optional backend use.
 
-        The core task runner evaluates the hints{} expressions, along with any hint
-        overrides supplied in the input JSON, using WDL.runtime.task._eval_task_hints()
-        and invokes this method on each task run -- with an empty dict if the task
-        declares no hints and no overrides were supplied. This base version simply
-        stores the values (and logs them at debug level) without acting on any of
-        them; hints are advisory and an execution engine may ignore any hint for
+        The core task runner evaluates hints{} expressions and input JSON overrides
+        using WDL.runtime.task._eval_task_hints() and calls this method on each task
+        run, passing an empty dict when there are no declared hints or overrides.
+        This base version stores and logs the values at debug level without acting
+        on them; hints are advisory and an execution engine may ignore any hint for
         any reason.
 
         Subclasses may override this to consume custom hints (before or after invoking

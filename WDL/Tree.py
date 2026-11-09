@@ -1337,7 +1337,7 @@ class Workflow(SourceNode):
 
     ``hints{}`` section (for WDL 1.2+ workflows), in the same representation
     as :attr:`Task.hints`; unlike task hints, the spec requires workflow hint
-    values to be literals, which is validated when the document is parsed"""
+    values to be literals, as enforced by ``Workflow.typecheck``"""
     hints_section_pos: SourcePosition | None
     """:type: WDL.SourcePosition | None
 
