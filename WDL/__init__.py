@@ -252,11 +252,9 @@ def values_from_json(
             else:
                 key2parts = key2.split(".")
 
-                found_override = _find_override_namespace(
+                if _find_override_namespace(
                     key2parts, lambda placeholder: placeholder in available
-                )
-                if found_override:
-                    override, runtime_idx = found_override
+                ):
                     # allow arbitrary keys under the override namespace
                     ty = Type.Any()
 

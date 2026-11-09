@@ -1582,7 +1582,12 @@ class Workflow(SourceNode):
                         struct_types=doc._struct_types,
                     )
                     output_type_env = output_type_env2
-                    errors.try1(_check_serializable_map_keys, output.type, output.name, output)
+                    errors.try1(
+                        _check_serializable_map_keys,
+                        output.type,
+                        f"input/output {output.name}",
+                        output,
+                    )
         # 7. check for cyclic dependencies
         _detect_cycles(_workflow_dependency_matrix(self))
 
