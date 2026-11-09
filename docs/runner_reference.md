@@ -60,6 +60,12 @@ Relative paths resolve against the working directory when there's no local direc
 
 A [source ZIP](zip.rst)'s default inputs resolve against the root of the unpacked archive, so bundle any files they reference with `miniwdl zip --add`.
 
+## Task hints attributes
+
+The local runner evaluates WDL 1.2 task `hints` sections and passes the values to the container backend, which may use or ignore them, as the specification permits. A hint whose expression fails to evaluate is dropped individually, with a logged warning, so a task never fails because of a hint.
+
+Individual hints can be overridden by top-level key through input JSON or the command line (e.g. `wf.task.hints.max_cpu=16`). Overrides below a top-level key (e.g. `wf.task.hints.aws.instance_type`), or targeting keys declared with a `hints{}`/`input{}`/`output{}` block, are rejected as input errors because the specification is ambiguous about nested hint overrides (see [openwdl/wdl#773](https://github.com/openwdl/wdl/issues/773)).
+
 ## File & Directory URI downloads
 
 Instead of local paths for File and Directory inputs, miniwdl can accept URIs and download them automatically on run start. Directory URIs should be distinguished by affixing a trailing slash. The following URI schemes have built-in support, which can be extended with plugins:
@@ -184,7 +190,6 @@ The runner supports versions 1.2, 1.1, 1.0, and draft-2 of the [WDL specificatio
   * The `read_object()` and `read_objects()` library functions are available *only* for initializing structs and `Map[String,String]`
 * A task may only *output* files created within/beneath its container's initial working directory, not e.g. under `/tmp` ([#214](https://github.com/chanzuckerberg/miniwdl/issues/214))
 * The following task `requirements` are ignored: `disks`, `fpga`, `gpu` (but see the [GPU section](#using-nvidia-gpu) above)
-* WDL 1.2 task `hints` sections are evaluated and passed to the container backend, which may use or ignore them, as the specification permits. Individual hints can be overridden by top-level key through input JSON or the command line (e.g. `wf.task.hints.max_cpu=16`). Overrides below a top-level key (e.g. `wf.task.hints.aws.instance_type`), or targeting keys declared with a `hints{}`/`input{}`/`output{}` block, are rejected as input errors because the specification is ambiguous about nested hint overrides (see [openwdl/wdl#773](https://github.com/openwdl/wdl/issues/773)).
 * Workflow `hints` sections are parsed and type-checked, but not otherwise acted on; `allow_nested_inputs` is not implemented
 * `miniwdl check` rejects some WDL 1.2 documents accepted by earlier miniwdl versions: task hints with ill-typed values for reserved keys (e.g. `max_cpu`), a task declaring both `runtime` and `hints` sections (mutually exclusive in WDL 1.2), and `inputs`/`outputs` hint blocks whose keys don't name parameters in the task's `input`/`output` sections
 
