@@ -474,7 +474,9 @@ def fill_run_subparser(subparsers):
         type=str,
         nargs="*",
         help="Workflow inputs. Optional space between = and value."
-        " For arrays repeat, key=value1 key=value2 ...",
+        " For arrays repeat, key=value1 key=value2 ..."
+        " Override a call's task requirements or hints with call.requirements.key=value"
+        " or call.hints.key=value.",
     ).completer = runner_input_completer
     group = run_parser.add_argument_group("input")
     group.add_argument(

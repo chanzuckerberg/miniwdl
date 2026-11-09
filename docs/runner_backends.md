@@ -64,3 +64,5 @@ Limitations:
 * [SLURM](https://github.com/miniwdl-ext/miniwdl-slurm)
 
 New container backends can be added through miniwdl's Python plugin API. The [miniwdl-backend-example](https://github.com/miniwdl-ext/miniwdl-backend-example) provides a reference implementation as a starting point.
+
+A backend can also act on [task hints](runner_reference.md#task-hints): the runner passes each task's evaluated hints to the container's `process_hints()` method, which a backend can override.
