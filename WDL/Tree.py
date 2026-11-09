@@ -406,6 +406,7 @@ class Task(SourceNode):
         meta: dict[str, Any],
         runtime_section_name: str | None = None,
         runtime_section_pos: SourcePosition | None = None,
+        *,
         hints: dict[str, HintValue] | None = None,
         hints_section_pos: SourcePosition | None = None,
     ) -> None:
@@ -1364,6 +1365,7 @@ class Workflow(SourceNode):
         meta: dict[str, Any],
         output_idents: list[list[str]] | None = None,
         output_idents_pos: SourcePosition | None = None,
+        *,
         hints: dict[str, HintValue] | None = None,
         hints_section_pos: SourcePosition | None = None,
     ) -> None:
