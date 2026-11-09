@@ -137,6 +137,13 @@ def run_local_task(  # type: ignore[return]
         cleanup.enter_context(_statusbar.task_slotted())
         maybe_container = None
         try:
+            # reject invalid hint overrides up front, before the call cache
+            # lookup, so a cache hit cannot bypass the rejection (workflow
+            # runs validate them at startup likewise); _eval_task_hints
+            # repeats the check on the localized inputs it receives
+            _validate_hint_override_names(
+                task.hints, [b.name for b in inputs.enter_namespace("hints")]
+            )
             cache_inputs = inputs
             cache_key = call_cache_key(task.name, task.digest, cache_inputs)
             cached = cache.get(cache_key, cache_inputs, task.effective_outputs)

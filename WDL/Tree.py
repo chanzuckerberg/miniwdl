@@ -752,6 +752,11 @@ class Task(SourceNode):
                         "input/output hints blocks may only appear as the 'inputs'/'outputs'"
                         " task hints, not nested within another input/output hints block",
                     )
+                elif isinstance(value, Expr.Base):
+                    raise Error.ValidationError(
+                        value,
+                        f"task {io.kind} hint '{key}' must be a hints {{ ... }} block",
+                    )
 
         def validate(values: dict[str, HintValue], inside_hints_object: bool = False) -> None:
             # Validate one level of the hints structure (the top-level
@@ -768,6 +773,14 @@ class Task(SourceNode):
                 elif isinstance(value, Expr.Base):
                     _check_reserved_hint_type(key, value)
                 elif isinstance(value, HintsObject):
+                    if key in _TASK_HINT_TYPES:
+                        raise Error.ValidationError(
+                            value,
+                            "task hint '{}' accepts {}, not a hints {{}} block".format(
+                                key,
+                                " or ".join(ty.__name__ for ty in _TASK_HINT_TYPES[key]),
+                            ),
+                        )
                     if inside_hints_object:
                         raise Error.ValidationError(
                             value,

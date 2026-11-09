@@ -1892,6 +1892,104 @@ class TestProcessHints(unittest.TestCase):
         self.assertIsNone(self.RecordingContainer.last_instance)
         self.assertEqual(self.RecordingContainer.run_count, 0)
 
+    def test_block_hint_override_rejected_in_subworkflow(self):
+        # the startup validation recurses into subworkflows: an override of
+        # a block-declared hint on a task inside an imported subworkflow is
+        # rejected before anything runs
+        with open(os.path.join(self._dir, "lib.wdl"), "w") as f:
+            f.write(
+                """version 1.2
+                task hinted {
+                    command <<< echo hello >>>
+                    output { String out = "done" }
+                    hints {
+                        aws: hints {
+                            instance_type: "p5.48xlarge"
+                        }
+                    }
+                }
+                workflow sub {
+                    call hinted
+                    output { String out = hinted.out }
+                }
+                """
+            )
+        with open(os.path.join(self._dir, "main.wdl"), "w") as f:
+            f.write(
+                """version 1.2
+                import "lib.wdl" as lib
+                workflow wf {
+                    call lib.sub as sub
+                    output { String out = sub.out }
+                }
+                """
+            )
+        doc = WDL.load(os.path.join(self._dir, "main.wdl"))  # (load typechecks)
+        wf = doc.workflow
+        inputs = WDL.values_from_json(
+            {"wf.sub.hinted.hints.aws": {"instance_type": "m5.large"}},
+            wf.available_inputs,
+            wf.required_inputs,
+            namespace="wf",
+        )
+        with self.assertRaises(WDL.Error.InputError) as ctx:
+            WDL.runtime.workflow.run_local_workflow(self._cfg, wf, inputs, run_dir=self._dir)
+        self.assertIn("openwdl/wdl#773", str(ctx.exception))
+        self.assertIsNone(self.RecordingContainer.last_instance)
+        self.assertEqual(self.RecordingContainer.run_count, 0)
+
+    def test_cache_hit_cannot_bypass_block_hint_override(self):
+        # standalone task runs validate hint overrides before the call cache
+        # lookup, so a cache hit cannot bypass rejection of an override
+        # targeting a block-declared hint
+        class HitCache:
+            def __init__(self):
+                self.get_calls = 0
+
+            def flock(self, *args, **kwargs):
+                pass
+
+            def get(self, key, inputs, outputs):
+                self.get_calls += 1
+                return {"out": WDL.Value.String("cached")}
+
+        doc = WDL.parse_document(
+            """version 1.2
+            task hinted {
+                command <<< echo hello >>>
+                output { String out = "done" }
+                hints {
+                    aws: hints {
+                        instance_type: "p5.48xlarge"
+                    }
+                }
+            }
+            """
+        )
+        doc.typecheck()
+        task = doc.tasks[0]
+        inputs = WDL.values_from_json(
+            {"hinted.hints.aws": {"instance_type": "m5.large"}},
+            task.available_inputs,
+            task.required_inputs,
+            namespace="hinted",
+        )
+        cache = HitCache()
+        # run_local_task wraps task-run failures in RunFailed; the InputError
+        # surfaces as its cause (previously, the cache hit would instead have
+        # returned the cached outputs with no error at all)
+        with self.assertRaises(WDL.runtime.RunFailed) as ctx:
+            WDL.runtime.run_local_task(
+                self._cfg,
+                task,
+                inputs,
+                run_dir=self._dir,
+                _cache=cache,
+                logger_prefix=[self.id()],
+            )
+        self.assertIsInstance(ctx.exception.__cause__, WDL.Error.InputError)
+        self.assertEqual(cache.get_calls, 0)
+
     def test_workflow_run_with_ordinary_hint_override(self):
         # positive control: an ordinary (top-level, undeclared) hint override
         # doesn't trip the startup validation, and the workflow runs through
@@ -2153,6 +2251,52 @@ class TestHintsEval(unittest.TestCase):
             with self.assertRaises(WDL.Error.InputError, msg=str(bad)) as ctx:
                 self._eval(task, call_inputs, env, stdlib)
             self.assertIn("openwdl/wdl#773", str(ctx.exception), msg=str(bad))
+
+    def test_eval_dotted_override_raw_bindings(self):
+        # inputs built through the Python API (bypassing launch-input
+        # parsing) can carry a dotted hint override name; it's rejected when
+        # the hints are evaluated, just as launch-input parsing rejects it
+        _, task, _, stdlib = self._fixture()
+        inputs: Env.Bindings[Value.Base] = Env.Bindings()
+        inputs = inputs.bind("hints.aws.instance_type", Value.String("p5.24xlarge"))
+        with self.assertRaises(WDL.Error.InputError) as ctx:
+            self._eval(task, inputs, Env.Bindings(), stdlib)
+        self.assertIn("openwdl/wdl#773", str(ctx.exception))
+
+    def test_eval_override_supersedes_without_evaluating(self):
+        # an override supersedes the declared expression without evaluating
+        # it: the declared expression would fail (division by zero) and be
+        # dropped with a warning, if it were evaluated before the override
+        # was applied
+        doc = WDL.parse_document(
+            """version 1.2
+            task t {
+                input {
+                    Int n = 0
+                }
+                command <<< true >>>
+                hints {
+                    max_cpu: 10 / n
+                }
+            }
+            """
+        )
+        doc.typecheck()
+        task = doc.tasks[0]
+        inputs = WDL.values_from_json(
+            {"t.n": 0, "t.hints.max_cpu": 4},
+            task.available_inputs,
+            task.required_inputs,
+            namespace="t",
+        )
+        env: Env.Bindings[Value.Base] = Env.Bindings()
+        env = env.bind("n", inputs["n"])
+        logger = logging.getLogger(self.id())
+        with self.assertNoLogs(logger, level="WARNING"):
+            ans = _eval_task_hints(
+                logger, task, inputs, env, StdLib.Base(task.effective_wdl_version)
+            )
+        self.assertEqual(ans, {"max_cpu": Value.Int(4)})
 
     def test_eval_per_key_drop(self):
         # a hint that typechecks but fails to evaluate at runtime (division

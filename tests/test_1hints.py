@@ -112,6 +112,16 @@ class TestWorkflowHintsAST(unittest.TestCase):
         """
         with self.assertRaises(WDL.Error.ValidationError):
             WDL.parse_document(doc)
+        # likewise nested within a hints object in the workflow hints section
+        doc = """version 1.2
+        workflow w {
+            hints {
+                group: hints { outputs: output { y: hints { } } }
+            }
+        }
+        """
+        with self.assertRaises(WDL.Error.ValidationError):
+            WDL.parse_document(doc)
 
     def test_hints_node_parents(self):
         # SetParents links HintsObject/IOHints nodes (and the expressions
@@ -322,6 +332,40 @@ class TestHintsTypecheck(unittest.TestCase):
             with self.assertRaises(WDL.Error.StaticTypeMismatch, msg=hint):
                 doc.typecheck()
 
+    def test_reserved_key_block_value(self):
+        # a reserved key may not take a hints block value, which would
+        # otherwise bypass the accepted-types check (the check runs on
+        # expression values only)
+        for hint in ("max_cpu: hints { }", "short_task: hints { custom: 1 }"):
+            doc = WDL.parse_document(
+                """version 1.2
+                task t {
+                    command <<< true >>>
+                    hints {
+                        %s
+                    }
+                }
+                """
+                % hint
+            )
+            with self.assertRaises(WDL.Error.ValidationError, msg=hint):
+                doc.typecheck()
+        # likewise nested within a compute-environment hints object
+        doc = WDL.parse_document(
+            """version 1.2
+            task t {
+                command <<< true >>>
+                hints {
+                    aws: hints {
+                        max_cpu: hints { }
+                    }
+                }
+            }
+            """
+        )
+        with self.assertRaises(WDL.Error.ValidationError):
+            doc.typecheck()
+
     def test_reserved_key_violations_nested(self):
         # members of a nested hints object follow the same reserved-key rules
         doc = WDL.parse_document(
@@ -361,6 +405,42 @@ class TestHintsTypecheck(unittest.TestCase):
             """
         )
         doc.typecheck()
+
+    def test_reserved_key_accepted_alternatives(self):
+        # exercise accepted type alternatives and camelCase aliases the main
+        # acceptances test doesn't reach (its Float case uses the
+        # unconstrained key max_cpu_f, which tests nothing about max_cpu)
+        doc = WDL.parse_document(
+            """version 1.2
+            task t {
+                command <<< true >>>
+                hints {
+                    max_cpu: 2.5
+                    maxMemory: "16 GB"
+                    disks: "local-disk 100 SSD"
+                    localizationOptional: true
+                }
+            }
+            """
+        )
+        doc.typecheck()
+        # the aliases carry the same type restrictions as their snake_case
+        # names (if an alias fell out of the table, these would typecheck as
+        # unconstrained keys)
+        for hint in ("maxMemory: 1.5", "localizationOptional: 1"):
+            doc = WDL.parse_document(
+                """version 1.2
+                task t {
+                    command <<< true >>>
+                    hints {
+                        %s
+                    }
+                }
+                """
+                % hint
+            )
+            with self.assertRaises(WDL.Error.StaticTypeMismatch, msg=hint):
+                doc.typecheck()
 
     def test_reserved_key_acceptances_lax(self):
         # the reserved-key check follows Lint's UnexpectedRuntimeValue:
@@ -422,6 +502,16 @@ class TestHintsTypecheck(unittest.TestCase):
         self.assertEqual(str(ctx.exception), "task t has no output named 'data'")
         # inputs must be an input block (not an output block, nor an expression)
         for bad in ("inputs: output { data: hints { } }", "inputs: 42"):
+            doc = WDL.parse_document(header % bad)
+            with self.assertRaises(WDL.Error.ValidationError, msg=bad):
+                doc.typecheck()
+        # each entry value must be a hints block (spec: the members of an
+        # input/output block are all of type hints), not an expression
+        for bad in (
+            "inputs: input { data: true }",
+            "inputs: input { data: {} }",
+            "outputs: output { report: 42 }",
+        ):
             doc = WDL.parse_document(header % bad)
             with self.assertRaises(WDL.Error.ValidationError, msg=bad):
                 doc.typecheck()
