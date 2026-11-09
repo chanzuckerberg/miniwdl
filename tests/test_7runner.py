@@ -2773,7 +2773,6 @@ class TestHintsCLIInputs(unittest.TestCase):
         stdlib = StdLib.Base(task.effective_wdl_version)
         env: Env.Bindings[Value.Base] = Env.Bindings()
         env = env.bind("n", Value.Int(4))
-        logger = logging.getLogger(self.id())
 
         def json_call_inputs(key, value):
             inputs = WDL.values_from_json(
@@ -2793,15 +2792,15 @@ class TestHintsCLIInputs(unittest.TestCase):
         self.assertEqual(
             {
                 k: v.json
-                for k, v in _eval_task_hints(logger, task, cli_inputs, env, stdlib).items()
+                for k, v in _eval_task_hints(task, cli_inputs, env, stdlib).items()
             },
             {
                 k: v.json
-                for k, v in _eval_task_hints(logger, task, json_inputs, env, stdlib).items()
+                for k, v in _eval_task_hints(task, json_inputs, env, stdlib).items()
             },
         )
         self.assertEqual(
-            _eval_task_hints(logger, task, cli_inputs, env, stdlib)["max_cpu"],
+            _eval_task_hints(task, cli_inputs, env, stdlib)["max_cpu"],
             Value.Int(32),
         )
 

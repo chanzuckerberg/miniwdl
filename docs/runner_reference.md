@@ -53,7 +53,7 @@ These attributes can also be set for a given call when the run starts; see [Over
 
 ## Task hints
 
-WDL 1.2 tasks may also have a `hints {}` section, with optional hints that the execution engine can use or ignore. The runner evaluates each task's hints, in the same environment as its `requirements`, and passes the values to the container backend. The built-in backends don't act on any hint, but a [backend plugin](runner_backends.md#external-plugins) can. If a hint fails to evaluate, the runner logs a warning and omits that hint: a task never fails because of a hint.
+WDL 1.2 tasks may also have a `hints {}` section, with optional hints that the execution engine can use or ignore. The runner evaluates each task's hints, in the same environment as its `requirements`, and passes the values to the container backend. The built-in backends don't act on any hint, but a [backend plugin](runner_backends.md#external-plugins) can. As with `requirements`, an error evaluating a hint fails the task; [overriding](#overriding-requirements-and-hints) the hint avoids evaluating its expression.
 
 ## Overriding requirements and hints
 

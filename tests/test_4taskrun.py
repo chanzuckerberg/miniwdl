@@ -1767,12 +1767,11 @@ class TestProcessHints(unittest.TestCase):
         self.assertEqual(container.hints_calls, 1)
         self.assertEqual(container.hints_values, {})
 
-    def test_run_with_unevaluable_hint_drops_just_that_hint(self):
-        # a hint expression that typechecks but fails to evaluate at run time
-        # (division by zero) must not fail the task; just that hint is
-        # dropped, and the remaining hints are delivered
-        outputs = self._run_task(
-            """version 1.2
+    def test_run_with_unevaluable_hint_fails_task(self):
+        # as with requirements{}, a hint expression that typechecks but fails
+        # to evaluate at run time (division by zero) fails the task, before
+        # any hints reach the container
+        wdl = """version 1.2
             task bad_hint {
                 input { Int n = 0 }
                 command <<< echo hello >>>
@@ -1783,12 +1782,31 @@ class TestProcessHints(unittest.TestCase):
                 }
             }
             """
+        with self.assertRaises(WDL.runtime.RunFailed) as ctx:
+            self._run_task(wdl)
+        self.assertIsInstance(ctx.exception.__cause__, WDL.Error.EvalError)
+        container = self.RecordingContainer.last_instance
+        self.assertIsNotNone(container)
+        self.assertEqual(container.hints_calls, 0)
+
+    def test_run_with_unevaluable_hint_overridden(self):
+        # overriding the hint avoids evaluating its expression, so the task runs
+        outputs = self._run_task(
+            """version 1.2
+            task bad_hint {
+                input { Int n = 0 }
+                command <<< echo hello >>>
+                output { String out = "done" }
+                hints {
+                    max_cpu: 10 / n
+                }
+            }
+            """,
+            {"bad_hint.hints.max_cpu": 2},
         )
         self.assertEqual(outputs, {"out": "done"})
         container = self.RecordingContainer.last_instance
-        self.assertIsNotNone(container)
-        self.assertEqual(container.hints_calls, 1)
-        self.assertEqual(container.hints_values, {"short_task": WDL.Value.Boolean(True)})
+        self.assertEqual(container.hints_values, {"max_cpu": WDL.Value.Int(2)})
 
     def test_consumer_subclass_uses_hint(self):
         # a TaskContainer subclass can consume hints through process_hints():
@@ -2000,7 +2018,7 @@ class TestProcessHints(unittest.TestCase):
 
 class TestHintsEval(unittest.TestCase):
     def _eval(self, task, inputs, env, stdlib):
-        return _eval_task_hints(logging.getLogger(self.id()), task, inputs, env, stdlib)
+        return _eval_task_hints(task, inputs, env, stdlib)
 
     def test_eval_end_to_end(self):
         # declared hints evaluate in the task input environment, a JSON
@@ -2265,9 +2283,8 @@ class TestHintsEval(unittest.TestCase):
 
     def test_eval_override_supersedes_without_evaluating(self):
         # an override supersedes the declared expression without evaluating
-        # it: the declared expression would fail (division by zero) and be
-        # dropped with a warning, if it were evaluated before the override
-        # was applied
+        # it: the declared expression would fail (division by zero), if it
+        # were evaluated before the override was applied
         doc = WDL.parse_document(
             """version 1.2
             task t {
@@ -2291,56 +2308,38 @@ class TestHintsEval(unittest.TestCase):
         )
         env: Env.Bindings[Value.Base] = Env.Bindings()
         env = env.bind("n", inputs["n"])
-        logger = logging.getLogger(self.id())
-        with self.assertNoLogs(logger, level="WARNING"):
-            ans = _eval_task_hints(
-                logger, task, inputs, env, StdLib.Base(task.effective_wdl_version)
-            )
+        ans = _eval_task_hints(task, inputs, env, StdLib.Base(task.effective_wdl_version))
         self.assertEqual(ans, {"max_cpu": Value.Int(4)})
 
-    def test_eval_per_key_drop(self):
+    def test_eval_error_propagates(self):
         # a hint that typechecks but fails to evaluate at runtime (division
-        # by zero) is dropped individually, with a warning naming the key;
-        # sibling hints are unaffected. A failure within a nested hints
-        # object drops that top-level key as a whole.
-        doc = WDL.parse_document(
-            """version 1.2
-            task t {
-                input {
-                    Int n = 0
-                }
-                command <<< true >>>
-                hints {
-                    max_cpu: 10 / n
-                    short_task: true
-                    bad_env: hints {
-                        instance_count: 1 / n
-                    }
-                    aws: hints {
-                        instance_type: "p5.48xlarge"
-                    }
-                }
-            }
-            """
-        )
-        doc.typecheck()
-        task = doc.tasks[0]
-        inputs = WDL.values_from_json(
-            {"t.n": 0}, task.available_inputs, task.required_inputs, namespace="t"
-        )
-        env: Env.Bindings[Value.Base] = Env.Bindings()
-        env = env.bind("n", inputs["n"])
-        logger = logging.getLogger(self.id())
-        with self.assertLogs(logger, level="WARNING") as logs:
-            ans = _eval_task_hints(
-                logger, task, inputs, env, StdLib.Base(task.effective_wdl_version)
-            )
-        self.assertEqual(set(ans), {"short_task", "aws"})
-        self.assertEqual(ans["short_task"], Value.Boolean(True))
-        self.assertEqual(ans["aws"].value, {"instance_type": Value.String("p5.48xlarge")})
-        warnings = "\n".join(logs.output)
-        self.assertIn("max_cpu", warnings)
-        self.assertIn("bad_env", warnings)
+        # by zero) raises, whether at the top level or within a nested hints
+        # object, as an error in a requirements{} expression would
+        for hint in ("max_cpu: 10 / n", "bad_env: hints { instance_count: 1 / n }"):
+            with self.subTest(hint=hint):
+                doc = WDL.parse_document(
+                    f"""version 1.2
+                    task t {{
+                        input {{
+                            Int n = 0
+                        }}
+                        command <<< true >>>
+                        hints {{
+                            short_task: true
+                            {hint}
+                        }}
+                    }}
+                    """
+                )
+                doc.typecheck()
+                task = doc.tasks[0]
+                inputs = WDL.values_from_json(
+                    {"t.n": 0}, task.available_inputs, task.required_inputs, namespace="t"
+                )
+                env: Env.Bindings[Value.Base] = Env.Bindings()
+                env = env.bind("n", inputs["n"])
+                with self.assertRaises(WDL.Error.EvalError):
+                    _eval_task_hints(task, inputs, env, StdLib.Base(task.effective_wdl_version))
 
 
 class TestSubprocessScheduler(unittest.TestCase):

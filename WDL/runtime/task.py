@@ -230,7 +230,7 @@ def run_local_task(  # type: ignore[return]
 
                 # evaluate hints{} and hand the values to the container, which
                 # may use or ignore them (see TaskContainer.process_hints)
-                hints_values = _eval_task_hints(logger, task, posix_inputs, container_env, stdlib)
+                hints_values = _eval_task_hints(task, posix_inputs, container_env, stdlib)
                 container.process_hints(logger, hints_values)
 
                 if wdl_version_geq(task.effective_wdl_version, WDLVersion.V1_2):
@@ -781,7 +781,6 @@ def _validate_hint_override_names(
 
 
 def _eval_task_hints(
-    logger: logging.Logger,
     task: Tree.Task,
     inputs: Env.Bindings[Value.Base],
     env: Env.Bindings[Value.Base],
@@ -796,9 +795,8 @@ def _eval_task_hints(
     ``inputs`` replace top-level keys without evaluating superseded expressions.
     Nested ``hints{...}`` objects and ``input{...}``/``output{...}`` blocks evaluate
     to :class:`WDL.Value.Struct` of :class:`WDL.Type.Object`, the same shape as JSON
-    overrides. Drop each hint whose expression fails to evaluate and log a warning
-    naming its key: a task execution never fails due to a hint
-    (WDL 1.2 spec, Hints section).
+    overrides. As with ``requirements{}``, an evaluation error propagates (failing the
+    task); overriding a hint avoids evaluating its expression.
     """
     hint_bindings = list(inputs.enter_namespace("hints"))
     _validate_hint_override_names(task.hints, [b.name for b in hint_bindings])
@@ -807,16 +805,7 @@ def _eval_task_hints(
     ans: dict[str, Value.Base] = {}
     for key, v in task.hints.items():
         if key not in overrides:
-            try:
-                ans[key] = _eval_hint_value(v, env, stdlib)
-            except Exception as exn:
-                logger.warning(
-                    _(
-                        "task hint could not be evaluated; dropping it",
-                        hint=key,
-                        error=str(exn),
-                    )
-                )
+            ans[key] = _eval_hint_value(v, env, stdlib)
     ans.update(overrides)
     return ans
 
