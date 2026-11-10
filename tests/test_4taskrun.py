@@ -2008,6 +2008,72 @@ class TestProcessHints(unittest.TestCase):
         self.assertIsInstance(ctx.exception.__cause__, WDL.Error.InputError)
         self.assertEqual(cache.get_calls, 0)
 
+    def _cache_cfg(self):
+        cfg = WDL.runtime.config.Loader(self._logger, [])
+        cfg.override(
+            {
+                "scheduler": {"container_backend": "recording_test"},
+                "call_cache": {
+                    "put": True,
+                    "get": True,
+                    "dir": os.path.join(self._dir, "_cache"),
+                },
+            }
+        )
+        return cfg
+
+    def test_call_cache_ignores_hint_overrides(self):
+        # hints don't affect results, so a task run differing from a cached one
+        # only in a hint override reuses the cached outputs; a different
+        # ordinary input still re-runs the task
+        cfg = self._cache_cfg()
+        doc = WDL.parse_document(
+            """version 1.2
+            task hinted {
+                input { Int n = 1 }
+                command <<< echo hello >>>
+                output { String out = "done" }
+                hints { max_cpu: 2 }
+            }
+            """
+        )
+        doc.typecheck()
+        task = doc.tasks[0]
+
+        def run(inputs_json):
+            inputs = WDL.values_from_json(
+                inputs_json, task.available_inputs, task.required_inputs, namespace="hinted"
+            )
+            WDL.runtime.run_local_task(
+                cfg, task, inputs, run_dir=self._dir, logger_prefix=[self.id()]
+            )
+
+        run({"hinted.hints.max_cpu": 4})
+        self.assertEqual(self.RecordingContainer.run_count, 1)
+        run({"hinted.hints.max_cpu": 8, "hinted.hints.short_task": True})
+        self.assertEqual(self.RecordingContainer.run_count, 1)
+        run({"hinted.n": 2, "hinted.hints.max_cpu": 4})
+        self.assertEqual(self.RecordingContainer.run_count, 2)
+
+    def test_workflow_call_cache_ignores_hint_overrides(self):
+        # likewise for a workflow run whose inputs differ only in a call's hint
+        # override
+        cfg = self._cache_cfg()
+        doc = WDL.parse_document(self.WORKFLOW_WDL)
+        doc.typecheck()
+        wf = doc.workflow
+
+        def run(inputs_json):
+            inputs = WDL.values_from_json(
+                inputs_json, wf.available_inputs, wf.required_inputs, namespace="wf"
+            )
+            WDL.runtime.run_local_workflow(cfg, wf, inputs, run_dir=self._dir)
+
+        run({"wf.t2.hints.max_cpu": 8})
+        self.assertEqual(self.RecordingContainer.run_count, 2)
+        run({"wf.t2.hints.max_cpu": 16})
+        self.assertEqual(self.RecordingContainer.run_count, 2)
+
     def test_workflow_run_with_ordinary_hint_override(self):
         # positive control: an ordinary (top-level, undeclared) hint override
         # doesn't trip the startup validation, and the workflow runs through
@@ -2269,6 +2335,53 @@ class TestHintsEval(unittest.TestCase):
             with self.assertRaises(WDL.Error.InputError, msg=str(bad)) as ctx:
                 self._eval(task, call_inputs, env, stdlib)
             self.assertIn("openwdl/wdl#773", str(ctx.exception), msg=str(bad))
+
+    def test_eval_aliases_normalized(self):
+        # reserved hints' camelCase aliases are normalized to the snake_case
+        # names, in declared hints (including nested hints objects) and in
+        # overrides, so an override given via an alias supersedes the declared
+        # spelling; input/output block keys (input names) are left alone
+        doc = WDL.parse_document(
+            """version 1.2
+            task t {
+                input {
+                    File reads
+                }
+                command <<< true >>>
+                hints {
+                    max_memory: "1 GiB"
+                    maxCpu: 2
+                    aws: hints {
+                        maxCpu: 4
+                    }
+                    inputs: input {
+                        reads: hints {
+                            localizationOptional: true
+                        }
+                    }
+                }
+            }
+            """
+        )
+        doc.typecheck()
+        task = doc.tasks[0]
+        stdlib = StdLib.Base(task.effective_wdl_version)
+        inputs: Env.Bindings[Value.Base] = Env.Bindings()
+        inputs = inputs.bind("hints.maxMemory", Value.String("3 GiB"))
+        ans = self._eval(task, inputs, Env.Bindings(), stdlib)
+        self.assertEqual(
+            {k: v.json for k, v in ans.items()},
+            {
+                "max_memory": "3 GiB",
+                "max_cpu": 2,
+                "aws": {"max_cpu": 4},
+                "inputs": {"reads": {"localization_optional": True}},
+            },
+        )
+        # an override given in both spellings is ambiguous
+        inputs = inputs.bind("hints.max_memory", Value.String("2 GiB"))
+        with self.assertRaises(WDL.Error.InputError):
+            self._eval(task, inputs, Env.Bindings(), stdlib)
 
     def test_eval_dotted_override_raw_bindings(self):
         # inputs built through the Python API (bypassing launch-input

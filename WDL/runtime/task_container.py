@@ -335,17 +335,30 @@ class TaskContainer(ABC):
         any reason.
 
         Subclasses may override this to consume custom hints (before or after invoking
-        this base version).
+        this base version). Notes for consumers:
 
-        Hint values supplied as overrides in the input JSON or on the command line
-        arrive untyped (they aren't checked against the declared hints' types), so
-        consumers should coerce and validate them defensively.
+        * Keys use the spec's names: the camelCase aliases of reserved hints (e.g.
+          maxMemory) are normalized to the snake_case names (max_memory).
+        * A value's shape can depend on where it came from: a declared Map (e.g.
+          disks) arrives as Value.Map, but a JSON override of it as Value.Struct of
+          Type.Object. Its .json gives plain JSON-like data either way.
+        * Overrides arrive untyped (they aren't checked against the declared hints'
+          types), so coerce and validate values defensively.
+        * This is called after runtime_values is populated by process_runtime() (so
+          it may adjust them), but also after the task's input files are downloaded
+          and mounted, so it can't affect their localization (e.g. for
+          localization_optional).
+        * It's called once per task run, before any retries. Implementations should
+          nonetheless be safe to call again, in case the runner someday re-evaluates
+          hints for each attempt.
 
         TODO: compute environments (WDL 1.2 spec, Hints Section > Compute
-        Environments): let a backend declare the environment names it represents
-        (e.g. "aws") and merge hints[env] over the top-level hints, since reserved
-        hints within an environment's hints {} override the task-level values. Add
-        with the first backend that consumes hints.
+        Environments): reserved hints in an environment's hints {} block (e.g.
+        "aws") override the task-level values. Merge them in the core
+        (_eval_task_hints), for environment names the backend declares, *before*
+        applying input overrides, so that overrides still supersede the WDL as the
+        spec requires; a backend merging them itself couldn't tell which values
+        came from overrides. Add with the first backend that consumes hints.
         """
         self.hints_values = dict(hints_eval)
         logger.debug(_("task hint values", **{key: str(v) for key, v in self.hints_values.items()}))

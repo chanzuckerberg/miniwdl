@@ -762,6 +762,12 @@ class Task(SourceNode):
             # Validate one level of the hints structure (the top-level
             # section, or recursively the members of a nested hints object,
             # which follow the same rules).
+            for alias, name in _TASK_HINT_ALIASES.items():
+                if alias in values and name in values:
+                    raise Error.ValidationError(
+                        values[alias],
+                        f"task hint '{alias}' is an alias of '{name}', which is also given",
+                    )
             for key, value in values.items():
                 if key in ("inputs", "outputs"):
                     kind = "input" if key == "inputs" else "output"
@@ -2001,6 +2007,15 @@ def _check_workflow_hint_literal(expr: Expr.Base) -> None:
     # workflow hint values must be literals (WDL 1.2 spec)
     if expr.literal is None:
         raise Error.ValidationError(expr, "workflow hint values must be literals")
+
+
+# The spec's camelCase aliases for reserved task hints, and the names they're
+# normalized to when hints are evaluated
+_TASK_HINT_ALIASES: dict[str, str] = {
+    "maxCpu": "max_cpu",
+    "maxMemory": "max_memory",
+    "localizationOptional": "localization_optional",
+}
 
 
 # Accepted types for the reserved task hint keys (WDL 1.2 spec, "Reserved Task

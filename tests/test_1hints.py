@@ -332,6 +332,27 @@ class TestHintsTypecheck(unittest.TestCase):
             with self.assertRaises(WDL.Error.StaticTypeMismatch, msg=hint):
                 doc.typecheck()
 
+    def test_reserved_key_alias_with_name(self):
+        # declaring a reserved hint under both its name and its camelCase alias
+        # is ambiguous, at the top level or within a nested hints object
+        for hints in (
+            "max_cpu: 2\n maxCpu: 4",
+            "aws: hints { max_memory: \"1 GiB\", maxMemory: \"2 GiB\" }",
+        ):
+            doc = WDL.parse_document(
+                """version 1.2
+                task t {
+                    command <<< true >>>
+                    hints {
+                        %s
+                    }
+                }
+                """
+                % hints
+            )
+            with self.assertRaises(WDL.Error.ValidationError, msg=hints):
+                doc.typecheck()
+
     def test_reserved_key_block_value(self):
         # a reserved key may not take a hints block value, which would
         # otherwise bypass the accepted-types check (the check runs on

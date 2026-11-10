@@ -17,7 +17,7 @@ from typing import (
 
 import regex
 
-from .. import Env, Error, Expr, StdLib, Tree, Type, Value, _util
+from .. import Env, Error, Expr, StdLib, Tree, Type, Value, _find_override_namespace, _util
 from .._util import (
     LoggingFileHandler,
     TerminationSignalFlag,
@@ -144,7 +144,7 @@ def run_local_task(  # type: ignore[return]
             _validate_hint_override_names(
                 task.hints, [b.name for b in inputs.enter_namespace("hints")]
             )
-            cache_inputs = inputs
+            cache_inputs = _without_hint_overrides(task.available_inputs, inputs)
             cache_key = call_cache_key(task.name, task.digest, cache_inputs)
             cached = cache.get(cache_key, cache_inputs, task.effective_outputs)
             if cached is not None:
@@ -749,9 +749,26 @@ def _eval_hint_value(
     members: dict[str, Value.Base] = {}
     member_types: dict[str, Type.Base] = {}
     for k, vv in v.values.items():
+        # a hints object's reserved keys are normalized like the top-level ones; an
+        # input/output block's keys are input/output names
+        if isinstance(v, Tree.HintsObject):
+            k = Tree._TASK_HINT_ALIASES.get(k, k)
         members[k] = _eval_hint_value(vv, env, stdlib)
         member_types[k] = members[k].type
     return Value.Struct(Type.Object(member_types), members)
+
+
+def _without_hint_overrides(
+    available: Env.Bindings[Tree.Decl], inputs: Env.Bindings[Value.Base]
+) -> Env.Bindings[Value.Base]:
+    # Remove task hint overrides (e.g. "hints.max_cpu", or "call.hints.max_cpu" in
+    # workflow inputs) from the inputs used for call caching: hints mustn't affect
+    # results (WDL 1.2 spec, Hints section), so changing one shouldn't force a re-run.
+    def is_hint_override(b: Env.Binding[Value.Base]) -> bool:
+        found = _find_override_namespace(b.name.split("."), lambda p: p in available)
+        return found is not None and found[0] == "hints"
+
+    return inputs.filter(lambda b: not is_hint_override(b))
 
 
 def _validate_hint_override_names(
@@ -800,10 +817,22 @@ def _eval_task_hints(
     """
     hint_bindings = list(inputs.enter_namespace("hints"))
     _validate_hint_override_names(task.hints, [b.name for b in hint_bindings])
-    overrides: dict[str, Value.Base] = {b.name: b.value for b in hint_bindings}
+    # reserved hints' camelCase aliases are normalized (in declared hints and
+    # overrides alike), so an override given as maxMemory supersedes a declared
+    # max_memory, and consumers need check only one name
+    overrides: dict[str, Value.Base] = {}
+    for b in hint_bindings:
+        name = Tree._TASK_HINT_ALIASES.get(b.name, b.name)
+        if name in overrides:
+            raise Error.InputError(
+                f"hint overrides '{name}' and its alias '{b.name}' (or vice versa) are both"
+                " given; supply one"
+            )
+        overrides[name] = b.value
 
     ans: dict[str, Value.Base] = {}
     for key, v in task.hints.items():
+        key = Tree._TASK_HINT_ALIASES.get(key, key)
         if key not in overrides:
             ans[key] = _eval_hint_value(v, env, stdlib)
     ans.update(overrides)

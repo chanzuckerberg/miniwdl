@@ -79,6 +79,8 @@ Details:
 * For tasks that use a `runtime {}` section (WDL 1.1), override `runtime` instead of `requirements`; `runtime` overrides also work for WDL 1.2 tasks. Hint overrides require WDL 1.2, and WDL 1.0 and draft-2 tasks can't be overridden.
 * Overrides take precedence over the task's own section, which in turn takes precedence over configured defaults (`[task_runtime] defaults` or `--runtime-defaults`). An override can also add an attribute the task doesn't set.
 * Override values aren't checked against the attribute's expected type. On the command line, a value that looks like a number becomes an Int or Float, and anything else becomes a String; use the input JSON for Boolean, Array, or object values.
+* A reserved hint's camelCase alias (e.g. `maxMemory`) names the same hint as its snake_case spelling (`max_memory`), so an override using either spelling supersedes the declared value.
+* Hints don't affect a task's results, so hint overrides are left out of the [call cache](#call-cache) key: changing only a hint override reuses cached outputs.
 * A hint override replaces a top-level hint as a whole. Overriding a value within a hint (e.g. `main.align.hints.aws.instance_type`), or a hint that the task declares as a `hints {}`, `input {}`, or `output {}` block, is an input error, because the WDL specification doesn't yet settle how such overrides should combine with the declared values ([openwdl/wdl#773](https://github.com/openwdl/wdl/issues/773)).
 
 ## Relative paths in input files

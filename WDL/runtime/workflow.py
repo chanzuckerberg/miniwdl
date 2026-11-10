@@ -76,7 +76,7 @@ from .error import (
     Terminated,
     error_json,
 )
-from .task import _validate_hint_override_names, run_local_task
+from .task import _validate_hint_override_names, _without_hint_overrides, run_local_task
 
 _CallFuture = futures.Future[tuple[str, Env.Bindings[Value.Base]]]
 
@@ -347,7 +347,7 @@ def run_local_workflow(
         _validate_workflow_hint_overrides(workflow, inputs)
 
         # query call cache
-        cache_inputs = inputs
+        cache_inputs = _without_hint_overrides(workflow.available_inputs, inputs)
         cache_key = call_cache_key(workflow.name, workflow.digest, cache_inputs)
         cached = cache.get(cache_key, cache_inputs, workflow.effective_outputs)
         if cached is not None:
