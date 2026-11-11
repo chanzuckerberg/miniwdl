@@ -327,6 +327,10 @@ class TaskContainer(ABC):
         """
         Store evaluated task hints{} in self.hints_values for optional backend use.
 
+        PROVISIONAL: this interface may change, together with process_runtime(), as
+        the handling of requirements and hints evolves; see miniwdl issues #959
+        (value shapes) and #960 (per-attempt evaluation for WDL 1.3).
+
         The core task runner evaluates hints{} expressions and input JSON overrides
         using WDL.runtime.task._eval_task_hints() and calls this method on each task
         run, passing an empty dict when there are no declared hints or overrides.
@@ -339,18 +343,18 @@ class TaskContainer(ABC):
 
         * Keys use the spec's names: the camelCase aliases of reserved hints (e.g.
           maxMemory) are normalized to the snake_case names (max_memory).
-        * A value's shape can depend on where it came from: a declared Map (e.g.
-          disks) arrives as Value.Map, but a JSON override of it as Value.Struct of
-          Type.Object. Its .json gives plain JSON-like data either way.
+        * A value's shape can depend on where it came from, as with process_runtime():
+          a declared Map (e.g. disks) arrives as Value.Map, but a JSON override of it
+          as Value.Struct of Type.Object. Its .json gives plain JSON-like data either
+          way. (#959)
         * Overrides arrive untyped (they aren't checked against the declared hints'
           types), so coerce and validate values defensively.
         * This is called after runtime_values is populated by process_runtime() (so
           it may adjust them), but also after the task's input files are downloaded
           and mounted, so it can't affect their localization (e.g. for
           localization_optional).
-        * It's called once per task run, before any retries. Implementations should
-          nonetheless be safe to call again, in case the runner someday re-evaluates
-          hints for each attempt.
+        * Like process_runtime(), it's called once per task run, before any retries.
+          (WDL 1.3 will require re-evaluating both for each attempt; see #960.)
 
         TODO: compute environments (WDL 1.2 spec, Hints Section > Compute
         Environments): reserved hints in an environment's hints {} block (e.g.
