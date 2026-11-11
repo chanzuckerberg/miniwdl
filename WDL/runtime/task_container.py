@@ -111,6 +111,13 @@ class TaskContainer(ABC):
     Retry logic (maxRetries, preemptible) is handled externally.
     """
 
+    hints_values: dict[str, Value.Base]
+    """
+    Evaluated task hints{} section, to be populated by process_hints(). Unlike
+    runtime_values, hints are advisory: the WDL specification provides that an execution
+    engine may ignore any hint for any reason, so a backend need not honor any of them.
+    """
+
     task_runtime_info_struct: Value.Struct | None
     """
     WDL 1.2 task-scoped runtime info struct (task.*), to be populated before command evaluation.
@@ -145,6 +152,7 @@ class TaskContainer(ABC):
         self.try_counter = 1
         self._running = False
         self.runtime_values = {}
+        self.hints_values = {}
         self.task_runtime_info_struct = None
         self.failure_info = None
         self.last_exit_code = None
@@ -314,6 +322,50 @@ class TaskContainer(ABC):
             if not isinstance(runtime_eval["gpu"], Value.Boolean):
                 raise Error.RuntimeError("invalid setting of runtime.gpu")
             ans["gpu"] = runtime_eval["gpu"].value
+
+    def process_hints(self, logger: logging.Logger, hints_eval: dict[str, Value.Base]) -> None:
+        """
+        Store evaluated task hints{} in self.hints_values for optional backend use.
+
+        PROVISIONAL: this interface may change, together with process_runtime(), as
+        the handling of requirements and hints evolves; see miniwdl issues #959
+        (value shapes) and #960 (per-attempt evaluation for WDL 1.3).
+
+        The core task runner evaluates hints{} expressions and input JSON overrides
+        using WDL.runtime.task._eval_task_hints() and calls this method on each task
+        run, passing an empty dict when there are no declared hints or overrides.
+        This base version stores and logs the values at debug level without acting
+        on them; hints are advisory and an execution engine may ignore any hint for
+        any reason.
+
+        Subclasses may override this to consume custom hints (before or after invoking
+        this base version). Notes for consumers:
+
+        * Keys use the spec's names: the camelCase aliases of reserved hints (e.g.
+          maxMemory) are normalized to the snake_case names (max_memory).
+        * A value's shape can depend on where it came from, as with process_runtime():
+          a declared Map (e.g. disks) arrives as Value.Map, but a JSON override of it
+          as Value.Struct of Type.Object. Its .json gives plain JSON-like data either
+          way. (#959)
+        * Overrides arrive untyped (they aren't checked against the declared hints'
+          types), so coerce and validate values defensively.
+        * This is called after runtime_values is populated by process_runtime() (so
+          it may adjust them), but also after the task's input files are downloaded
+          and mounted, so it can't affect their localization (e.g. for
+          localization_optional).
+        * Like process_runtime(), it's called once per task run, before any retries.
+          (WDL 1.3 will require re-evaluating both for each attempt; see #960.)
+
+        TODO: compute environments (WDL 1.2 spec, Hints Section > Compute
+        Environments): reserved hints in an environment's hints {} block (e.g.
+        "aws") override the task-level values. Merge them in the core
+        (_eval_task_hints), for environment names the backend declares, *before*
+        applying input overrides, so that overrides still supersede the WDL as the
+        spec requires; a backend merging them itself couldn't tell which values
+        came from overrides. Add with the first backend that consumes hints.
+        """
+        self.hints_values = dict(hints_eval)
+        logger.debug(_("task hint values", **{key: str(v) for key, v in self.hints_values.items()}))
 
     def build_task_runtime_info_struct(
         self, logger: logging.Logger, run_id: str, task: "Tree.Task"

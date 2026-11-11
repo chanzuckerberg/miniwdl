@@ -249,6 +249,86 @@ class Decl(WorkflowNode):
         yield from _expr_workflow_node_dependencies(self.expr)
 
 
+class HintsObject(SourceNode):
+    """
+    A ``hints { ... }`` object nested within a task ``hints{}`` section: either a
+    compute-environment block (e.g. ``aws: hints { ... }``) or the value of an entry
+    in an :class:`IOHints` block (e.g. ``person.cv: hints { ... }``).
+
+    Its ``values`` have the same shape as :attr:`Task.hints`.
+    """
+
+    values: dict[str, "HintValue"]
+    """:type: dict[str, WDL.Tree.HintValue]"""
+
+    def __init__(self, pos: SourcePosition, values: dict[str, "HintValue"]) -> None:
+        super().__init__(pos)
+        self.values = values
+
+    @property
+    def children(self) -> Iterable[SourceNode]:
+        """"""
+        yield from self.values.values()
+
+
+class IOHints(SourceNode):
+    """
+    An ``input { ... }`` or ``output { ... }`` block within a task ``hints{}`` section
+    (the values of the ``inputs``/``outputs`` hints), providing per-input or per-output
+    hints.
+
+    Keys are input/output names, or dotted paths into struct members (e.g.
+    ``person.cv``); values have the same shape as :attr:`Task.hints` (typically
+    :class:`HintsObject`).
+    """
+
+    kind: str
+    """:type: str
+
+    Either ``"input"`` or ``"output"``"""
+    values: dict[str, "HintValue"]
+    """:type: dict[str, WDL.Tree.HintValue]"""
+    key_pos: dict[str, SourcePosition]
+    """:type: dict[str, WDL.SourcePosition]
+
+    Source positions of the block's keys, for error reporting"""
+
+    def __init__(
+        self,
+        pos: SourcePosition,
+        kind: str,
+        values: dict[str, "HintValue"],
+        key_pos: dict[str, SourcePosition] | None = None,
+    ) -> None:
+        super().__init__(pos)
+        assert kind in ("input", "output")
+        self.kind = kind
+        self.values = values
+        self.key_pos = key_pos or {}
+
+    @property
+    def children(self) -> Iterable[SourceNode]:
+        """"""
+        yield from self.values.values()
+
+
+HintValue = Expr.Base | HintsObject | IOHints
+"""A value in a task ``hints{}`` section: a WDL expression, a nested
+:class:`HintsObject`, or an :class:`IOHints` block"""
+
+
+def _hint_exprs(
+    hints: dict[str, HintValue],
+) -> Generator[tuple[str, Expr.Base], None, None]:
+    # yield all expressions in a hints section with their key, recursing into
+    # nested HintsObject/IOHints values
+    for k, v in hints.items():
+        if isinstance(v, Expr.Base):
+            yield k, v
+        elif isinstance(v, (HintsObject, IOHints)):
+            yield from _hint_exprs(v.values)
+
+
 class Task(SourceNode):
     """
     WDL task, with its input & output declarations, command, and requirements/runtime
@@ -292,6 +372,16 @@ class Task(SourceNode):
     """:type: dict[str,WDL.Expr.Base]
 
     Alias of ``runtime`` (refers to the same dict)"""
+    hints: dict[str, HintValue]
+    """:type: dict[str, WDL.Tree.HintValue]
+
+    ``hints{}`` section (for WDL 1.2+ tasks), with keys and corresponding expressions
+    (or nested hints/input/output objects) to be evaluated in the task input
+    environment"""
+    hints_section_pos: SourcePosition | None
+    """:type: WDL.SourcePosition | None
+
+    Source position of the hints section, if present"""
     meta: dict[str, Any]
     """:type: dict[str,Any]
 
@@ -316,6 +406,9 @@ class Task(SourceNode):
         meta: dict[str, Any],
         runtime_section_name: str | None = None,
         runtime_section_pos: SourcePosition | None = None,
+        *,
+        hints: dict[str, HintValue] | None = None,
+        hints_section_pos: SourcePosition | None = None,
     ) -> None:
         super().__init__(pos)
         self.name = name
@@ -328,6 +421,8 @@ class Task(SourceNode):
         self.runtime_section_name = runtime_section_name
         self.runtime_section_pos = runtime_section_pos
         self.requirements = self.runtime
+        self.hints = hints or {}
+        self.hints_section_pos = hints_section_pos
         self.meta = meta
         self.effective_wdl_version = "1.0"  # overridden by Document.__init__
         # TODO: enforce validity constraints on parameter_meta and runtime
@@ -387,6 +482,7 @@ class Task(SourceNode):
             ans = ans.bind("_runtime", Decl(self.pos, Type.Any(), "_runtime"))
             if wdl_version_geq(self.effective_wdl_version, WDLVersion.V1_2):
                 ans = ans.bind("_requirements", Decl(self.pos, Type.Any(), "_requirements"))
+                ans = ans.bind("_hints", Decl(self.pos, Type.Any(), "_hints"))
 
         for decl in reversed(self.inputs if self.inputs is not None else self.postinputs):
             ans = ans.bind(decl.name, decl)
@@ -433,6 +529,7 @@ class Task(SourceNode):
         for d in self.outputs:
             yield d
         yield from self.runtime.values()
+        yield from self.hints.values()
 
     def typecheck(
         self,
@@ -451,6 +548,16 @@ class Task(SourceNode):
                             str(decl.type), decl.name, "{}"
                         ),
                     )
+        # The runtime section is mutually exclusive with the requirements and
+        # hints sections (WDL 1.2 spec, Runtime section). A task can't declare
+        # both runtime and requirements sections (they share one section dict,
+        # and the parser rejects redundant sections), so runtime+hints is the
+        # combination to check here.
+        if self.runtime_section_name == "runtime" and self.hints_section_pos is not None:
+            raise Error.ValidationError(
+                self.hints_section_pos,
+                "task has both runtime and hints sections, which are mutually exclusive in WDL 1.2",
+            )
         # First collect a type environment for all the input & postinput
         # declarations, so that we're prepared for possible forward-references
         # in their right-hand side expressions.
@@ -481,6 +588,39 @@ class Task(SourceNode):
                 )  # .typecheck()
                 # (At this stage we don't care about the overall expression type, just that it
                 #  typechecks internally.)
+            # Typecheck hints expressions, in the same environment as runtime
+            # expressions (task inputs & postinputs, without task.*). Hint
+            # values cross the JSON boundary (overrides, backends), so their
+            # map keys are checked like input/output keys.
+            for hint_name, hint_expr in _hint_exprs(self.hints):
+                if (
+                    errors.try1(
+                        hint_expr.infer_type,
+                        type_env,
+                        stdlib,
+                        check_quant=check_quant,
+                        struct_types=struct_types,
+                    )
+                    is not None
+                ):
+                    errors.try1(
+                        _check_serializable_map_keys,
+                        hint_expr.type,
+                        f"task hint '{hint_name}'",
+                        hint_expr,
+                    )
+            if self.hints:
+                # Strict validation of the hints structure: reserved keys must
+                # have spec-accepted types, and input/output blocks may only
+                # name the task's actual inputs/outputs. Per the spec, the
+                # inputs block keys name parameters in the task's input{}
+                # section (private/postinput declarations don't qualify).
+                errors.try1(
+                    self._validate_hints,
+                    {decl.name: type_env[decl.name] for decl in self.inputs or []},
+                    {decl.name: decl.type for decl in self.outputs},
+                    struct_types,
+                )
             # Use separate environments for command/output typechecking, where WDL 1.2+ exposes
             # the task runtime info struct. Keep type_env unchanged so it documents that inputs,
             # postinputs, and runtime expressions can't depend on task.*.
@@ -504,7 +644,9 @@ class Task(SourceNode):
                 ).typecheck(Type.String())
             )
             for b in self.available_inputs:
-                errors.try1(_check_serializable_map_keys, b.value.type, b.name, b.value)
+                errors.try1(
+                    _check_serializable_map_keys, b.value.type, f"input/output {b.name}", b.value
+                )
             # Add output declarations to type environment
             for decl in self.outputs:
                 type_env2 = errors.try1(decl.add_to_type_env, struct_types, output_env)
@@ -517,7 +659,9 @@ class Task(SourceNode):
                 errors.try1(
                     decl.typecheck, output_env, stdlib, struct_types, check_quant=check_quant
                 )
-                errors.try1(_check_serializable_map_keys, decl.type, decl.name, decl)
+                errors.try1(
+                    _check_serializable_map_keys, decl.type, f"input/output {decl.name}", decl
+                )
 
         # check for cyclic dependencies among decls
         _detect_cycles(
@@ -561,6 +705,106 @@ class Task(SourceNode):
         # normalize whitespace within lines (not leading/trailing)
         source_lines += _source_excerpt(doc, self.pos, [self.command.pos])
         return "\n".join(source_lines).strip()
+
+    def _validate_hints(
+        self,
+        input_types: dict[str, Type.Base],
+        output_types: dict[str, Type.Base],
+        struct_types: Env.Bindings[dict[str, Type.Base]],
+    ) -> None:
+        # Strict validation of the hints structure: reserved keys must have
+        # spec-accepted types, "inputs"/"outputs" blocks must name actual
+        # task inputs/outputs (possibly dotted paths into struct members),
+        # and hints objects cannot be nested (WDL 1.2 spec, Hints section).
+        # The nested functions read the task-level values from this scope, so
+        # only the values under validation vary between recursive calls.
+
+        def validate_io(io: IOHints, decl_types: dict[str, Type.Base]) -> None:
+            # Each key must name one of the task's inputs/outputs (per the
+            # block kind), possibly a dotted path into struct members; each
+            # entry value is itself a hints object, validated recursively.
+            for key, value in io.values.items():
+                parts = key.split(".")
+                key_pos = io.key_pos.get(key, io.pos)
+                if parts[0] not in decl_types:
+                    raise Error.ValidationError(
+                        key_pos, f"task {self.name} has no {io.kind} named '{parts[0]}'"
+                    )
+                ty = decl_types[parts[0]]
+                for part in parts[1:]:
+                    # resolve struct types first: an output declaration's
+                    # struct types may not have been resolved yet here
+                    _resolve_struct_types(key_pos, ty, struct_types)
+                    members = (
+                        ty.members if isinstance(ty, (Type.StructInstance, Type.Object)) else None
+                    )
+                    if members is None or part not in members:
+                        raise Error.NoSuchMember(key_pos, part)
+                    ty = members[part]
+                if isinstance(value, HintsObject):
+                    # the entry value is itself a hints object, so its members
+                    # are validated as members of a hints object (no further
+                    # nesting)
+                    validate(value.values, inside_hints_object=True)
+                elif isinstance(value, IOHints):
+                    raise Error.ValidationError(
+                        value,
+                        "input/output hints blocks may only appear as the 'inputs'/'outputs'"
+                        " task hints, not nested within another input/output hints block",
+                    )
+                elif isinstance(value, Expr.Base):
+                    raise Error.ValidationError(
+                        value,
+                        f"task {io.kind} hint '{key}' must be a hints {{ ... }} block",
+                    )
+
+        def validate(values: dict[str, HintValue], inside_hints_object: bool = False) -> None:
+            # Validate one level of the hints structure (the top-level
+            # section, or recursively the members of a nested hints object,
+            # which follow the same rules).
+            for alias, name in _TASK_HINT_ALIASES.items():
+                if alias in values and name in values:
+                    raise Error.ValidationError(
+                        values[alias],
+                        f"task hint '{alias}' is an alias of '{name}', which is also given",
+                    )
+            for key, value in values.items():
+                if key in ("inputs", "outputs"):
+                    kind = "input" if key == "inputs" else "output"
+                    if not (isinstance(value, IOHints) and value.kind == kind):
+                        raise Error.ValidationError(
+                            value, f"task hint '{key}' must be an {kind} {{ ... }} block"
+                        )
+                    validate_io(value, input_types if kind == "input" else output_types)
+                elif isinstance(value, Expr.Base):
+                    _check_reserved_hint_type(key, value)
+                elif isinstance(value, HintsObject):
+                    if key in _TASK_HINT_TYPES:
+                        raise Error.ValidationError(
+                            value,
+                            "task hint '{}' accepts {}, not a hints {{}} block".format(
+                                key,
+                                " or ".join(ty.__name__ for ty in _TASK_HINT_TYPES[key]),
+                            ),
+                        )
+                    if inside_hints_object:
+                        raise Error.ValidationError(
+                            value,
+                            "hints objects cannot be nested: a member of a hints object"
+                            " may not itself have a hints value",
+                        )
+                    validate(value.values, inside_hints_object=True)
+                elif isinstance(value, IOHints):
+                    # the block kind follows from the key: input/output blocks
+                    # are only accepted under the "inputs"/"outputs" keys
+                    # (handled above)
+                    raise Error.ValidationError(
+                        value,
+                        f"task hint '{key}' must not be an input/output block; input/output"
+                        " blocks are only allowed under the 'inputs' and 'outputs' hint keys",
+                    )
+
+        validate(self.hints)
 
 
 class Call(WorkflowNode):
@@ -1093,6 +1337,17 @@ class Workflow(SourceNode):
     :type: dict[str,Any]
 
     ``meta{}`` section as a JSON-like dict"""
+    hints: dict[str, HintValue]
+    """
+    :type: dict[str, WDL.Tree.HintValue]
+
+    ``hints{}`` section (for WDL 1.2+ workflows), in the same representation
+    as :attr:`Task.hints`; unlike task hints, the spec requires workflow hint
+    values to be literals, as enforced by ``Workflow.typecheck``"""
+    hints_section_pos: SourcePosition | None
+    """:type: WDL.SourcePosition | None
+
+    Source position of the hints section, if present"""
 
     _type_env: Env.Bindings[Type.Base] | None = None
     """
@@ -1129,6 +1384,9 @@ class Workflow(SourceNode):
         meta: dict[str, Any],
         output_idents: list[list[str]] | None = None,
         output_idents_pos: SourcePosition | None = None,
+        *,
+        hints: dict[str, HintValue] | None = None,
+        hints_section_pos: SourcePosition | None = None,
     ) -> None:
         super().__init__(pos)
         self.name = name
@@ -1139,6 +1397,8 @@ class Workflow(SourceNode):
         self._output_idents_pos = output_idents_pos
         self.parameter_meta = parameter_meta
         self.meta = meta
+        self.hints = hints or {}
+        self.hints_section_pos = hints_section_pos
         self.complete_calls = True
         self._nodes_by_id = {}
         self.effective_wdl_version = ""  # overridden by Document.__init__
@@ -1238,6 +1498,7 @@ class Workflow(SourceNode):
         yield from self.body
         for d in self.outputs or []:
             yield d
+        yield from self.hints.values()
 
     def typecheck(self, doc: "Document", check_quant: bool) -> None:
         assert doc.workflow is self
@@ -1264,11 +1525,35 @@ class Workflow(SourceNode):
             if errors.try1(_typecheck_workflow_body, doc, stdlib, check_quant) is False:
                 self.complete_calls = False
             for b in self.available_inputs:
-                errors.try1(_check_serializable_map_keys, b.value.type, b.name, b.value)
-            # 4. convert deprecated output_idents, if any, to output declarations
+                errors.try1(
+                    _check_serializable_map_keys, b.value.type, f"input/output {b.name}", b.value
+                )
+            # 4. infer types of the workflow hints expressions, using an
+            #    empty type environment (workflow hint values are literals);
+            #    then check each one is a literal, which relies on the
+            #    inferred types (Expr.Base.literal)
+            for hint_name, hint_expr in _hint_exprs(self.hints):
+                if (
+                    errors.try1(
+                        hint_expr.infer_type,
+                        Env.Bindings(),
+                        stdlib,
+                        check_quant=check_quant,
+                        struct_types=doc._struct_types,
+                    )
+                    is not None
+                ):
+                    errors.try1(_check_workflow_hint_literal, hint_expr)
+                    errors.try1(
+                        _check_serializable_map_keys,
+                        hint_expr.type,
+                        f"workflow hint '{hint_name}'",
+                        hint_expr,
+                    )
+            # 5. convert deprecated output_idents, if any, to output declarations
             if self._output_idents:
                 self._rewrite_output_idents()
-            # 5. typecheck the output expressions
+            # 6. typecheck the output expressions
             if self.outputs:
                 output_names: set[str] = set()
                 output_type_env = self._type_env
@@ -1303,8 +1588,13 @@ class Workflow(SourceNode):
                         struct_types=doc._struct_types,
                     )
                     output_type_env = output_type_env2
-                    errors.try1(_check_serializable_map_keys, output.type, output.name, output)
-        # 6. check for cyclic dependencies
+                    errors.try1(
+                        _check_serializable_map_keys,
+                        output.type,
+                        f"input/output {output.name}",
+                        output,
+                    )
+        # 7. check for cyclic dependencies
         _detect_cycles(_workflow_dependency_matrix(self))
 
     def _rewrite_output_idents(self) -> None:
@@ -1711,6 +2001,60 @@ def _load(
             import_max_depth=import_max_depth,
         )
     )
+
+
+def _check_workflow_hint_literal(expr: Expr.Base) -> None:
+    # workflow hint values must be literals (WDL 1.2 spec)
+    if expr.literal is None:
+        raise Error.ValidationError(expr, "workflow hint values must be literals")
+
+
+# The spec's camelCase aliases for reserved task hints, and the names they're
+# normalized to when hints are evaluated
+_TASK_HINT_ALIASES: dict[str, str] = {
+    "maxCpu": "max_cpu",
+    "maxMemory": "max_memory",
+    "localizationOptional": "localization_optional",
+}
+
+
+# Accepted types for the reserved task hint keys (WDL 1.2 spec, "Reserved Task
+# Hints"), including the spec's camelCase aliases. Hint keys not listed here
+# (nor "inputs"/"outputs") are deliberately unconstrained.
+_TASK_HINT_TYPES: dict[str, tuple[type[Type.Base], ...]] = {
+    "max_cpu": (Type.Int, Type.Float),
+    "maxCpu": (Type.Int, Type.Float),
+    "max_memory": (Type.Int, Type.String),
+    "maxMemory": (Type.Int, Type.String),
+    "disks": (Type.String, Type.Map),
+    "gpu": (Type.Int, Type.String),
+    "fpga": (Type.Int, Type.String),
+    "short_task": (Type.Boolean,),
+    "localization_optional": (Type.Boolean,),
+    "localizationOptional": (Type.Boolean,),
+}
+
+
+def _check_reserved_hint_type(key: str, expr: Expr.Base) -> None:
+    # If key is a reserved task hint, the (already type-inferred) expression's
+    # type must be one of the spec-accepted types. This is a stricter test
+    # than WDL type coercion: a String expression coerces to Int/Float in WDL,
+    # but must not satisfy a reserved hint accepting only Int|Float (e.g.
+    # max_cpu: "lots"). Following Lint's UnexpectedRuntimeValue, the accepted
+    # types are type classes checked with isinstance, so type parameters and
+    # optionality aren't distinguished.
+    allowed = _TASK_HINT_TYPES.get(key)
+    if allowed is None or expr._type is None:
+        return  # unconstrained key, or type inference already failed on the expr
+    if not isinstance(expr.type, allowed + (Type.Any,)):
+        raise Error.StaticTypeMismatch(
+            expr,
+            allowed[0](),
+            expr.type,
+            message="task hint '{}' accepts {}".format(
+                key, " or ".join(ty.__name__ for ty in allowed)
+            ),
+        )
 
 
 #
@@ -2160,18 +2504,19 @@ def _add_struct_instance_to_type_env(
     return ans
 
 
-def _check_serializable_map_keys(t: Type.Base, name: str, node: SourceNode) -> None:
-    # For any Map[K,V] in an input or output declaration, K must be coercible to & from String, so
+def _check_serializable_map_keys(t: Type.Base, context: str, node: SourceNode) -> None:
+    # For any Map[K,V] in a value that crosses the JSON boundary (an input or
+    # output declaration, a hint), K must be coercible to & from String, so
     # that it can be de/serialized as JSON.
     if isinstance(t, Type.Map):
         kt = t.item_type[0]
         if not kt.coerces(Type.String()) or not Type.String().coerces(kt):
             raise Error.ValidationError(
                 node,
-                f"{t!s} may not be used in input/output {name} because the keys cannot be written to/from JSON",
+                f"{t!s} may not be used in {context} because the keys cannot be written to/from JSON",
             )
     for p in t.parameters:
-        _check_serializable_map_keys(p, name, node)
+        _check_serializable_map_keys(p, context, node)
 
 
 def _describe_struct_types(exe: Task | Workflow) -> dict[str, str]:

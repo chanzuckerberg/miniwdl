@@ -34,6 +34,7 @@ from . import (
     Value,
     Workflow,
     Zip,
+    _find_override_namespace,
     copy_source,
     load,
     parse_document,
@@ -473,7 +474,9 @@ def fill_run_subparser(subparsers):
         type=str,
         nargs="*",
         help="Workflow inputs. Optional space between = and value."
-        " For arrays repeat, key=value1 key=value2 ...",
+        " For arrays repeat, key=value1 key=value2 ..."
+        " Override a call's task requirements or hints with call.requirements.key=value"
+        " or call.hints.key=value.",
     ).completer = runner_input_completer
     group = run_parser.add_argument_group("input")
     group.add_argument(
@@ -1042,26 +1045,14 @@ def runner_input(
         decl = available_inputs.get(name)
 
         if not decl:
-            # allow arbitrary runtime overrides (or "requirements" in WDL 1.2)
+            # allow arbitrary runtime/requirements/hints overrides (WDL 1.2)
             nmparts = name.split(".")
-            for override in (
-                "requirements",
-                "runtime",
-            ):
-                runtime_idx = next(
-                    (i for i, term in enumerate(nmparts) if term == override),
-                    -1,
-                )
-                if (
-                    runtime_idx >= 0
-                    and len(nmparts) > (runtime_idx + 1)
-                    and (
-                        decl := available_inputs.get(
-                            ".".join(nmparts[:runtime_idx] + ["_" + override])
-                        )
-                    )
-                ):
-                    break
+            found_override = _find_override_namespace(
+                nmparts, lambda placeholder: available_inputs.get(placeholder) is not None
+            )
+            if found_override:
+                override, runtime_idx = found_override
+                decl = available_inputs.get(".".join(nmparts[:runtime_idx] + ["_" + override]))
 
         if not decl:
             runner_input_help(target)

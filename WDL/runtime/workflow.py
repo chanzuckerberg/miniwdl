@@ -76,7 +76,7 @@ from .error import (
     Terminated,
     error_json,
 )
-from .task import run_local_task
+from .task import _validate_hint_override_names, _without_hint_overrides, run_local_task
 
 _CallFuture = futures.Future[tuple[str, Env.Bindings[Value.Base]]]
 
@@ -252,6 +252,28 @@ def _download_workflow_input_files(
     )
 
 
+def _validate_workflow_hint_overrides(
+    workflow: Tree.Workflow, inputs: Env.Bindings[Value.Base]
+) -> None:
+    """
+    At workflow startup, validate the launch inputs' hint overrides against
+    the declared hints of each called task (recursing into subworkflows), so
+    a bad override is an input error before any task runs (see
+    _validate_hint_override_names in WDL.runtime.task).
+    """
+    for call in Tree._calls(workflow):
+        callee = call.callee
+        if callee is None:
+            continue
+        call_inputs = inputs.enter_namespace(call.name)
+        if isinstance(callee, Tree.Task):
+            override_names = [b.name for b in call_inputs.enter_namespace("hints")]
+            if override_names:
+                _validate_hint_override_names(callee.hints, override_names)
+        elif isinstance(callee, Tree.Workflow):
+            _validate_workflow_hint_overrides(callee, call_inputs)
+
+
 def run_local_workflow(
     cfg: config.Loader,
     workflow: Tree.Workflow,
@@ -320,8 +342,12 @@ def run_local_workflow(
             cache.flock(logfile, exclusive=True)  # flock top-level workflow.log
         write_values_json(inputs, os.path.join(run_dir, "inputs.json"), namespace=workflow.name)
 
+        # reject unacceptable hint overrides for any called task, before
+        # running (or cache-serving) anything
+        _validate_workflow_hint_overrides(workflow, inputs)
+
         # query call cache
-        cache_inputs = inputs
+        cache_inputs = _without_hint_overrides(workflow.available_inputs, inputs)
         cache_key = call_cache_key(workflow.name, workflow.digest, cache_inputs)
         cached = cache.get(cache_key, cache_inputs, workflow.effective_outputs)
         if cached is not None:

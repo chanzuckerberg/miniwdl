@@ -49,6 +49,40 @@ The default local scheduler observes these task `requirements {}` attributes (in
 * `docker_network` (String): name of a Docker network to which to attach the container, e.g. "host"; the network name must also appear in the configuration option `[docker_swarm] allow_networks` JSON list.
 * `privileged` (Boolean): if true, *and* configuration option `[task_runtime] allow_privileged = true`, then run task containers with privileged capabilities. (Not recommended, for security & portability reasons.)
 
+These attributes can also be set for a given call when the run starts; see [Overriding requirements and hints](#overriding-requirements-and-hints).
+
+## Task hints
+
+WDL 1.2 tasks may also have a `hints {}` section, with optional hints that the execution engine can use or ignore. The runner evaluates each task's hints, in the same environment as its `requirements`, and passes the values to the container backend. The built-in backends don't act on any hint, but a [backend plugin](runner_backends.md#external-plugins) can. As with `requirements`, an error evaluating a hint fails the task; [overriding](#overriding-requirements-and-hints) the hint avoids evaluating its expression.
+
+## Overriding requirements and hints
+
+The input JSON or command line can override a call's task `requirements` and `hints`, by giving the call name, then `requirements` or `hints`, then the attribute name. For example, this input JSON overrides two settings for the call `align` in workflow `main`, superseding the values in the WDL:
+
+```json
+{
+  "main.align.requirements.memory": "16 GiB",
+  "main.align.hints.max_cpu": 16
+}
+```
+
+On the command line, the same overrides are:
+
+```bash
+miniwdl run main.wdl align.requirements.memory="16 GiB" align.hints.max_cpu=16
+```
+
+Details:
+
+* For a call inside a sub-workflow, prefix the sub-workflow's call name, e.g. `main.sub.align.requirements.memory`. Overriding a call inside a `scatter` applies to every instance of the call.
+* When running a task directly, omit the call name: `"align.requirements.memory"` in JSON, or `requirements.memory=...` on the command line.
+* For tasks that use a `runtime {}` section (WDL 1.1), override `runtime` instead of `requirements`; `runtime` overrides also work for WDL 1.2 tasks. Hint overrides require WDL 1.2, and WDL 1.0 and draft-2 tasks can't be overridden.
+* Overrides take precedence over the task's own section, which in turn takes precedence over configured defaults (`[task_runtime] defaults` or `--runtime-defaults`). An override can also add an attribute the task doesn't set.
+* Override values aren't checked against the attribute's expected type. On the command line, a value that looks like a number becomes an Int or Float, and anything else becomes a String; use the input JSON for Boolean, Array, or object values.
+* A reserved hint's camelCase alias (e.g. `maxMemory`) names the same hint as its snake_case spelling (`max_memory`), so an override using either spelling supersedes the declared value.
+* Hints don't affect a task's results, so hint overrides are left out of the [call cache](#call-cache) key: changing only a hint override reuses cached outputs.
+* A hint override replaces a top-level hint as a whole. Overriding a value within a hint (e.g. `main.align.hints.aws.instance_type`), or a hint that the task declares as a `hints {}`, `input {}`, or `output {}` block, is an input error, because the WDL specification doesn't yet settle how such overrides should combine with the declared values ([openwdl/wdl#773](https://github.com/openwdl/wdl/issues/773)).
+
 ## Relative paths in input files
 
 Relative `File` and `Directory` paths in an input file (`--input inputs.json`, JSON or YAML) are resolved against the directory containing that file, as the WDL specification suggests. For compatibility with earlier miniwdl versions:
@@ -184,7 +218,8 @@ The runner supports versions 1.2, 1.1, 1.0, and draft-2 of the [WDL specificatio
   * The `read_object()` and `read_objects()` library functions are available *only* for initializing structs and `Map[String,String]`
 * A task may only *output* files created within/beneath its container's initial working directory, not e.g. under `/tmp` ([#214](https://github.com/chanzuckerberg/miniwdl/issues/214))
 * The following task `requirements` are ignored: `disks`, `fpga`, `gpu` (but see the [GPU section](#using-nvidia-gpu) above)
-* WDL 1.2 task/workflow `hints` sections are parsed but ignored, including `allow_nested_inputs`
+* Workflow `hints` are parsed and type-checked, but otherwise ignored. In particular, `allow_nested_inputs` isn't implemented, since miniwdl lets the input set nested call inputs regardless.
+* Overriding a value within a task hint isn't supported (see [Overriding requirements and hints](#overriding-requirements-and-hints))
 
 Please [file an issue](https://github.com/chanzuckerberg/miniwdl/issues?q=is%3Aopen+is%3Aissue+label%3Ainterop) for any other incompatibilities observed.
 

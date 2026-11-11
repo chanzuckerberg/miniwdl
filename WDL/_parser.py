@@ -47,6 +47,20 @@ def to_float(x):
     return float(x)
 
 
+def _validate_workflow_hint_blocks(node: Tree.HintValue) -> None:
+    # Reject input/output blocks in a workflow hints section (they're only
+    # meaningful for tasks). The spec's literal-values rule for workflow hints
+    # is enforced in Workflow.typecheck (WDL.Tree), not here.
+    if isinstance(node, Tree.HintsObject):
+        for v in node.values.values():
+            _validate_workflow_hint_blocks(v)
+        return
+    if isinstance(node, Tree.IOHints):
+        raise Error.ValidationError(
+            node.pos, "input/output blocks are not allowed in workflow hints"
+        )
+
+
 class _SourcePositionTransformerMixin:
     def __init__(self, uri: str = "(buffer)", abspath: str = "(buffer)", *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -429,6 +443,46 @@ class _DocTransformer(_ExprTransformer):
             "runtime_section_pos": self._sp(meta),
         }
 
+    def hint_kv(self, meta, items):
+        return (items[0].value, items[1])
+
+    def io_hint_kv(self, meta, items):
+        # items: one or more CNAME tokens forming the (possibly dotted) key,
+        # followed by the value; retain the key's source position so that
+        # validation errors can point at the key (Tree._validate_io_hints)
+        key_toks = items[:-1]
+        key_pos = SourcePosition(
+            uri=self.uri,
+            abspath=self.abspath,
+            line=key_toks[0].line,
+            column=key_toks[0].column,
+            end_line=key_toks[-1].end_line,
+            end_column=key_toks[-1].end_column,
+        )
+        return (".".join(tok.value for tok in key_toks), key_pos, items[-1])
+
+    def io_hint(self, meta, items):
+        # the !io_hint grammar rule puts the kind token first
+        kind = items[0].value
+        d = {}
+        key_pos = {}
+        for k, kpos, v in (item for item in items if isinstance(item, tuple)):
+            if k in d:
+                raise Error.MultipleDefinitions(
+                    self._sp(meta), "duplicate keys in hints input/output block"
+                )
+            d[k] = v
+            key_pos[k] = kpos
+        return Tree.IOHints(self._sp(meta), kind, d, key_pos)
+
+    def hints_object(self, meta, items):
+        d = {}
+        for k, v in items:
+            if k in d:
+                raise Error.MultipleDefinitions(self._sp(meta), "duplicate keys in hints object")
+            d[k] = v
+        return Tree.HintsObject(self._sp(meta), d)
+
     def hints_section(self, meta, items):
         return {"hints": items[0]}
 
@@ -452,7 +506,8 @@ class _DocTransformer(_ExprTransformer):
                 assert "name" not in d
                 d["name"] = item.value
         self._check_keyword(self._sp(meta), d["name"])
-        # TODO: discarding d["hints"] for now (AST repr to be designed)
+        hints_obj = d.get("hints", None)
+        assert hints_obj is None or isinstance(hints_obj, Tree.HintsObject)
         return Tree.Task(
             self._sp(meta),
             d["name"],
@@ -465,6 +520,8 @@ class _DocTransformer(_ExprTransformer):
             d.get("meta", {}),
             d.get("runtime_section_name", None),
             d.get("runtime_section_pos", None),
+            hints=(hints_obj.values if hints_obj is not None else None),
+            hints_section_pos=(hints_obj.pos if hints_obj is not None else None),
         )
 
     def tasks(self, meta, items):
@@ -651,7 +708,13 @@ class _DocTransformer(_ExprTransformer):
             else:
                 assert False
         self._check_keyword(self._sp(meta), items[0].value)
-        # TODO: discarding hints_section for now (AST repr to be designed)
+        wf_hints: dict[str, Tree.HintValue] = {}
+        wf_hints_pos = None
+        if hints_section is not None:
+            assert isinstance(hints_section, Tree.HintsObject)
+            _validate_workflow_hint_blocks(hints_section)
+            wf_hints = hints_section.values
+            wf_hints_pos = hints_section.pos
         return Tree.Workflow(
             self._sp(meta),
             items[0].value,
@@ -662,6 +725,8 @@ class _DocTransformer(_ExprTransformer):
             meta_section or {},
             output_idents,
             output_idents_pos,
+            hints=wf_hints,
+            hints_section_pos=wf_hints_pos,
         )
 
     def struct(self, meta, items):

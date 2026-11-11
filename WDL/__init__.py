@@ -24,6 +24,8 @@ from .Tree import (  # noqa: F401
     Decl,
     Document,
     Gather,
+    HintsObject,
+    IOHints,
     ReadSourceResult,
     Scatter,
     SourceComment,
@@ -250,21 +252,11 @@ def values_from_json(
             else:
                 key2parts = key2.split(".")
 
-                for override in (
-                    "requirements",
-                    "runtime",
+                if _find_override_namespace(
+                    key2parts, lambda placeholder: placeholder in available
                 ):
-                    runtime_idx = next(
-                        (i for i, term in enumerate(key2parts) if term == override),
-                        -1,
-                    )
-                    if (
-                        runtime_idx >= 0
-                        and len(key2parts) > (runtime_idx + 1)
-                        and ".".join(key2parts[:runtime_idx] + ["_" + override]) in available
-                    ):
-                        # allow arbitrary keys for runtime
-                        ty = Type.Any()
+                    # allow arbitrary keys under the override namespace
+                    ty = Type.Any()
 
                 if (
                     not ty
@@ -302,6 +294,39 @@ def values_from_json(
                 "missing required inputs/outputs: " + ", ".join(values_to_json(missing))  # type: ignore
             )
     return ans
+
+
+def _find_override_namespace(
+    key_parts: list[str], placeholder_exists: Callable[[str], bool]
+) -> tuple[str, int] | None:
+    # Find a requirements/runtime/hints override namespace within a dotted
+    # input key (e.g. "hints" in "wf.task.hints.max_cpu"): return the
+    # namespace and its index in key_parts, provided the key prefix before
+    # it, suffixed with the corresponding placeholder name ("_requirements",
+    # "_runtime", or "_hints"), names an available input (see
+    # Task.available_inputs). Used when parsing launch inputs, which may
+    # supply arbitrary keys under these namespaces.
+    for override in ("requirements", "runtime", "hints"):
+        idx = next((i for i, term in enumerate(key_parts) if term == override), -1)
+        if (
+            idx >= 0
+            and len(key_parts) > idx + 1
+            and placeholder_exists(".".join(key_parts[:idx] + ["_" + override]))
+        ):
+            if override == "hints":
+                # A hint override may only address a top-level hint key. The
+                # WDL specification is ambiguous about nested hint overrides,
+                # so miniwdl does not commit to a reading while
+                # openwdl/wdl#773 is unresolved.
+                name = ".".join(key_parts[idx + 1 :])
+                if "." in name:
+                    raise Error.InputError(
+                        f"unsupported hint override '{name}': hint overrides address"
+                        " top-level hint keys only; overriding a value within a hint is"
+                        " not supported yet (see openwdl/wdl#773)"
+                    )
+            return (override, idx)
+    return None
 
 
 def values_to_json(

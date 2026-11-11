@@ -8,7 +8,8 @@ class Base:
     """
     Helper base class for traversing the WDL abstract syntax tree. When called
     on a node, invokes the appropriate method (document, workflow, call,
-    scatter, conditional, decl, task). The base implementations of these
+    scatter, conditional, decl, task, hints_object, io_hints). The base
+    implementations of these
     methods recurse into the node's "children." Overriding subclasses can thus
     invoke their super at the appropriate point for preorder or postorder
     traversal (or omit super to prevent further descent).
@@ -57,6 +58,10 @@ class Base:
             ans = self.task(obj)
         elif isinstance(obj, Tree.StructTypeDef):
             ans = self.struct_typedef(obj)
+        elif isinstance(obj, Tree.HintsObject):
+            ans = self.hints_object(obj)
+        elif isinstance(obj, Tree.IOHints):
+            ans = self.io_hints(obj)
         elif isinstance(obj, Expr.Base):
             ans = self.expr(obj)
         else:
@@ -100,6 +105,12 @@ class Base:
         self._descend(obj)
 
     def struct_typedef(self, obj: Tree.StructTypeDef) -> Any:
+        self._descend(obj)
+
+    def hints_object(self, obj: Tree.HintsObject) -> Any:
+        self._descend(obj)
+
+    def io_hints(self, obj: Tree.IOHints) -> Any:
         self._descend(obj)
 
     def expr(self, obj: Expr.Base) -> Any:
@@ -157,6 +168,14 @@ class Multi(Base):
         for w in self._walkers:
             w.struct_typedef(obj)
 
+    def hints_object(self, obj: Tree.HintsObject) -> Any:
+        for w in self._walkers:
+            w.hints_object(obj)
+
+    def io_hints(self, obj: Tree.IOHints) -> Any:
+        for w in self._walkers:
+            w.io_hints(obj)
+
     def expr(self, obj: Expr.Base) -> Any:
         for w in self._walkers:
             w.expr(obj)
@@ -175,7 +194,11 @@ class SetParents(Base):
 
     On Decl, the contaning Task, Workflow, Scatter, or Conditional.
 
-    On each Expr, the containing Expr, Decl, Call, Scatter, Conditional, Task.
+    On HintsObject and IOHints, the containing Task, Workflow, HintsObject,
+    or IOHints.
+
+    On each Expr, the containing Expr, Decl, Call, Scatter, Conditional,
+    HintsObject, IOHints, or Task.
     """
 
     def __init__(self) -> None:
@@ -196,7 +219,9 @@ class SetParents(Base):
             obj.workflow.parent = obj
 
     def workflow(self, obj: Tree.Workflow) -> None:
+        self._parent_stack.append(obj)
         super().workflow(obj)
+        self._parent_stack.pop()
         obj.parent = None
         for elt in (obj.inputs or []) + obj.body + (obj.outputs or []):
             elt.parent = obj  # type: ignore
@@ -234,6 +259,18 @@ class SetParents(Base):
         self._parent_stack.append(obj)
         super().decl(obj)
         self._parent_stack.pop()
+
+    def hints_object(self, obj: Tree.HintsObject) -> None:
+        self._parent_stack.append(obj)
+        super().hints_object(obj)
+        self._parent_stack.pop()
+        obj.parent = self._parent_stack[-1]
+
+    def io_hints(self, obj: Tree.IOHints) -> None:
+        self._parent_stack.append(obj)
+        super().io_hints(obj)
+        self._parent_stack.pop()
+        obj.parent = self._parent_stack[-1]
 
     def expr(self, obj: Expr.Base) -> None:
         self._parent_stack.append(obj)
