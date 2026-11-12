@@ -563,7 +563,7 @@ class TestEval(unittest.TestCase):
             ("{0: 1, 0: 3}", "", WDL.Error.EvalError),
             ("{'foo': 1, 'bar': 2}[3]", "", WDL.Error.OutOfBounds), # int coerces to string...
             ("{3: 1, false: 2}", "", WDL.Error.IndeterminateType),
-            ("{'foo': true, 'bar': 0,}", '{"foo": true, "bar": 0}', WDL.Type.Map((WDL.Type.String(), WDL.Type.String()))),
+            ("{'foo': true, 'bar': 0,}", '{"foo": "true", "bar": "0"}', WDL.Type.Map((WDL.Type.String(), WDL.Type.String()))),
             ("{[1,2]: true, []: false}", '{[1, 2]: true, []: false}', WDL.Type.Map((WDL.Type.Array(WDL.Type.Int()), WDL.Type.Boolean()))),
             ("{[1]: true, [1]: false}", "", WDL.Error.EvalError),
             ("{(false, false): 0, (false, true): 1}", "", WDL.Type.Map((WDL.Type.Pair(WDL.Type.Boolean(), WDL.Type.Boolean()), WDL.Type.Int()))),
@@ -571,6 +571,43 @@ class TestEval(unittest.TestCase):
         with self.assertRaisesRegex(WDL.Error.EvalError, "to JSON"):
             stdlib = WDL.StdLib.Base("1.0")
             WDL.parse_expr("{(false, false): 0, (false, true): 1}").infer_type(WDL.Env.Bindings(), stdlib).eval(WDL.Env.Bindings(), stdlib).json
+
+    def test_map_literal_coercion(self):
+        # Map literal elements are coerced to the inferred item types, as Array
+        # literal elements are: a Map[String,String] must hold String values, so
+        # its JSON serialization contains strings, not raw booleans/numbers.
+        stdlib = WDL.StdLib.Base("1.0")
+        expr = WDL.parse_expr(
+            '{"sample": "case", "excluded": false, "count": 10}'
+        ).infer_type(WDL.Env.Bindings(), stdlib)
+        self.assertEqual(
+            str(expr.type), "Map[String,String]"
+        )
+        val = expr.eval(WDL.Env.Bindings(), stdlib)
+        self.assertEqual(
+            val.json, {"sample": "case", "excluded": "false", "count": "10"}
+        )
+        for k, v in val.value:
+            self.assertIsInstance(k, WDL.Value.String)
+            self.assertIsInstance(v, WDL.Value.String)
+        self.assertEqual(expr.literal.json, val.json)
+
+        # numeric unification coerces likewise
+        val = (
+            WDL.parse_expr('{"a": 1, "b": 2.0}')
+            .infer_type(WDL.Env.Bindings(), stdlib)
+            .eval(WDL.Env.Bindings(), stdlib)
+        )
+        self.assertEqual(str(val.type), "Map[String,Float]")
+        for _, v in val.value:
+            self.assertIsInstance(v, WDL.Value.Float)
+
+        # the duplicate-key check applies to the coerced keys: 1 and "1" are
+        # distinct raw keys, but both coerce to the String key "1"
+        with self.assertRaisesRegex(WDL.Error.EvalError, "duplicate keys"):
+            WDL.parse_expr('{1: "a", "1": "b"}').infer_type(
+                WDL.Env.Bindings(), stdlib
+            ).eval(WDL.Env.Bindings(), stdlib)
 
     def test_errors(self):
         self._test_tuples(
