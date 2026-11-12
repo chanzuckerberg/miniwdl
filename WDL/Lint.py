@@ -34,6 +34,7 @@ import random
 import shutil
 import subprocess
 import tempfile
+from collections.abc import Iterator
 from enum import IntEnum
 from typing import Any, ClassVar
 
@@ -413,6 +414,62 @@ def _file_coercion_literal_status(
     )
 
 
+def _file_coercion_leaves(
+    to_type: Type.Base, expr: Expr.Base
+) -> Iterator[tuple[Type.Base, Expr.Base]]:
+    """
+    Yield each (type, expression) pair at a File/Directory position within a declaration
+    initializer, recursing into literal Array/Map/Pair/Struct expressions. Shared by the
+    FileCoercion lint and WDL.Zip's source-relative scanner, so the two walks of compound
+    initializers can't drift apart.
+    """
+    if isinstance(to_type, (Type.File, Type.Directory)):
+        yield to_type, expr
+        return
+
+    if isinstance(to_type, Type.Array) and isinstance(expr, Expr.Array):
+        for item in expr.items:
+            yield from _file_coercion_leaves(to_type.item_type, item)
+        return
+
+    if isinstance(to_type, Type.Map) and isinstance(expr, Expr.Map):
+        key_type, value_type = to_type.item_type
+        for key, value in expr.items:
+            yield from _file_coercion_leaves(key_type, key)
+            yield from _file_coercion_leaves(value_type, value)
+        return
+
+    if isinstance(to_type, Type.Pair) and isinstance(expr, Expr.Pair):
+        yield from _file_coercion_leaves(to_type.left_type, expr.left)
+        yield from _file_coercion_leaves(to_type.right_type, expr.right)
+        return
+
+    if (
+        isinstance(to_type, Type.StructInstance)
+        and to_type.members
+        and isinstance(expr, Expr.Struct)
+    ):
+        for name, member in expr.members.items():
+            if name in to_type.members:
+                yield from _file_coercion_leaves(to_type.members[name], member)
+
+
+def _file_coercion_leaf_suspicious(to_type: Type.Base, expr: Expr.Base, source_dir: str) -> bool:
+    """
+    Decide whether one File/Directory leaf of a declaration initializer is "suspicious"
+    (per :func:`_file_coercion_decl_suspicious`). Non-literal leaves return False: they
+    may evaluate to source-relative paths, but that's not knowable statically.
+    """
+    status = _file_coercion_literal_status(to_type, expr, source_dir)
+    if status is None:
+        return False
+    return status in (
+        _SourceRelativePathKind.ABSOLUTE,
+        _SourceRelativePathKind.ESCAPES,
+        _SourceRelativePathKind.WRONG_KIND,
+    ) or (status == _SourceRelativePathKind.MISSING and not to_type.optional)
+
+
 def _file_coercion_decl_suspicious(to_type: Type.Base, expr: Expr.Base, source_dir: str) -> bool:
     """
     Decide whether a WDL 1.2+ declaration File/Directory = :String: initializer still deserves
@@ -424,51 +481,10 @@ def _file_coercion_decl_suspicious(to_type: Type.Base, expr: Expr.Base, source_d
     the initializer is "suspicious" (probably not a valid source-relative path). Literal compound
     expressions are inspected recursively so suspicious File/Directory leaves are still reported.
     """
-    status = _file_coercion_literal_status(to_type, expr, source_dir)
-    if status is not None:
-        return status in (
-            _SourceRelativePathKind.ABSOLUTE,
-            _SourceRelativePathKind.ESCAPES,
-            _SourceRelativePathKind.WRONG_KIND,
-        ) or (status == _SourceRelativePathKind.MISSING and not to_type.optional)
-
-    if isinstance(to_type, Type.Array):
-        if isinstance(expr, Expr.Array):
-            return any(
-                _file_coercion_decl_suspicious(to_type.item_type, item, source_dir)
-                for item in expr.items
-            )
-        return False
-
-    if isinstance(to_type, Type.Map):
-        if isinstance(expr, Expr.Map):
-            key_type, value_type = to_type.item_type
-            return any(
-                _file_coercion_decl_suspicious(key_type, key, source_dir)
-                or _file_coercion_decl_suspicious(value_type, value, source_dir)
-                for key, value in expr.items
-            )
-        return False
-
-    if isinstance(to_type, Type.Pair):
-        if isinstance(expr, Expr.Pair):
-            return _file_coercion_decl_suspicious(
-                to_type.left_type, expr.left, source_dir
-            ) or _file_coercion_decl_suspicious(to_type.right_type, expr.right, source_dir)
-        return False
-
-    if (
-        isinstance(to_type, Type.StructInstance)
-        and to_type.members
-        and isinstance(expr, Expr.Struct)
-    ):
-        return any(
-            name in to_type.members
-            and _file_coercion_decl_suspicious(to_type.members[name], member, source_dir)
-            for name, member in expr.members.items()
-        )
-
-    return False
+    return any(
+        _file_coercion_leaf_suspicious(leaf_type, leaf_expr, source_dir)
+        for leaf_type, leaf_expr in _file_coercion_leaves(to_type, expr)
+    )
 
 
 @a_linter
