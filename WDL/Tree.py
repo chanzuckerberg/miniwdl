@@ -429,9 +429,37 @@ class Task(SourceNode):
         # TODO: if the input section exists, then all postinputs decls must be
         #       bound
 
-    def task_runtime_info_struct_type(self, *, output_section: bool = False) -> Type.StructInstance:
+    def task_previous_struct_type(self) -> Type.StructInstance:
+        """
+        Build the synthetic struct type of ``task.previous`` (WDL 1.3+): the previous
+        attempt's computed requirements, with every member optional (all ``None`` on the
+        first attempt). The member list follows the WDL 1.3 specification; unlike the
+        full ``task`` struct, it has no nested ``previous`` member. Hints aren't
+        requirements, so the previous attempt's hint values aren't included.
+        """
+        previous_ty = Type.StructInstance("__task_previous")
+        previous_ty.members = {
+            "memory": Type.Int(optional=True),
+            "cpu": Type.Float(optional=True),
+            "container": Type.String(optional=True),
+            "gpu": Type.Array(Type.String(), optional=True),
+            "fpga": Type.Array(Type.String(), optional=True),
+            "disks": Type.Map((Type.String(), Type.Int()), optional=True),
+            "max_retries": Type.Int(optional=True),
+        }
+        return previous_ty
+
+    def task_runtime_info_struct_type(
+        self, *, output_section: bool = False, pre_evaluation: bool = False
+    ) -> Type.StructInstance:
         """
         Build the synthetic task runtime info struct type (WDL 1.2+).
+
+        With ``pre_evaluation=True`` (WDL 1.3+), build instead the limited subset of
+        ``task`` available in pre-evaluation contexts (the requirements/hints/runtime
+        sections): ``name``, ``id``, ``attempt``, ``previous``, ``meta``, and
+        ``parameter_meta``. (The specification also lists ``ext`` in the subset, which
+        remains unimplemented here, as in the full struct; see the TODO below.)
         """
 
         def meta_object_type(d: dict[str, Any], name_prefix: str) -> Type.StructInstance:
@@ -445,6 +473,18 @@ class Task(SourceNode):
         meta_ty = meta_object_type(self.meta or {}, "task_meta")
         parameter_meta_ty = meta_object_type(self.parameter_meta or {}, "task_parameter_meta")
         task_ty = Type.StructInstance("__task")
+        if pre_evaluation:
+            assert wdl_version_geq(self.effective_wdl_version, WDLVersion.V1_3)
+            task_ty.members = {
+                "name": Type.String(),
+                "id": Type.String(),
+                "attempt": Type.Int(),
+                "previous": self.task_previous_struct_type(),
+                "meta": meta_ty,
+                "parameter_meta": parameter_meta_ty,
+                # TODO: add task.ext (Object) for engine-specific runtime info.
+            }
+            return task_ty
         task_ty.members = {
             "name": Type.String(),
             "id": Type.String(),
@@ -460,6 +500,9 @@ class Task(SourceNode):
             "parameter_meta": parameter_meta_ty,
             # TODO: add task.ext (Object) for engine-specific runtime info.
         }
+        if wdl_version_geq(self.effective_wdl_version, WDLVersion.V1_3):
+            task_ty.members["max_retries"] = Type.Int()
+            task_ty.members["previous"] = self.task_previous_struct_type()
         if output_section:
             task_ty.members["return_code"] = Type.Int()
         return task_ty
@@ -577,11 +620,24 @@ class Task(SourceNode):
                     check_quant=check_quant,
                     struct_types=struct_types,
                 )
-            # Typecheck runtime expressions
+            # Typecheck runtime expressions. In WDL 1.3+, the limited pre-evaluation
+            # subset of `task` is visible here (and in hints expressions, below);
+            # referencing any other `task` member (e.g. task.cpu) is thus a static
+            # NoSuchMember error, while `task` itself remains unbound in runtime
+            # expressions of older-version documents (UnknownIdentifier).
+            runtime_env = type_env
+            if wdl_version_geq(self.effective_wdl_version, WDLVersion.V1_3):
+                task_ctx = Decl(self.pos, Type.Any(), "task", id_prefix="task")
+                runtime_env = _add_struct_instance_to_type_env(
+                    "task",
+                    self.task_runtime_info_struct_type(pre_evaluation=True),
+                    type_env,
+                    ctx=task_ctx,
+                )
             for runtime_expr in self.runtime.values():
                 errors.try1(
                     runtime_expr.infer_type,
-                    type_env,
+                    runtime_env,
                     stdlib,
                     check_quant=check_quant,
                     struct_types=struct_types,
@@ -589,14 +645,13 @@ class Task(SourceNode):
                 # (At this stage we don't care about the overall expression type, just that it
                 #  typechecks internally.)
             # Typecheck hints expressions, in the same environment as runtime
-            # expressions (task inputs & postinputs, without task.*). Hint
-            # values cross the JSON boundary (overrides, backends), so their
-            # map keys are checked like input/output keys.
+            # expressions. Hint values cross the JSON boundary (overrides,
+            # backends), so their map keys are checked like input/output keys.
             for hint_name, hint_expr in _hint_exprs(self.hints):
                 if (
                     errors.try1(
                         hint_expr.infer_type,
-                        type_env,
+                        runtime_env,
                         stdlib,
                         check_quant=check_quant,
                         struct_types=struct_types,
@@ -622,8 +677,8 @@ class Task(SourceNode):
                     struct_types,
                 )
             # Use separate environments for command/output typechecking, where WDL 1.2+ exposes
-            # the task runtime info struct. Keep type_env unchanged so it documents that inputs,
-            # postinputs, and runtime expressions can't depend on task.*.
+            # the task runtime info struct. Keep type_env unchanged so it documents that input &
+            # postinput declarations can't depend on task.*.
             command_env = type_env
             output_env = type_env
             if wdl_version_geq(self.effective_wdl_version, WDLVersion.V1_2):

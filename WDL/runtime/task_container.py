@@ -20,15 +20,38 @@ from .._util import StructuredLogMessage as _
 from .._util import (
     TailLogger,
     TerminationSignalFlag,
+    WDLVersion,
     parse_byte_size,
     path_really_within,
     rmtree_atomic,
+    wdl_version_geq,
 )
 from . import _statusbar, config
 from .error import CommandFailed, OutputError, Terminated
 
 if TYPE_CHECKING:
     from .. import Tree
+
+
+def _task_previous_snapshot_or_none(
+    snapshot: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """
+    Normalize a ``task.previous`` snapshot for Value.from_json(): a snapshot dict as produced
+    by TaskContainer.snapshot_task_previous(), or -- on the first attempt -- a dict with every
+    member None (per the WDL 1.3 specification, all fields are None on the first try).
+    """
+    if snapshot is None:
+        return {
+            "memory": None,
+            "cpu": None,
+            "container": None,
+            "gpu": None,
+            "fpga": None,
+            "disks": None,
+            "max_retries": None,
+        }
+    return dict(snapshot)
 
 
 class TaskContainer(ABC):
@@ -109,13 +132,16 @@ class TaskContainer(ABC):
     Evaluted task runtime{} section, to be populated by process_runtime(). Typically the
     TaskContainer backend needs to honor cpu, memory_limit, memory_reservation, docker, env.
     Retry logic (maxRetries, preemptible) is handled externally.
+    process_runtime() is called before each task attempt and rebuilds this dict on
+    each call.
     """
 
     hints_values: dict[str, Value.Base]
     """
-    Evaluated task hints{} section, to be populated by process_hints(). Unlike
-    runtime_values, hints are advisory: the WDL specification provides that an execution
-    engine may ignore any hint for any reason, so a backend need not honor any of them.
+    Evaluated task hints{} section, to be populated by process_hints() (which replaces
+    it on each call, once per task attempt). Unlike runtime_values, hints are advisory:
+    the WDL specification provides that an execution engine may ignore any hint for any
+    reason, so a backend need not honor any of them.
     """
 
     task_runtime_info_struct: Value.Struct | None
@@ -124,6 +150,15 @@ class TaskContainer(ABC):
     The core task runner invokes build_task_runtime_info_struct() to initialize it from task
     metadata and effective runtime_values.
     The core task runner replaces it with checked copies when attempt/return_code become known.
+    """
+
+    previous_attempt_snapshot: dict[str, Any] | None
+    """
+    WDL 1.3: snapshot of the previous attempt's computed requirements (raw JSON-like
+    values keyed by the ``task.previous`` member names), captured by
+    snapshot_task_previous() when an attempt fails and a retry is to be scheduled;
+    None before the first attempt completes. build_task_runtime_info_struct() exposes
+    it as the struct's ``previous`` member.
     """
 
     stderr_callback: Callable[[str], None] | None
@@ -154,6 +189,7 @@ class TaskContainer(ABC):
         self.runtime_values = {}
         self.hints_values = {}
         self.task_runtime_info_struct = None
+        self.previous_attempt_snapshot = None
         self.failure_info = None
         self.last_exit_code = None
         os.makedirs(self.host_work_dir())
@@ -222,6 +258,13 @@ class TaskContainer(ABC):
         self.runtime_values with validated/postprocessed values that will be needed to configure
         the container properly.
 
+        The core task runner calls this before each task attempt, with the expressions
+        re-evaluated for that attempt, and each call rebuilds self.runtime_values from
+        scratch: values from a previous attempt don't carry over. Subclasses may
+        override this to process custom runtime entries (before or after invoking
+        this base version), and must likewise (re)populate everything they need on
+        each call.
+
         The core normalizes values through their JSON representations, re-inferring
         types with Type.Any so values with the same JSON representation have the
         same delivered shape, regardless of source. A mapping arrives as a
@@ -231,11 +274,12 @@ class TaskContainer(ABC):
         representation (e.g. a Map whose keys can't be written as JSON object
         keys), the task fails before this hook is called. process_hints() receives
         values normalized in the same way.
-
-        Subclasses may override this to process custom runtime entries (before or after invoking
-        this base version).
+        representation (e.g. a Map whose keys can't be written as JSON object
+        keys), the task fails before this hook is called. process_hints() receives
+        values normalized in the same way.
         """
 
+        self.runtime_values = {}
         ans = self.runtime_values
 
         if "inlineDockerfile" in runtime_eval:
@@ -337,19 +381,17 @@ class TaskContainer(ABC):
         """
         Store evaluated task hints{} in self.hints_values for optional backend use.
 
-        PROVISIONAL: this interface may change, together with process_runtime(), as
-        the handling of requirements and hints evolves; see miniwdl issue #960
-        (per-attempt evaluation for WDL 1.3).
-
         The core task runner evaluates hints{} expressions and input JSON overrides
-        using WDL.runtime.task._eval_task_hints() and calls this method on each task
-        run, passing an empty dict when there are no declared hints or overrides.
-        This base version stores and logs the values at debug level without acting
-        on them; hints are advisory and an execution engine may ignore any hint for
-        any reason.
+        using WDL.runtime.task._eval_task_hints() and calls this method before each
+        task attempt, after process_runtime() for the attempt, passing an empty dict
+        when there are no declared hints or overrides. Each call replaces
+        self.hints_values with the attempt's fresh values. This base version stores
+        and logs the values at debug level without acting on them; hints are
+        advisory and an execution engine may ignore any hint for any reason.
 
         Subclasses may override this to consume custom hints (before or after invoking
-        this base version). Notes for consumers:
+        this base version); overrides must be safe to call repeatedly, once per
+        attempt. Notes for consumers:
 
         * Keys use the spec's names: the camelCase aliases of reserved hints (e.g.
           maxMemory) are normalized to the snake_case names (max_memory).
@@ -357,11 +399,10 @@ class TaskContainer(ABC):
         * Overrides aren't checked against the declared hints' types, so coerce and
           validate values defensively.
         * This is called after runtime_values is populated by process_runtime() (so
-          it may adjust them), but also after the task's input files are downloaded
-          and mounted, so it can't affect their localization (e.g. for
-          localization_optional).
-        * Like process_runtime(), it's called once per task run, before any retries.
-          (WDL 1.3 will require re-evaluating both for each attempt; see #960.)
+          it may adjust them) -- but runtime_values is rebuilt for each attempt, so
+          such adjustments don't carry into later attempts. It's also called after
+          the task's input files are downloaded and mounted, so it can't affect
+          their localization (e.g. for localization_optional).
 
         TODO: compute environments (WDL 1.2 spec, Hints Section > Compute
         Environments): reserved hints in an environment's hints {} block (e.g.
@@ -421,6 +462,13 @@ class TaskContainer(ABC):
             "meta": Expr._meta_value_to_json(task.meta),
             "parameter_meta": Expr._meta_value_to_json(task.parameter_meta),
         }
+        if wdl_version_geq(task.effective_wdl_version, WDLVersion.V1_3):
+            # WDL 1.3: expose the effective max_retries requirement (after
+            # process_runtime() postprocessing and any per-call input overrides),
+            # and the previous attempt's computed requirements (all None on the
+            # first attempt).
+            task_info["max_retries"] = int(self.runtime_values.get("maxRetries", 0))
+            task_info["previous"] = _task_previous_snapshot_or_none(self.previous_attempt_snapshot)
         task_value = Value.from_json(task_type, task_info)
         assert isinstance(task_value, Value.Struct)
         self.task_runtime_info_struct = task_value
@@ -471,6 +519,65 @@ class TaskContainer(ABC):
             extra=set(task_value.extra),
         )
         self.check_task_runtime_info_struct()
+
+    def snapshot_task_previous(self) -> dict[str, Any]:
+        """
+        Capture the current attempt's computed requirements as a ``task.previous``
+        snapshot (raw JSON-like values keyed by the ``task.previous`` member names),
+        for use when scheduling the next attempt. The values are the ones exposed
+        through the task runtime info struct for the current attempt -- i.e. the
+        requested values after evaluation, postprocessing (e.g. clamping to host
+        limits), and per-call input overrides -- except ``max_retries``, which is the
+        attempt's effective ``maxRetries`` runtime value.
+        """
+        assert self.task_runtime_info_struct is not None
+        values = self.task_runtime_info_struct.value
+
+        def raw(name: str) -> Any:
+            v = values.get(name)
+            return None if v is None or isinstance(v, Value.Null) else v.value
+
+        gpu = raw("gpu")
+        fpga = raw("fpga")
+        disks = values.get("disks")
+        return {
+            "memory": raw("memory"),
+            "cpu": (float(raw("cpu")) if raw("cpu") is not None else None),
+            "container": raw("container"),
+            "gpu": ([elt.value for elt in gpu] if gpu is not None else None),
+            "fpga": ([elt.value for elt in fpga] if fpga is not None else None),
+            "disks": (
+                {k.value: v.value for k, v in disks.value} if isinstance(disks, Value.Map) else None
+            ),
+            "max_retries": int(self.runtime_values.get("maxRetries", 0)),
+        }
+
+    def task_runtime_info_subset_struct(
+        self,
+        run_id: str,
+        task: "Tree.Task",
+        attempt: int,
+        previous_snapshot: dict[str, Any] | None,
+    ) -> Value.Struct:
+        """
+        Build the limited pre-evaluation ``task`` struct value (WDL 1.3) to bind while
+        evaluating requirements/hints/runtime expressions for the given attempt: only
+        the members the specification allows in pre-evaluation contexts, with
+        ``previous`` reflecting the previous attempt's snapshot (all None on the
+        first attempt).
+        """
+        subset_type = task.task_runtime_info_struct_type(pre_evaluation=True)
+        task_info = {
+            "name": task.name,
+            "id": run_id,
+            "attempt": attempt,
+            "previous": _task_previous_snapshot_or_none(previous_snapshot),
+            "meta": Expr._meta_value_to_json(task.meta),
+            "parameter_meta": Expr._meta_value_to_json(task.parameter_meta),
+        }
+        task_value = Value.from_json(subset_type, task_info)
+        assert isinstance(task_value, Value.Struct)
+        return task_value
 
     def run(self, logger: logging.Logger, command: str) -> None:
         """

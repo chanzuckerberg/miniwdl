@@ -49,6 +49,7 @@ class WDLVersion(IntEnum):
     V1_0 = 1
     V1_1 = 2
     V1_2 = 3
+    V1_3 = 4
     DEVELOPMENT = 9999
 
 

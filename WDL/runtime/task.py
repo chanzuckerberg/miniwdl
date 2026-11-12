@@ -224,17 +224,60 @@ def run_local_task(  # type: ignore[return]
                     source_dir=task.source_dir,
                     cache_add_paths=cache_add_paths,
                 )
-                _eval_task_runtime(
-                    cfg, logger, run_id, task, posix_inputs, container, container_env, stdlib
-                )
+                is_wdl13 = wdl_version_geq(task.effective_wdl_version, WDLVersion.V1_3)
+                runtime_env_base = container_env
 
-                # evaluate hints{} and hand the values to the container, which
-                # may use or ignore them (see TaskContainer.process_hints)
-                hints_values = _eval_task_hints(task, posix_inputs, container_env, stdlib)
-                container.process_hints(logger, hints_values)
+                def eval_task_runtime(container: "TaskContainer", attempt: int) -> None:
+                    # (Re)evaluate the requirements/runtime and hints expressions
+                    # for the given attempt and deliver them to the container --
+                    # process_runtime(), then process_hints(), which may use or
+                    # ignore the hints -- then (re)build the task runtime info
+                    # struct from the fresh values. In WDL 1.3 the expressions may
+                    # use the pre-evaluation subset of `task`, reflecting this
+                    # attempt and the previous attempt's computed requirements.
+                    task_subset = None
+                    if is_wdl13:
+                        task_subset = container.task_runtime_info_subset_struct(
+                            run_id, task, attempt, container.previous_attempt_snapshot
+                        )
+                    _eval_task_runtime(
+                        cfg,
+                        logger,
+                        run_id,
+                        task,
+                        posix_inputs,
+                        container,
+                        runtime_env_base,
+                        stdlib,
+                        task_subset=task_subset,
+                    )
+                    hints_values = _eval_task_hints(
+                        task,
+                        posix_inputs,
+                        runtime_env_base,
+                        stdlib,
+                        task_subset=task_subset,
+                    )
+                    container.process_hints(logger, hints_values)
+                    if wdl_version_geq(task.effective_wdl_version, WDLVersion.V1_2):
+                        container.build_task_runtime_info_struct(logger, run_id, task)
 
+                def refresh_task_runtime(
+                    container: "TaskContainer", attempt: int
+                ) -> Env.Bindings[Value.Base]:
+                    # Re-evaluate requirements/hints for a retry attempt (the
+                    # caller, _try_task, has already snapshotted the outgoing
+                    # attempt's computed requirements into the container) and
+                    # return the environment binding the rebuilt task runtime
+                    # info struct.
+                    eval_task_runtime(container, attempt)
+                    if wdl_version_geq(task.effective_wdl_version, WDLVersion.V1_2):
+                        assert container.task_runtime_info_struct is not None
+                        return runtime_env_base.bind("task", container.task_runtime_info_struct)
+                    return runtime_env_base
+
+                eval_task_runtime(container, 0)
                 if wdl_version_geq(task.effective_wdl_version, WDLVersion.V1_2):
-                    container.build_task_runtime_info_struct(logger, run_id, task)
                     assert container.task_runtime_info_struct is not None
                     container_env = container_env.bind("task", container.task_runtime_info_struct)
 
@@ -248,6 +291,7 @@ def run_local_task(  # type: ignore[return]
                     container_env,
                     terminating,
                     cache_add_paths,
+                    refresh_task_runtime=refresh_task_runtime,
                 )
 
                 # bind output declarations to task runtime info with the final return code
@@ -671,8 +715,12 @@ def _eval_task_runtime(
     container: "TaskContainer",
     env: Env.Bindings[Value.Base],
     stdlib: StdLib.Base,
+    task_subset: Value.Struct | None = None,
 ) -> None:
-    # evaluate runtime{} expressions (merged with any configured defaults)
+    # evaluate runtime{} expressions (merged with any configured defaults); in
+    # WDL 1.3, task_subset binds the pre-evaluation `task` struct for the attempt
+    if task_subset is not None:
+        env = env.bind("task", task_subset)
     runtime_defaults = cfg.get_dict("task_runtime", "defaults")
     if run_id.startswith("download-"):
         runtime_defaults.update(cfg.get_dict("task_runtime", "download_defaults"))
@@ -824,6 +872,7 @@ def _eval_task_hints(
     inputs: Env.Bindings[Value.Base],
     env: Env.Bindings[Value.Base],
     stdlib: StdLib.Base,
+    task_subset: Value.Struct | None = None,
 ) -> dict[str, Value.Base]:
     """
     Evaluate a task's ``hints{}`` section to ``dict[str, Value.Base]`` for
@@ -838,8 +887,12 @@ def _eval_task_hints(
     task); overriding a hint avoids evaluating its expression.
 
     The assembled values are normalized with :func:`_normalize_hook_values`, as in
-    :func:`_eval_task_runtime`, before delivery to ``process_hints()``.
+    :func:`_eval_task_runtime`, before delivery to ``process_hints()``. In WDL 1.3,
+    task_subset binds the pre-evaluation ``task`` struct for the attempt, as in
+    :func:`_eval_task_runtime`.
     """
+    if task_subset is not None:
+        env = env.bind("task", task_subset)
     hint_bindings = list(inputs.enter_namespace("hints"))
     _validate_hint_override_names(task.hints, [b.name for b in hint_bindings])
     # reserved hints' camelCase aliases are normalized (in declared hints and
@@ -873,10 +926,16 @@ def _try_task(
     container_env: Env.Bindings[Value.Base],
     terminating: Callable[[], bool],
     cache_add_paths: CallCacheAddPaths,
+    refresh_task_runtime: Callable[["TaskContainer", int], Env.Bindings[Value.Base]] | None = None,
 ) -> "TaskContainer":
     """
     Run the task command in the container, retrying up to runtime.preemptible occurrences of
     Interrupted errors, plus up to runtime.maxRetries occurrences of any error.
+
+    The retry budgets come from the first attempt's process_runtime() results. Before
+    each retry, refresh_task_runtime (if given) re-evaluates the requirements and
+    hints for the new attempt and returns the environment to evaluate the command in;
+    the budgets are not re-read from the refreshed values.
     """
     from docker.errors import BuildError as DockerBuildError  # delay heavy import
 
@@ -889,12 +948,18 @@ def _try_task(
     plugin_changed_command = False
     assert isinstance(task.command, Expr.TaskCommand)
     command_uses_task_attempt = _task_command_uses_task_attempt(task.command)
+    # WDL 1.3: other task.* values can also change from one attempt to the next
+    # (task.previous, and the computed requirements when they're re-evaluated per
+    # attempt), so a command referencing any of them must likewise be re-evaluated
+    # on retry.
+    is_wdl13 = wdl_version_geq(task.effective_wdl_version, WDLVersion.V1_3)
+    command_task_member = _task_command_task_member(task.command) if is_wdl13 else None
 
     while True:
         if terminating():
             raise Terminated()
 
-        if command is None or command_uses_task_attempt:
+        if command is None or command_uses_task_attempt or command_task_member is not None:
             command = _eval_task_command(
                 cfg,
                 task,
@@ -982,8 +1047,27 @@ def _try_task(
                     "task command uses task.attempt, but a task plugin changed the command; "
                     "cannot retry with an updated task.attempt value"
                 ) from exn
+            if (
+                command_task_member is not None
+                and command_task_member != "attempt"
+                and plugin_changed_command
+            ):
+                # Same plugin-API limitation as task.attempt above, generalized in
+                # WDL 1.3 to any task.* reference whose value can change on retry
+                # (e.g. task.previous).
+                raise Error.RuntimeError(
+                    f"task command uses task.{command_task_member}, but a task plugin changed "
+                    f"the command; cannot retry with an updated task.{command_task_member} value"
+                ) from exn
+            if is_wdl13:
+                # Snapshot the outgoing attempt's computed requirements; the next
+                # attempt exposes them as task.previous (in requirements, hints,
+                # command, and outputs).
+                container.previous_attempt_snapshot = container.snapshot_task_previous()
             _delete_work(cfg, logger, container, False)
             container.reset(logger)
+            if refresh_task_runtime is not None:
+                container_env = refresh_task_runtime(container, container.try_counter - 1)
 
 
 def _eval_task_command(
@@ -1023,6 +1107,36 @@ def _eval_task_command(
     if old_command_dedent:  # see issue #674
         ans = _util.strip_leading_whitespace(ans)[1]
     return ans
+
+
+def _task_command_task_member(command: Expr.TaskCommand) -> str | None:
+    """
+    If the task command references the `task` runtime info struct, return the name of
+    the first member accessed (e.g. "attempt" or "previous"), "" for a bare `task`
+    reference, or None if the command doesn't reference `task` at all.
+    """
+    exprs = [part.expr for part in command.parts if isinstance(part, Expr.Placeholder)]
+    while exprs:
+        expr = exprs.pop()
+        if isinstance(expr, Expr.Ident):
+            if expr.name == "task":
+                return ""
+            if expr.name.startswith("task."):
+                return expr.name.split(".")[1]
+        elif isinstance(expr, Expr.Get):
+            # descend to the root of the member-access chain; the member accessed
+            # directly on `task` is the last non-None member seen before reaching
+            # the root identifier
+            node: Expr.Base = expr
+            member: str | None = None
+            while isinstance(node, Expr.Get):
+                if node.member is not None:
+                    member = node.member
+                node = node.expr
+            if isinstance(node, Expr.Ident) and node.name == "task":
+                return member if member is not None else ""
+        exprs.extend(child for child in expr.children if isinstance(child, Expr.Base))
+    return None
 
 
 def _task_command_uses_task_attempt(command: Expr.TaskCommand) -> bool:

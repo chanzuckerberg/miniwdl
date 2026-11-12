@@ -2306,6 +2306,199 @@ class TestHookValueShapes(unittest.TestCase):
         self.assertIsNotNone(ctx.exception.pos)
 
 
+class TestPerAttemptEvaluation(unittest.TestCase):
+    """
+    Requirements and hints are (re)evaluated before each task attempt, with
+    process_runtime() and process_hints() called before each attempt;
+    runtime_values is rebuilt on each call, and the retry budget comes from the
+    first attempt's evaluation. In WDL 1.3 (version development) the
+    expressions can use the pre-evaluation task.attempt and task.previous.
+    """
+
+    class AttemptRecordingContainer(TaskContainer):
+        # most recent instance, kept on the class because run_local_task
+        # instantiates the container itself
+        last_instance = None
+        # number of task commands actually run, across all instances
+        run_count = 0
+        # _run() fails while run_count <= fail_until
+        fail_until = 0
+
+        @classmethod
+        def global_init(cls, cfg, logger):
+            pass
+
+        @classmethod
+        def detect_resource_limits(cls, cfg, logger):
+            return {"cpu": 1024, "mem_bytes": 1 << 40}
+
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.events = []  # ("runtime"|"hints", delivered dict) in call order
+            self.struct_at_run = []  # (attempt, previous memory) per command run
+            self.runtime_values_at_run = []
+            type(self).last_instance = self
+
+        def process_runtime(self, logger, runtime_eval):
+            self.events.append(("runtime", dict(runtime_eval)))
+            super().process_runtime(logger, runtime_eval)
+            if len([e for e in self.events if e[0] == "runtime"]) == 1:
+                # marker set only while processing the first attempt; it must
+                # not leak into later attempts' runtime_values
+                self.runtime_values["first_attempt_only"] = True
+
+        def process_hints(self, logger, hints_eval):
+            self.events.append(("hints", dict(hints_eval)))
+            super().process_hints(logger, hints_eval)
+
+        def _run(self, logger, terminating, command):
+            type(self).run_count += 1
+            struct = self.task_runtime_info_struct
+            previous_memory = None
+            if struct is not None and "previous" in struct.value:
+                previous_memory = struct.value["previous"].value["memory"]
+                previous_memory = (
+                    None
+                    if isinstance(previous_memory, WDL.Value.Null)
+                    else previous_memory.value
+                )
+            self.struct_at_run.append(
+                (
+                    struct.value["attempt"].value if struct is not None else None,
+                    previous_memory,
+                )
+            )
+            self.runtime_values_at_run.append(dict(self.runtime_values))
+            return 1 if type(self).run_count <= type(self).fail_until else 0
+
+    def setUp(self):
+        self._dir = tempfile.mkdtemp(prefix="miniwdl_test_attempts_")
+        self._logger = logging.getLogger(self.id())
+        self.AttemptRecordingContainer.last_instance = None
+        self.AttemptRecordingContainer.run_count = 0
+        self.AttemptRecordingContainer.fail_until = 0
+        self._cfg = WDL.runtime.config.Loader(self._logger, [])
+        self._cfg.override({"scheduler": {"container_backend": "attempt_recording_test"}})
+        WDL.runtime.task_container._backends["attempt_recording_test"] = (
+            self.AttemptRecordingContainer
+        )
+        self.addCleanup(
+            WDL.runtime.task_container._backends.pop, "attempt_recording_test", None
+        )
+
+    def tearDown(self):
+        shutil.rmtree(self._dir)
+
+    def _run_task(self, wdl):
+        doc = WDL.parse_document(wdl)
+        doc.typecheck()
+        task = doc.tasks[0]
+        inputs = WDL.values_from_json(
+            {}, task.available_inputs, task.required_inputs, namespace=task.name
+        )
+        _, outputs = WDL.runtime.run_local_task(
+            self._cfg, task, inputs, run_dir=self._dir, logger_prefix=[self.id()]
+        )
+        return WDL.values_to_json(outputs)
+
+    def test_per_attempt_values_development(self):
+        self.AttemptRecordingContainer.fail_until = 1
+        outputs = self._run_task(
+            """version development
+            task retrying {
+                command <<< echo hi >>>
+                output { String out = "done" }
+                requirements {
+                    memory: 256 * (2 ** task.attempt)
+                    max_retries: 2
+                }
+                hints {
+                    max_memory: 256 * (2 ** task.attempt)
+                    prev_memory: select_first([task.previous.memory, -1])
+                }
+            }
+            """
+        )
+        self.assertEqual(outputs, {"out": "done"})
+        container = self.AttemptRecordingContainer.last_instance
+        self.assertIsNotNone(container)
+        # both hooks called once per attempt, runtime before hints
+        self.assertEqual(
+            [kind for kind, _ in container.events],
+            ["runtime", "hints", "runtime", "hints"],
+        )
+        runtime_evals = [d for kind, d in container.events if kind == "runtime"]
+        self.assertEqual(
+            [d["memory"] for d in runtime_evals],
+            [WDL.Value.Int(256), WDL.Value.Int(512)],
+        )
+        self.assertEqual(
+            [d for kind, d in container.events if kind == "hints"],
+            [
+                {"max_memory": WDL.Value.Int(256), "prev_memory": WDL.Value.Int(-1)},
+                {"max_memory": WDL.Value.Int(512), "prev_memory": WDL.Value.Int(256)},
+            ],
+        )
+        # the task.* struct reflects the current attempt; task.previous is
+        # all-None on the first attempt, then carries the previous attempt's
+        # computed requirements
+        self.assertEqual(container.struct_at_run, [(0, None), (1, 256)])
+        # runtime_values rebuilt per attempt: the fresh memory reservation is
+        # in place, and the first attempt's marker didn't carry over
+        self.assertEqual(container.runtime_values_at_run[0]["memory_reservation"], 256)
+        self.assertIn("first_attempt_only", container.runtime_values_at_run[0])
+        self.assertEqual(container.runtime_values_at_run[1]["memory_reservation"], 512)
+        self.assertNotIn("first_attempt_only", container.runtime_values_at_run[1])
+        self.assertEqual(self.AttemptRecordingContainer.run_count, 2)
+
+    def test_max_retries_from_first_attempt(self):
+        self.AttemptRecordingContainer.fail_until = 2
+        outputs = self._run_task(
+            """version development
+            task retry_budget {
+                command <<< echo hi >>>
+                output { String out = "done" }
+                requirements {
+                    max_retries: 2 - task.attempt
+                }
+            }
+            """
+        )
+        self.assertEqual(outputs, {"out": "done"})
+        # the first attempt's evaluation allows two retries; the budget isn't
+        # re-read from later attempts' evaluations (which allow fewer)
+        self.assertEqual(self.AttemptRecordingContainer.run_count, 3)
+
+    def test_per_attempt_hooks_wdl12(self):
+        self.AttemptRecordingContainer.fail_until = 1
+        outputs = self._run_task(
+            """version 1.2
+            task retrying12 {
+                command <<< echo hi >>>
+                output { String out = "done" }
+                requirements {
+                    max_retries: 1
+                }
+                hints {
+                    max_cpu: 4
+                }
+            }
+            """
+        )
+        self.assertEqual(outputs, {"out": "done"})
+        container = self.AttemptRecordingContainer.last_instance
+        self.assertIsNotNone(container)
+        self.assertEqual(
+            [kind for kind, _ in container.events],
+            ["runtime", "hints", "runtime", "hints"],
+        )
+        self.assertEqual(
+            [d for kind, d in container.events if kind == "hints"],
+            [{"max_cpu": WDL.Value.Int(4)}] * 2,
+        )
+        self.assertEqual(container.struct_at_run, [(0, None), (1, None)])
+
+
 class TestHintsEval(unittest.TestCase):
     def _eval(self, task, inputs, env, stdlib):
         return _eval_task_hints(task, inputs, env, stdlib)
