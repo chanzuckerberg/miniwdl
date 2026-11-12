@@ -55,6 +55,8 @@ These attributes can also be set for a given call when the run starts; see [Over
 
 WDL 1.2 tasks may also have a `hints {}` section, with optional hints that the execution engine can use or ignore. The runner evaluates each task's hints, in the same environment as its `requirements`, and passes the values to the container backend. The built-in backends don't act on any hint, but a [backend plugin](runner_backends.md#external-plugins) can. As with `requirements`, an error evaluating a hint fails the task; [overriding](#overriding-requirements-and-hints) the hint avoids evaluating its expression.
 
+Requirements and hints are re-evaluated before each attempt of a task run, so a backend sees fresh values on every retry. (The number of retries is governed by the first attempt's `max_retries`.)
+
 ## Overriding requirements and hints
 
 The input JSON or command line can override a call's task `requirements` and `hints`, by giving the call name, then `requirements` or `hints`, then the attribute name. For example, this input JSON overrides two settings for the call `align` in workflow `main`, superseding the values in the WDL:

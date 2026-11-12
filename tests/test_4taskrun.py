@@ -13,7 +13,7 @@ import multiprocessing
 from .context import WDL
 from WDL import Env, StdLib, Tree, Type, Value
 from WDL.runtime.backend.cli_subprocess import SubprocessBase
-from WDL.runtime.task import _eval_task_hints
+from WDL.runtime.task import _eval_task_hints, _normalize_hook_values
 from WDL.runtime.task_container import TaskContainer
 from testfixtures import log_capture
 
@@ -2080,6 +2080,423 @@ class TestProcessHints(unittest.TestCase):
         _, outputs = self._run_workflow({"wf.t2.hints.max_cpu": 8})
         self.assertEqual(WDL.values_to_json(outputs), {"out": "one"})
         self.assertEqual(self.RecordingContainer.run_count, 2)
+
+
+class TestHookValueShapes(unittest.TestCase):
+    """
+    The dicts delivered to TaskContainer.process_runtime() and process_hints()
+    are normalized so that each value's shape depends only on the value itself,
+    not on whether it was declared in the WDL or supplied as a JSON override
+    (which arrives untyped): a mapping always arrives as a Value.Struct of
+    Type.Object, an array as a Value.Array, and so on.
+    """
+
+    class ShapeRecordingContainer(TaskContainer):
+        # most recent instance, kept on the class because run_local_task
+        # instantiates the container itself
+        last_instance = None
+
+        @classmethod
+        def global_init(cls, cfg, logger):
+            pass
+
+        @classmethod
+        def detect_resource_limits(cls, cfg, logger):
+            return {"cpu": 1, "mem_bytes": 1}
+
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.runtime_calls = []
+            self.hints_calls = []
+            type(self).last_instance = self
+
+        def process_runtime(self, logger, runtime_eval):
+            self.runtime_calls.append(dict(runtime_eval))
+            super().process_runtime(logger, runtime_eval)
+
+        def process_hints(self, logger, hints_eval):
+            self.hints_calls.append(dict(hints_eval))
+            super().process_hints(logger, hints_eval)
+
+        def _run(self, logger, terminating, command):
+            return 0
+
+    WDL = """version 1.2
+    task shaped {
+        input { File f = "__FILE__" }
+        command <<< echo hello >>>
+        output { String out = "done" }
+        requirements {
+            custom_map: {"a": 1, "b": 2}
+            custom_arr: [1, 2, 3]
+            nested_map: {"outer": {"x": 1, "y": 2}}
+            with_pair: {"p": (1, "a")}
+            kind_map_i: {"v": 1}
+            kind_map_f: {"v": 1.0}
+            kind_map_b: {"v": true}
+            empty_arr: []
+            empty_map: {}
+            custom_file: f
+        }
+        hints {
+            custom_map: {"a": 1, "b": 2}
+            custom_arr: [1, 2, 3]
+            nested_map: {"outer": {"x": 1, "y": 2}}
+            with_pair: {"p": (1, "a")}
+            kind_map_i: {"v": 1}
+            kind_map_f: {"v": 1.0}
+            kind_map_b: {"v": true}
+            empty_arr: []
+            empty_map: {}
+            custom_file: f
+        }
+    }
+    """
+
+    def setUp(self):
+        self._dir = tempfile.mkdtemp(prefix="miniwdl_test_shapes_")
+        self._file_path = os.path.join(self._dir, "input.txt")
+        with open(self._file_path, "w") as infile:
+            infile.write("x")
+        self._logger = logging.getLogger(self.id())
+        self.ShapeRecordingContainer.last_instance = None
+        self._cfg = WDL.runtime.config.Loader(self._logger, [])
+        self._cfg.override({"scheduler": {"container_backend": "shape_recording_test"}})
+        WDL.runtime.task_container._backends["shape_recording_test"] = (
+            self.ShapeRecordingContainer
+        )
+        self.addCleanup(
+            WDL.runtime.task_container._backends.pop, "shape_recording_test", None
+        )
+
+    def tearDown(self):
+        shutil.rmtree(self._dir)
+
+    def _run_task(self, inputs_json=None):
+        doc = WDL.parse_document(self.WDL.replace("__FILE__", self._file_path))
+        doc.typecheck()
+        task = doc.tasks[0]
+        inputs = WDL.values_from_json(
+            inputs_json or {}, task.available_inputs, task.required_inputs, namespace=task.name
+        )
+        _, outputs = WDL.runtime.run_local_task(
+            self._cfg, task, inputs, run_dir=self._dir, logger_prefix=[self.id()]
+        )
+        self.assertEqual(WDL.values_to_json(outputs), {"out": "done"})
+        container = self.ShapeRecordingContainer.last_instance
+        self.assertIsNotNone(container)
+        self.assertEqual(len(container.runtime_calls), 1)
+        self.assertEqual(len(container.hints_calls), 1)
+        return container.runtime_calls[0], container.hints_calls[0]
+
+    @staticmethod
+    def _shapes(values):
+        return {k: (type(v).__name__, str(v.type), v.json) for k, v in values.items()}
+
+    def test_declared_and_override_shapes_agree(self):
+        declared_runtime, declared_hints = self._run_task()
+        override_runtime, override_hints = self._run_task(
+            {
+                "shaped.requirements.custom_map": {"a": 1, "b": 2},
+                "shaped.requirements.custom_arr": [1, 2, 3],
+                "shaped.requirements.nested_map": {"outer": {"x": 1, "y": 2}},
+                "shaped.requirements.with_pair": {"p": {"left": 1, "right": "a"}},
+                "shaped.requirements.kind_map_i": {"v": 1},
+                "shaped.requirements.kind_map_f": {"v": 1.0},
+                "shaped.requirements.kind_map_b": {"v": True},
+                "shaped.requirements.empty_arr": [],
+                "shaped.requirements.empty_map": {},
+                "shaped.hints.custom_map": {"a": 1, "b": 2},
+                "shaped.hints.custom_arr": [1, 2, 3],
+                "shaped.hints.nested_map": {"outer": {"x": 1, "y": 2}},
+                "shaped.hints.with_pair": {"p": {"left": 1, "right": "a"}},
+                "shaped.hints.kind_map_i": {"v": 1},
+                "shaped.hints.kind_map_f": {"v": 1.0},
+                "shaped.hints.kind_map_b": {"v": True},
+                "shaped.hints.empty_arr": [],
+                "shaped.hints.empty_map": {},
+            }
+        )
+        self.assertEqual(self._shapes(declared_runtime), self._shapes(override_runtime))
+        self.assertEqual(self._shapes(declared_hints), self._shapes(override_hints))
+        # the normalized convention: mappings arrive as Struct of Object
+        for delivered in (declared_runtime, declared_hints, override_runtime, override_hints):
+            self.assertIsInstance(delivered["custom_map"], WDL.Value.Struct)
+            self.assertIsInstance(delivered["custom_map"].type, WDL.Type.Object)
+            self.assertIsInstance(delivered["custom_arr"], WDL.Value.Array)
+            # the payloads themselves arrive intact
+            self.assertEqual(delivered["custom_map"].json, {"a": 1, "b": 2})
+            self.assertEqual(delivered["custom_arr"].json, [1, 2, 3])
+            self.assertEqual(delivered["nested_map"].json, {"outer": {"x": 1, "y": 2}})
+            # normalization is recursive: a nested mapping is also a Struct of
+            # Object, and a Pair member becomes a Struct with left/right members
+            # (a Pair's JSON representation is the left/right object, so the
+            # override above supplies that form and the shapes agree)
+            inner = delivered["nested_map"].value["outer"]
+            self.assertIsInstance(inner, WDL.Value.Struct)
+            self.assertIsInstance(inner.type, WDL.Type.Object)
+            pair = delivered["with_pair"].value["p"]
+            self.assertIsInstance(pair, WDL.Value.Struct)
+            self.assertEqual(pair.json, {"left": 1, "right": "a"})
+            # scalar kinds survive distinctly inside mappings (comparing JSON
+            # payloads alone would conflate 1, 1.0, and true)
+            self.assertIs(type(delivered["kind_map_i"].value["v"]), WDL.Value.Int)
+            self.assertIs(type(delivered["kind_map_f"].value["v"]), WDL.Value.Float)
+            self.assertIs(type(delivered["kind_map_b"].value["v"]), WDL.Value.Boolean)
+            # empty collections keep their container kind
+            self.assertIsInstance(delivered["empty_arr"], WDL.Value.Array)
+            self.assertEqual(delivered["empty_arr"].value, [])
+            self.assertIsInstance(delivered["empty_map"], WDL.Value.Struct)
+            self.assertEqual(delivered["empty_map"].value, {})
+            # a File arrives as a plain String holding its path
+            self.assertIs(type(delivered["custom_file"]), WDL.Value.String)
+            self.assertTrue(delivered["custom_file"].value.endswith("input.txt"))
+
+    def test_json_unrepresentable_value_fails_before_delivery(self):
+        # a Map with Pair keys has no JSON representation; normalization rejects
+        # it and the task fails before either hook is invoked
+        wdl = """version 1.2
+        task unrepresentable {
+            command <<< echo hello >>>
+            output { String out = "done" }
+            requirements {
+                pair_keyed: {(1, "a"): "x"}
+            }
+        }
+        """
+        doc = WDL.parse_document(wdl)
+        doc.typecheck()
+        task = doc.tasks[0]
+        inputs = WDL.values_from_json(
+            {}, task.available_inputs, task.required_inputs, namespace=task.name
+        )
+        with self.assertRaises(WDL.runtime.RunFailed) as ctx:
+            WDL.runtime.run_local_task(
+                self._cfg, task, inputs, run_dir=self._dir, logger_prefix=[self.id()]
+            )
+        cause = ctx.exception.__cause__
+        while cause is not None and not isinstance(cause, WDL.Error.EvalError):
+            cause = cause.__cause__ or cause.__context__
+        self.assertIsNotNone(cause)
+        self.assertIn("cannot write", str(cause))
+        container = self.ShapeRecordingContainer.last_instance
+        self.assertIsNotNone(container)
+        self.assertEqual(container.runtime_calls, [])
+        self.assertEqual(container.hints_calls, [])
+
+    def test_normalized_value_keeps_source_position_on_coercion_error(self):
+        # a normalized value keeps its WDL source expression, so a consumer's
+        # failed coercion still raises an EvalError carrying the source position,
+        # instead of a position-less RuntimeError
+        doc = WDL.parse_document(
+            """version 1.2
+            task positioned {
+                command <<< echo hello >>>
+                runtime { bogus_float: "bogus" }
+            }
+            """
+        )
+        doc.typecheck()
+        expr = doc.tasks[0].runtime["bogus_float"]
+        value = expr.eval(WDL.Env.Bindings(), WDL.StdLib.Base("1.2"))
+        normalized = _normalize_hook_values({"bogus_float": value})["bogus_float"]
+        self.assertIs(normalized.expr, expr)
+        with self.assertRaises(WDL.Error.EvalError) as ctx:
+            normalized.coerce(WDL.Type.Float())
+        self.assertIsNotNone(ctx.exception.pos)
+
+
+class TestPerAttemptEvaluation(unittest.TestCase):
+    """
+    Requirements and hints are (re)evaluated before each task attempt, with
+    process_runtime() and process_hints() called before each attempt;
+    runtime_values is rebuilt on each call, and the retry budget comes from the
+    first attempt's evaluation. In WDL 1.3 (version development) the
+    expressions can use the pre-evaluation task.attempt and task.previous.
+    """
+
+    class AttemptRecordingContainer(TaskContainer):
+        # most recent instance, kept on the class because run_local_task
+        # instantiates the container itself
+        last_instance = None
+        # number of task commands actually run, across all instances
+        run_count = 0
+        # _run() fails while run_count <= fail_until
+        fail_until = 0
+
+        @classmethod
+        def global_init(cls, cfg, logger):
+            pass
+
+        @classmethod
+        def detect_resource_limits(cls, cfg, logger):
+            return {"cpu": 1024, "mem_bytes": 1 << 40}
+
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.events = []  # ("runtime"|"hints", delivered dict) in call order
+            self.struct_at_run = []  # (attempt, previous memory) per command run
+            self.runtime_values_at_run = []
+            type(self).last_instance = self
+
+        def process_runtime(self, logger, runtime_eval):
+            self.events.append(("runtime", dict(runtime_eval)))
+            super().process_runtime(logger, runtime_eval)
+            if len([e for e in self.events if e[0] == "runtime"]) == 1:
+                # marker set only while processing the first attempt; it must
+                # not leak into later attempts' runtime_values
+                self.runtime_values["first_attempt_only"] = True
+
+        def process_hints(self, logger, hints_eval):
+            self.events.append(("hints", dict(hints_eval)))
+            super().process_hints(logger, hints_eval)
+
+        def _run(self, logger, terminating, command):
+            type(self).run_count += 1
+            struct = self.task_runtime_info_struct
+            previous_memory = None
+            if struct is not None and "previous" in struct.value:
+                previous_memory = struct.value["previous"].value["memory"]
+                previous_memory = (
+                    None
+                    if isinstance(previous_memory, WDL.Value.Null)
+                    else previous_memory.value
+                )
+            self.struct_at_run.append(
+                (
+                    struct.value["attempt"].value if struct is not None else None,
+                    previous_memory,
+                )
+            )
+            self.runtime_values_at_run.append(dict(self.runtime_values))
+            return 1 if type(self).run_count <= type(self).fail_until else 0
+
+    def setUp(self):
+        self._dir = tempfile.mkdtemp(prefix="miniwdl_test_attempts_")
+        self._logger = logging.getLogger(self.id())
+        self.AttemptRecordingContainer.last_instance = None
+        self.AttemptRecordingContainer.run_count = 0
+        self.AttemptRecordingContainer.fail_until = 0
+        self._cfg = WDL.runtime.config.Loader(self._logger, [])
+        self._cfg.override({"scheduler": {"container_backend": "attempt_recording_test"}})
+        WDL.runtime.task_container._backends["attempt_recording_test"] = (
+            self.AttemptRecordingContainer
+        )
+        self.addCleanup(
+            WDL.runtime.task_container._backends.pop, "attempt_recording_test", None
+        )
+
+    def tearDown(self):
+        shutil.rmtree(self._dir)
+
+    def _run_task(self, wdl):
+        doc = WDL.parse_document(wdl)
+        doc.typecheck()
+        task = doc.tasks[0]
+        inputs = WDL.values_from_json(
+            {}, task.available_inputs, task.required_inputs, namespace=task.name
+        )
+        _, outputs = WDL.runtime.run_local_task(
+            self._cfg, task, inputs, run_dir=self._dir, logger_prefix=[self.id()]
+        )
+        return WDL.values_to_json(outputs)
+
+    def test_per_attempt_values_development(self):
+        self.AttemptRecordingContainer.fail_until = 1
+        outputs = self._run_task(
+            """version development
+            task retrying {
+                command <<< echo hi >>>
+                output { String out = "done" }
+                requirements {
+                    memory: 256 * (2 ** task.attempt)
+                    max_retries: 2
+                }
+                hints {
+                    max_memory: 256 * (2 ** task.attempt)
+                    prev_memory: select_first([task.previous.memory, -1])
+                }
+            }
+            """
+        )
+        self.assertEqual(outputs, {"out": "done"})
+        container = self.AttemptRecordingContainer.last_instance
+        self.assertIsNotNone(container)
+        # both hooks called once per attempt, runtime before hints
+        self.assertEqual(
+            [kind for kind, _ in container.events],
+            ["runtime", "hints", "runtime", "hints"],
+        )
+        runtime_evals = [d for kind, d in container.events if kind == "runtime"]
+        self.assertEqual(
+            [d["memory"] for d in runtime_evals],
+            [WDL.Value.Int(256), WDL.Value.Int(512)],
+        )
+        self.assertEqual(
+            [d for kind, d in container.events if kind == "hints"],
+            [
+                {"max_memory": WDL.Value.Int(256), "prev_memory": WDL.Value.Int(-1)},
+                {"max_memory": WDL.Value.Int(512), "prev_memory": WDL.Value.Int(256)},
+            ],
+        )
+        # the task.* struct reflects the current attempt; task.previous is
+        # all-None on the first attempt, then carries the previous attempt's
+        # computed requirements
+        self.assertEqual(container.struct_at_run, [(0, None), (1, 256)])
+        # runtime_values rebuilt per attempt: the fresh memory reservation is
+        # in place, and the first attempt's marker didn't carry over
+        self.assertEqual(container.runtime_values_at_run[0]["memory_reservation"], 256)
+        self.assertIn("first_attempt_only", container.runtime_values_at_run[0])
+        self.assertEqual(container.runtime_values_at_run[1]["memory_reservation"], 512)
+        self.assertNotIn("first_attempt_only", container.runtime_values_at_run[1])
+        self.assertEqual(self.AttemptRecordingContainer.run_count, 2)
+
+    def test_max_retries_from_first_attempt(self):
+        self.AttemptRecordingContainer.fail_until = 2
+        outputs = self._run_task(
+            """version development
+            task retry_budget {
+                command <<< echo hi >>>
+                output { String out = "done" }
+                requirements {
+                    max_retries: 2 - task.attempt
+                }
+            }
+            """
+        )
+        self.assertEqual(outputs, {"out": "done"})
+        # the first attempt's evaluation allows two retries; the budget isn't
+        # re-read from later attempts' evaluations (which allow fewer)
+        self.assertEqual(self.AttemptRecordingContainer.run_count, 3)
+
+    def test_per_attempt_hooks_wdl12(self):
+        self.AttemptRecordingContainer.fail_until = 1
+        outputs = self._run_task(
+            """version 1.2
+            task retrying12 {
+                command <<< echo hi >>>
+                output { String out = "done" }
+                requirements {
+                    max_retries: 1
+                }
+                hints {
+                    max_cpu: 4
+                }
+            }
+            """
+        )
+        self.assertEqual(outputs, {"out": "done"})
+        container = self.AttemptRecordingContainer.last_instance
+        self.assertIsNotNone(container)
+        self.assertEqual(
+            [kind for kind, _ in container.events],
+            ["runtime", "hints", "runtime", "hints"],
+        )
+        self.assertEqual(
+            [d for kind, d in container.events if kind == "hints"],
+            [{"max_cpu": WDL.Value.Int(4)}] * 2,
+        )
+        self.assertEqual(container.struct_at_run, [(0, None), (1, None)])
 
 
 class TestHintsEval(unittest.TestCase):
