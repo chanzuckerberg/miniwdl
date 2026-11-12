@@ -641,6 +641,27 @@ def _warn_input_basename_collisions(logger: logging.Logger, container: "TaskCont
         )
 
 
+def _normalize_hook_values(values: dict[str, Value.Base]) -> dict[str, Value.Base]:
+    """
+    Normalize values about to be delivered to a TaskContainer process_runtime() or
+    process_hints() hook, round-tripping each through its JSON representation and
+    re-inferring types as for Type.Any, so that values with the same JSON
+    representation are delivered in the same shape regardless of source (the
+    contract is documented on process_runtime()). A value with no JSON
+    representation (e.g. a Map whose keys can't be written as JSON object keys)
+    raises instead of being delivered.
+    """
+    ans = {}
+    for key, v in values.items():
+        nv = Value.from_json(Type.Any(), v.json)
+        if v.expr is not None:
+            # preserve the source expression so coercion errors in the hook
+            # retain a WDL source position
+            nv.expr = v.expr
+        ans[key] = nv
+    return ans
+
+
 def _eval_task_runtime(
     cfg: config.Loader,
     logger: logging.Logger,
@@ -672,6 +693,7 @@ def _eval_task_runtime(
         task.effective_wdl_version, WDLVersion.V1_2
     ):
         runtime_values["maxRetries"] = runtime_values.pop("max_retries")
+    runtime_values = _normalize_hook_values(runtime_values)
     logger.debug(_("runtime values", **{key: str(v) for key, v in runtime_values.items()}))
 
     # have container implementation validate & postprocess into container.runtime_values
@@ -814,6 +836,9 @@ def _eval_task_hints(
     to :class:`WDL.Value.Struct` of :class:`WDL.Type.Object`, the same shape as JSON
     overrides. As with ``requirements{}``, an evaluation error propagates (failing the
     task); overriding a hint avoids evaluating its expression.
+
+    The assembled values are normalized with :func:`_normalize_hook_values`, as in
+    :func:`_eval_task_runtime`, before delivery to ``process_hints()``.
     """
     hint_bindings = list(inputs.enter_namespace("hints"))
     _validate_hint_override_names(task.hints, [b.name for b in hint_bindings])
@@ -836,7 +861,7 @@ def _eval_task_hints(
         if key not in overrides:
             ans[key] = _eval_hint_value(v, env, stdlib)
     ans.update(overrides)
-    return ans
+    return _normalize_hook_values(ans)
 
 
 def _try_task(
