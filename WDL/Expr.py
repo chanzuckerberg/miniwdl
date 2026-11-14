@@ -714,11 +714,15 @@ class Map(Base):
         kty = Type.unify([k.type for (k, _) in self.items], check_quant=self._check_quant)
         if isinstance(kty, Type.Any):
             raise Error.IndeterminateType(self, "unable to unify map key types")
-        vty = Type.unify(
-            [v.type for (_, v) in self.items], check_quant=self._check_quant, force_string=True
-        )
-        if isinstance(vty, Type.Any):
-            raise Error.IndeterminateType(self, "unable to unify map value types")
+        if all(isinstance(v.type, Type.Any) and v.type.optional for (_, v) in self.items):
+            # all values are literally None...
+            vty: Type.Base = Type.Any(null=True)
+        else:
+            vty = Type.unify(
+                [v.type for (_, v) in self.items], check_quant=self._check_quant, force_string=True
+            )
+            if isinstance(vty, Type.Any):
+                raise Error.IndeterminateType(self, "unable to unify map value types")
         literal_keys: set[str] | None = None
         if kty == Type.String():
             # If the keys are string constants, record them in the Type object

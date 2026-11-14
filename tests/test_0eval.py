@@ -554,6 +554,13 @@ class TestEval(unittest.TestCase):
             ("q.left.right", "2", env)
         )
 
+    def test_map_none_values(self):
+        self._test_tuples(
+            ("{'foo': None}", '{"foo": None}', WDL.Type.Map((WDL.Type.String(), WDL.Type.Any(null=True))), "1.2"),
+            ("{'foo': None, 'bar': None}['bar']", "None", "1.2"),
+            ("{'foo': None, 'bar': 1}['bar']", "1", WDL.Type.Int(optional=True), "1.2"),
+        )
+
     def test_map(self):
         self._test_tuples(
             ("{'foo': 1, 'bar': 2}['bar']", "2"),
