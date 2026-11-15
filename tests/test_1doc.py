@@ -2884,6 +2884,30 @@ class TestNoneLiteral(unittest.TestCase):
         assert str(WDL.Value.Null()) == "None"
         assert str(doc.workflow.inputs[0]) == "Int? x = None"
 
+    def test_none_map_values(self):
+        doc = WDL.parse_document(
+            r"""
+        version development
+        workflow wf {
+            input {
+                Map[String,String?] m = {"a": None}
+            }
+            Map[String,Int?] n = {"a": None, "b": None}
+            Map[String,Int?] mixed = {"a": None, "b": 1}
+        }
+        """
+        )
+        doc.typecheck()
+
+        with self.assertRaises(WDL.Error.StaticTypeMismatch):
+            WDL.parse_document(
+                r"""version development
+            workflow w {
+                Map[String,Int] m = {"a": None}
+            }
+            """
+            ).typecheck()
+
     def test_none_type_errors(self):
         with self.assertRaises(WDL.Error.StaticTypeMismatch):
             WDL.parse_document(r"""version development
