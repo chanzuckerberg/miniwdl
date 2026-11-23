@@ -2,11 +2,14 @@
 Runtime StdLib implementations for tasks and workflows.
 """
 
-import glob
 import hashlib
 import logging
 import os
+import stat
 from typing import TYPE_CHECKING
+
+import bracex
+from wcmatch import glob as wcmatch_glob
 
 from .. import Env, Error, StdLib, Type, Value
 from .._util import StructuredLogMessage as _
@@ -20,6 +23,38 @@ from .error import OutputError
 if TYPE_CHECKING:
     from ._workflow_state import StateMachine
     from .task_container import TaskContainer
+
+
+# upper bounds on one glob() pattern's brace expansion: the number of
+# alternatives (bracex counts them as it generates them, so the bound
+# also covers nested cross products) and their total length (each
+# alternative retains its own copy of any common suffix)
+_MAX_GLOB_BRACE_ALTERNATIVES = 4096
+_MAX_GLOB_BRACE_EXPANSION_LENGTH = 16777216
+
+
+def _expand_bash_braces(pattern: str) -> list[str]:
+    """
+    Expand the brace expressions in a glob pattern (comma lists, nesting,
+    and ``{x..y}`` sequences), in expansion order, using bracex -- wcmatch's
+    brace engine. Backslash escapes are kept verbatim for the matcher to
+    interpret, as in Bash, and braces the expander can't parse are left
+    literal, also as in Bash.
+    """
+    try:
+        alternatives = []
+        total_length = 0
+        for alt in bracex.iexpand(pattern, keep_escapes=True, limit=_MAX_GLOB_BRACE_ALTERNATIVES):
+            total_length += len(alt)
+            if total_length > _MAX_GLOB_BRACE_EXPANSION_LENGTH:
+                raise OutputError("glob() pattern brace expansion is too large")
+            alternatives.append(alt)
+        return alternatives
+    except (bracex.ExpansionLimitException, RecursionError):
+        # bracex enforces the count limit during generation, but deep
+        # nesting can hit Python's recursion limit first; both are the
+        # same class of excess
+        raise OutputError("glob() pattern brace expansion is too large") from None
 
 
 class TaskStdLib(StdLib.Base):
@@ -182,14 +217,92 @@ class TaskOutputStdLib(TaskStdLib):
             if not pat:
                 raise OutputError("empty glob() pattern")
             assert isinstance(pat, str)
-            if pat[0] == "/":
-                raise OutputError("glob() pattern must be relative to task working directory")
-            if pat.startswith("..") or "/.." in pat:
-                raise OutputError("glob() pattern must not use .. uplevels")
-            pat = pat.removeprefix("./")
-            # glob the host directory (escaping any glob metacharacters in its path)
-            pat = os.path.join(glob.escape(lib.container.host_work_dir()), pat)
-            host_files = sorted(fn for fn in glob.glob(pat) if os.path.isfile(fn))
+            host_dir = lib.container.host_work_dir()
+
+            def _translate_work_path(target: str) -> str | None:
+                # map an absolute path under the container work directory to
+                # the corresponding host path; None if it isn't one. Reject
+                # ".." rather than collapse it across symlinks; preserve
+                # trailing "/" and "/." because both require a directory.
+                prefix = [
+                    c for c in os.path.join(lib.container.container_dir, "work").split("/") if c
+                ]
+                comps = target.split("/")[1:]
+                i = 0
+                for want in prefix:
+                    while i < len(comps) and comps[i] in (".", ""):
+                        i += 1
+                    if i >= len(comps) or comps[i] != want:
+                        return None
+                    i += 1
+                suffix = comps[i:]
+                while suffix and suffix[0] == "":
+                    suffix.pop(0)
+                if ".." in suffix:
+                    return None
+                if not suffix:
+                    return lib.container.host_work_dir()
+                return os.path.join(lib.container.host_work_dir(), *suffix)
+
+            def _keep(fn: str) -> bool:
+                # Keep regular files, links to them, and dangling links.
+                # Limit final-component hops; the host resolves intermediate components.
+                path = fn
+                followed = False
+                hops = 0
+                while True:
+                    try:
+                        mode = os.lstat(path).st_mode
+                    except (FileNotFoundError, NotADirectoryError):
+                        return followed
+                    except OSError:
+                        return False
+                    if not stat.S_ISLNK(mode):
+                        return stat.S_ISREG(mode)
+                    followed = True
+                    hops += 1
+                    if hops > 40:
+                        return False
+                    try:
+                        target = os.readlink(path)
+                    except OSError:
+                        return False
+                    if os.path.isabs(target):
+                        path = _translate_work_path(target) or target
+                    else:
+                        path = os.path.join(os.path.dirname(path), target)
+
+            # Brace expansion precedes pathname expansion: sort matches
+            # within each alternative, then concatenate in brace order.
+            # Apply the relative-path and no-uplevel rules to each
+            # alternative, but match it as written: a trailing / or /. still
+            # requires a directory. Pass host_dir as the matching root, not
+            # as pattern text, so its metacharacters need no escaping.
+            # Relative results arrive in scan order and may retain a
+            # leading ./ (which brace alternatives can produce).
+            host_files: list[str] = []
+            for alt in _expand_bash_braces(pat):
+                if alt.startswith("/"):
+                    raise OutputError("glob() pattern must be relative to task working directory")
+                if alt.startswith("..") or "/.." in alt:
+                    raise OutputError("glob() pattern must not use .. uplevels")
+                kept = []
+                for rel in wcmatch_glob.iglob(alt, flags=0, root_dir=host_dir):
+                    while rel.startswith("./"):
+                        rel = rel[2:]
+                    if not rel:
+                        continue
+                    # Backslash quoting can hide uplevels from the pattern
+                    # checks above (e.g. \../x). Recheck the interpreted
+                    # names before joining them to host_dir.
+                    if os.path.isabs(rel) or ".." in rel.split("/"):
+                        raise OutputError(
+                            "glob() match must be relative to the task working directory"
+                            " and contain no '..' components"
+                        )
+                    if _keep(os.path.join(host_dir, rel)):
+                        kept.append(rel)
+                host_files.extend(os.path.join(host_dir, rel) for rel in sorted(kept))
             # convert the host filenames to in-container filenames
             container_files = []
             for hf in host_files:
