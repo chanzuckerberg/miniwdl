@@ -684,6 +684,32 @@ class NonStringKeyMapJSON(Linter):
 
 
 @a_linter
+class MapLiteralStringCoercion(Linter):
+    # Map literal whose member values unify to String, coercing the non-String
+    # members to strings (e.g. {"cpu": 4, "memory": "16G"} stringifies 4)
+
+    def expr(self, obj: Expr.Base) -> Any:
+        if isinstance(obj, Expr.Map) and obj.items:
+            assert isinstance(obj.type, Type.Map)
+            if isinstance(obj.type.item_type[1], Type.String):
+                coerced = sorted(
+                    {
+                        str(v.type)
+                        for (_, v) in obj.items
+                        if not isinstance(v.type, (Type.String, Type.Any))
+                    }
+                )
+                if coerced:
+                    self.add(
+                        obj,
+                        "Map literal member value(s) of type "
+                        + ", ".join(coerced)
+                        + " coerced to String",
+                        obj.pos,
+                    )
+
+
+@a_linter
 class OptionalCoercion(Linter):
     # Expression of optional type where a non-optional value is expected
     # Normally these fail typechecking, but the enforcement isn't stringent in

@@ -743,11 +743,11 @@ class Map(Base):
         keystrs = set()
         eitems = []
         for k, v in self.items:
-            ek = k.eval(env, stdlib)
+            ek = k.eval(env, stdlib).coerce(self.type.item_type[0])
             sk = str(ek)
             if sk in keystrs:
                 raise Error.EvalError(self, "duplicate keys in Map literal")
-            eitems.append((ek, v.eval(env, stdlib)))
+            eitems.append((ek, v.eval(env, stdlib).coerce(self.type.item_type[1])))
             keystrs.add(sk)
         return Value.Map(self.type.item_type, eitems)
 
@@ -759,7 +759,7 @@ class Map(Base):
             kl = k.literal
             vl = v.literal
             if kl and vl:
-                items.append((kl, vl))
+                items.append((kl.coerce(self.type.item_type[0]), vl.coerce(self.type.item_type[1])))
             else:
                 return None
         return Value.Map(self.type.item_type, items)

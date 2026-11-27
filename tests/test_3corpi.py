@@ -157,6 +157,60 @@ class Lint(unittest.TestCase):
         ]
         self.assertEqual([], lint)
 
+    def _map_literal_string_coercion_lints(self, source):
+        with tempfile.TemporaryDirectory(prefix="miniwdl_lint_test_") as testdir:
+            wdl = os.path.join(testdir, "test.wdl")
+            pathlib.Path(wdl).write_text(textwrap.dedent(source))
+            doc = WDL.load(wdl)
+            WDL.Lint._shellcheck_available = False
+            WDL.Lint.lint(doc, descend_imports=False)
+            return [
+                message
+                for _pos, lint_class, message, suppressed in WDL.Lint.collect(doc)
+                if lint_class == "MapLiteralStringCoercion" and not suppressed
+            ]
+
+    def test_map_literal_string_coercion_mixed(self):
+        lint = self._map_literal_string_coercion_lints(
+            """
+            version 1.1
+            workflow w {
+                Map[String, String] m = {"cpu": 4, "memory": "16G"}
+            }
+            """
+        )
+        self.assertEqual(
+            ["Map literal member value(s) of type Int coerced to String"], lint
+        )
+
+    def test_map_literal_string_coercion_homogeneous_silent(self):
+        lint = self._map_literal_string_coercion_lints(
+            """
+            version 1.1
+            workflow w {
+                Map[String, String] all_string = {"a": "x", "b": "y"}
+                Map[String, Int] all_int = {"a": 1, "b": 2}
+                Map[String, Float] numeric_mix = {"a": 1, "b": 2.5}
+                Map[String, String] from_var = all_string
+            }
+            """
+        )
+        self.assertEqual([], lint)
+
+    def test_map_literal_string_coercion_nested_once(self):
+        # one warning per mixed literal, wherever it appears in a larger expression
+        lint = self._map_literal_string_coercion_lints(
+            """
+            version 1.1
+            workflow w {
+                Array[Map[String, String]] arr = [{"cpu": 4, "memory": "16G"}]
+            }
+            """
+        )
+        self.assertEqual(
+            ["Map literal member value(s) of type Int coerced to String"], lint
+        )
+
 
 async def read_source(uri, path, importer_uri):
     if uri.startswith("http:") or uri.startswith("https:"):
@@ -538,6 +592,7 @@ class dxWDL(unittest.TestCase):
         "UnexpectedRuntimeValue": 1,
         "ImportNewerWDL": 1,
         "NonStringKeyMapJSON": 7,
+        "MapLiteralStringCoercion": 1,
     },
     blocklist=["check_quant", "incomplete_call", "issue596"],
 )
@@ -567,6 +622,7 @@ class Contrived(unittest.TestCase):
         "UnexpectedRuntimeValue": 1,
         "ImportNewerWDL": 2,
         "NonStringKeyMapJSON": 7,
+        "MapLiteralStringCoercion": 1,
     },
     check_quant=False,
     blocklist=["incomplete_call"],
