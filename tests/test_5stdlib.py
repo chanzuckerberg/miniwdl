@@ -1715,6 +1715,320 @@ class TestStdLib(unittest.TestCase):
         self.assertTrue(outputs["f1"].endswith("/foo"))
         assert os.path.isfile(outputs["f1"])
 
+    def test_glob_bash_brace_expansion(self):
+        # brace expansion is textual and in expansion order, delegated to
+        # bracex; braces it can't parse are left literal, as in Bash, and
+        # backslash escapes are kept verbatim for the matcher to interpret
+        expand = WDL.runtime._stdlib._expand_bash_braces
+        self.assertEqual(expand("{a,b}.txt"), ["a.txt", "b.txt"])
+        self.assertEqual(expand("{b,a}.txt"), ["b.txt", "a.txt"])
+        self.assertEqual(expand("{a,{b,c}}.txt"), ["a.txt", "b.txt", "c.txt"])
+        self.assertEqual(expand("{1..3}.txt"), ["1.txt", "2.txt", "3.txt"])
+        self.assertEqual(expand("plain.txt"), ["plain.txt"])
+        self.assertEqual(expand("{a}.txt"), ["{a}.txt"])
+        self.assertEqual(expand("{a,b"), ["{a,b"])
+        # escaped braces are not expanded, and the escapes survive into
+        # the alternatives (the matcher reads them as literal braces)
+        self.assertEqual(expand("\\{a,b}.txt"), ["\\{a,b}.txt"])
+        self.assertEqual(expand("a\\,b.txt"), ["a\\,b.txt"])
+        self.assertEqual(expand("\\*.txt"), ["\\*.txt"])
+        self.assertEqual(expand("\\{1..4097}.txt"), ["\\{1..4097}.txt"])
+        # an escape elsewhere in the pattern doesn't inhibit a real group
+        self.assertEqual(expand("\\*{a,b}.txt"), ["\\*a.txt", "\\*b.txt"])
+        # an escaped range beside a real group stays escaped (literal
+        # text for the matcher), whether or not its closing brace is
+        # escaped too
+        self.assertEqual(expand("{a,b}\\{1..4097\\}"), ["a\\{1..4097\\}", "b\\{1..4097\\}"])
+        self.assertEqual(expand("{a,b}\\{1..4097}"), ["a\\{1..4097}", "b\\{1..4097}"])
+        # the alternatives cap: at the cap is fine, past it is an error,
+        # whether from one range's span or a cross product of ranges
+        self.assertEqual(len(expand("{1..4096}")), 4096)
+        with self.assertRaises(WDL.Error.RuntimeError):
+            expand("{1..4097}")
+        with self.assertRaises(WDL.Error.RuntimeError):
+            expand("{1..100000}")
+        with self.assertRaises(WDL.Error.RuntimeError):
+            expand("{1..100}{1..100}")
+        # extremely deep nesting is the same class of excess (the
+        # expander recurses per level)
+        with self.assertRaises(WDL.Error.RuntimeError):
+            expand("{" * 5000 + "x" + "}" * 5000)
+        # so is a long literal suffix retained once per alternative
+        with self.assertRaises(WDL.Error.RuntimeError):
+            expand("{1..4096}" + "x" * 5000)
+
+    def _stub_glob(self, work, wdl_version="1.2"):
+        # glob() against a stub container backed by a temporary host work
+        # dir; keep the synthetic container root under the test's temporary
+        # directory so absolute-link fixtures don't depend on the host layout
+        class _StubContainer:
+            def __init__(self, host_dir, work_dir):
+                self.host_dir = host_dir
+                self._work_dir = work_dir
+                self.container_dir = os.path.join(host_dir, "mnt_task")
+
+            def host_work_dir(self):
+                return self._work_dir
+
+        lib = WDL.runtime._stdlib.TaskOutputStdLib(
+            wdl_version, logging.getLogger(self.id()), _StubContainer(self._dir, work)
+        )
+
+        def glob_names(pat):
+            ans = lib.glob.F(WDL.Value.String(pat))
+            return [os.path.basename(f.value) for f in ans.value]
+
+        return glob_names
+
+    def test_glob_negated_character_class(self):
+        # [^...] must negate as in Bash, not match the literal set {^, ...}
+        work = os.path.join(self._dir, "work")
+        os.makedirs(work)
+        for fn in ("a.txt", "b.txt", "c.txt", "d.md"):
+            with open(os.path.join(work, fn), "w") as outfile:
+                outfile.write(fn)
+
+        glob_names = self._stub_glob(work)
+        self.assertEqual(glob_names("[^a]*.txt"), ["b.txt", "c.txt"])
+        self.assertEqual(glob_names("[!a]*.txt"), ["b.txt", "c.txt"])
+        self.assertEqual(glob_names("[^a-c]*"), ["d.md"])
+        self.assertEqual(glob_names("[a-c]*.txt"), ["a.txt", "b.txt", "c.txt"])
+
+    def test_glob_engine_dialect(self):
+        # the matching engine's dialect is Bash pathname expansion:
+        # POSIX character classes work, * doesn't match dotfiles (.* does),
+        # and ** without globstar behaves as *
+        work = os.path.join(self._dir, "work")
+        os.makedirs(work)
+        for fn in ("a.txt", "1.txt", ".hidden", ".hidden.txt"):
+            with open(os.path.join(work, fn), "w") as outfile:
+                outfile.write(fn)
+        os.makedirs(os.path.join(work, "sub", "deep"))
+        for fn in ("sub/inner.txt", "sub/deep/deep.txt"):
+            with open(os.path.join(work, fn), "w") as outfile:
+                outfile.write(fn)
+
+        glob_names = self._stub_glob(work)
+        self.assertEqual(glob_names("[[:alpha:]]*.txt"), ["a.txt"])
+        self.assertEqual(glob_names("[[:digit:]]*.txt"), ["1.txt"])
+        self.assertEqual(glob_names("*"), ["1.txt", "a.txt"])
+        self.assertEqual(glob_names(".*"), [".hidden", ".hidden.txt"])
+        self.assertEqual(glob_names("**"), ["1.txt", "a.txt"])
+        # without globstar, ** is exactly one path level: **/*.txt
+        # reaches one directory down only, not the top level or two
+        # down (explicit levels do)
+        self.assertEqual(glob_names("**/*.txt"), ["inner.txt"])
+        self.assertEqual(glob_names("*/*/*.txt"), ["deep.txt"])
+        # a pattern naming the directory itself (or through it) finds no
+        # files; it must not collapse to a file match
+        self.assertEqual(glob_names("."), [])
+        self.assertEqual(glob_names("a.txt/."), [])
+
+    def test_glob_match_stays_in_work_dir(self):
+        # the engine interprets backslash quoting, so a pattern spelling
+        # its uplevels with escapes (\../x) must still be rejected
+        work = os.path.join(self._dir, "work")
+        os.makedirs(work)
+        with open(os.path.join(self._dir, "canary.txt"), "w") as outfile:
+            outfile.write("canary")
+        with open(os.path.join(work, "ok.txt"), "w") as outfile:
+            outfile.write("ok")
+
+        glob_names = self._stub_glob(work)
+        self.assertEqual(glob_names("ok.txt"), ["ok.txt"])
+        for pat in ("../canary.txt", "\\..", "\\../canary.txt", "\\.\\./canary.txt"):
+            with self.assertRaises(WDL.Error.RuntimeError, msg=pat):
+                glob_names(pat)
+
+    def test_glob_dotdot_components(self):
+        # only a .. that is an entire path component is an uplevel;
+        # filenames merely containing the characters are ordinary names
+        work = os.path.join(self._dir, "work")
+        os.makedirs(work)
+        for fn in ("..report", "data..txt", "ok.txt"):
+            with open(os.path.join(work, fn), "w") as outfile:
+                outfile.write(fn)
+
+        glob_names = self._stub_glob(work)
+        self.assertEqual(glob_names("..report"), ["..report"])
+        self.assertEqual(glob_names("data..txt"), ["data..txt"])
+        self.assertEqual(glob_names("*"), ["data..txt", "ok.txt"])
+        for pat in ("../x", "x/../y", "..", "x/..", "{..,x}"):
+            with self.assertRaises(WDL.Error.RuntimeError, msg=pat):
+                glob_names(pat)
+
+    def test_glob_broken_symlink(self):
+        # glob() returns broken symlinks, as in Bash; directories, links to
+        # them, non-files, and symlink loops are excluded
+        work = os.path.join(self._dir, "work")
+        os.makedirs(work)
+        with open(os.path.join(work, "a_file"), "w") as outfile:
+            outfile.write("x")
+        os.symlink("a_file", os.path.join(work, "b_link_to_file"))
+        os.symlink("nonexistent", os.path.join(work, "c_broken_link"))
+        os.makedirs(os.path.join(work, "d_dir"))
+        os.symlink("d_dir", os.path.join(work, "e_link_to_dir"))
+        os.symlink("f_self_loop", os.path.join(work, "f_self_loop"))
+        os.mkfifo(os.path.join(work, "g_fifo"))
+        cwork = os.path.join(self._dir, "mnt_task", "work")
+        os.symlink(cwork + "/d_dir", os.path.join(work, "h_abs_link_to_dir"))
+        os.symlink(cwork + "/a_file", os.path.join(work, "i_abs_link_to_file"))
+        os.symlink(cwork + "/nonexistent", os.path.join(work, "j_abs_broken_link"))
+        os.makedirs(os.path.join(self._dir, "d2"))
+        os.symlink(cwork + "/../d2", os.path.join(work, "k_escape_link"))
+        os.symlink(cwork + "/f_self_loop", os.path.join(work, "l_abs_link_to_loop"))
+        os.symlink("n_chain_mid", os.path.join(work, "m_chain_link"))
+        os.symlink(cwork + "/d_dir", os.path.join(work, "n_chain_mid"))
+        os.symlink(
+            os.path.join(self._dir, "mnt_task", ".", "work", "d_dir"),
+            os.path.join(work, "o_dot_link"),
+        )
+        os.symlink(cwork + "/g_fifo/.", os.path.join(work, "p_dot_end_link"))
+        os.symlink(cwork + "/g_fifo/", os.path.join(work, "r_slash_end_link"))
+        parts = cwork.split("/")
+        os.symlink(
+            "/".join(parts[:2]) + "//" + "/".join(parts[2:]) + "/d_dir",
+            os.path.join(work, "q_slashes_link"),
+        )
+
+        expected = [
+            "a_file",
+            "b_link_to_file",
+            "c_broken_link",
+            "i_abs_link_to_file",
+            "j_abs_broken_link",
+            "k_escape_link",
+            "p_dot_end_link",
+            "r_slash_end_link",
+        ]
+        # the behavior is not gated on the document's WDL version
+        for wdl_version in ("1.0", "1.2"):
+            glob_names = self._stub_glob(work, wdl_version)
+            self.assertEqual(glob_names("*"), expected)
+            self.assertEqual(glob_names("c_*"), ["c_broken_link"])
+            self.assertEqual(glob_names("c_broken_link"), ["c_broken_link"])
+            self.assertEqual(glob_names("e_*"), [])
+            self.assertEqual(glob_names("h_*"), [])
+
+    def test_glob_brace_expansion(self):
+        # glob() performs Bash brace expansion: each alternative is globbed
+        # (and sorted) separately, then concatenated in expansion order.
+        # Duplicated matches are kept, as echo would print them.
+        work = os.path.join(self._dir, "work")
+        os.makedirs(work)
+        # (creation order is deliberately not sorted order, so the
+        # within-alternative sorting is exercised)
+        for fn in (
+            "b1.log",
+            "a1.log",
+            "c.txt",
+            "b.txt",
+            "a.txt",
+            "1.txt",
+            "2.txt",
+            "3.txt",
+            "{a}.txt",
+            "{a,b}.txt",
+            "*.txt",
+            "\\lit.txt",
+            "{a,b",
+            "prepost",
+            "x",
+            "p",
+            "q",
+            "r",
+        ):
+            with open(os.path.join(work, fn), "w") as outfile:
+                outfile.write(fn)
+
+        glob_names = self._stub_glob(work)
+        self.assertEqual(glob_names("{a,b}.txt"), ["a.txt", "b.txt"])
+        # expansion order, not a global re-sort
+        self.assertEqual(glob_names("{b,a}.txt"), ["b.txt", "a.txt"])
+        self.assertEqual(glob_names("{a,{b,c}}.txt"), ["a.txt", "b.txt", "c.txt"])
+        self.assertEqual(glob_names("{1..3}.txt"), ["1.txt", "2.txt", "3.txt"])
+        # matches sorted within each alternative, then concatenated
+        self.assertEqual(glob_names("{b*,a*}"), ["b.txt", "b1.log", "a.txt", "a1.log"])
+        # duplicates kept, as Bash prints them
+        self.assertEqual(glob_names("{a,a}.txt"), ["a.txt", "a.txt"])
+        # empty alternatives are not collapsed
+        self.assertEqual(glob_names("pre{,}post"), ["prepost", "prepost"])
+        # braces inside a bracket expression expand textually, as in Bash
+        self.assertEqual(glob_names("[{q,p}]"), ["q", "p"])
+        # literal fallbacks: comma-less and unbalanced braces
+        self.assertEqual(glob_names("{a}.txt"), ["{a}.txt"])
+        self.assertEqual(glob_names("{a,b"), ["{a,b"])
+        # an empty alternative matches nothing; the other still applies
+        self.assertEqual(glob_names("{,x}"), ["x"])
+        # backslash escapes as in Bash: escaped braces and stars are
+        # literal characters (the backslash itself is consumed), and an
+        # escaped backslash matches a literal one
+        self.assertEqual(glob_names("\\{a,b}.txt"), ["{a,b}.txt"])
+        self.assertEqual(glob_names("\\*.txt"), ["*.txt"])
+        self.assertEqual(glob_names("\\\\lit.txt"), ["\\lit.txt"])
+        # ./ alternatives produced by expansion are relative, as in Bash
+        self.assertEqual(glob_names("./{,/}x"), ["x", "x"])
+        # a trailing / still requires a directory, braces or not
+        self.assertEqual(glob_names("{a.txt/,b.txt}"), ["b.txt"])
+        self.assertEqual(glob_names("a.txt/"), [])
+        # a pattern without braces behaves exactly as before
+        self.assertEqual(
+            glob_names("*.txt"),
+            [
+                "*.txt",
+                "1.txt",
+                "2.txt",
+                "3.txt",
+                "\\lit.txt",
+                "a.txt",
+                "b.txt",
+                "c.txt",
+                "{a,b}.txt",
+                "{a}.txt",
+            ],
+        )
+        # an alternative may not escape the working directory
+        with self.assertRaises(WDL.Error.RuntimeError):
+            glob_names("{..,x}")
+        with self.assertRaises(WDL.Error.RuntimeError):
+            glob_names("{x,/y}")
+
+    def test_glob_brace_expansion_metachar_work_dir(self):
+        # brace alternatives and [^...] character classes compose, under a
+        # work directory whose own (balanced) bracket name is never pattern
+        # text
+        work = os.path.join(self._dir, "wo[rk]")
+        os.makedirs(work)
+        for fn in ("a.txt", "b.txt", "d.txt"):
+            with open(os.path.join(work, fn), "w") as outfile:
+                outfile.write(fn)
+
+        glob_names = self._stub_glob(work)
+        self.assertEqual(glob_names("*.txt"), ["a.txt", "b.txt", "d.txt"])
+        self.assertEqual(glob_names("{[^a],c}.txt"), ["b.txt", "d.txt"])
+
+    def test_glob_negated_character_class_task(self):
+        outputs = self._test_task(
+            R"""
+        version 1.0
+        task hello {
+            command {
+                touch a.txt b.txt c.txt
+            }
+            output {
+                Array[File] neg_caret = glob("[^a]*.txt")
+                Array[File] neg_bang = glob("[!a]*.txt")
+            }
+        }
+        """
+        )
+        self.assertEqual(
+            [os.path.basename(fn) for fn in outputs["neg_caret"]], ["b.txt", "c.txt"]
+        )
+        self.assertEqual(
+            [os.path.basename(fn) for fn in outputs["neg_bang"]], ["b.txt", "c.txt"]
+        )
+
     def test_concat(self):
         outputs = self._test_task(R"""
         version 1.0
