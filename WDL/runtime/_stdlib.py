@@ -284,7 +284,7 @@ class TaskOutputStdLib(TaskStdLib):
             for alt in _expand_bash_braces(pat):
                 if alt.startswith("/"):
                     raise OutputError("glob() pattern must be relative to task working directory")
-                if alt.startswith("..") or "/.." in alt:
+                if ".." in alt.split("/"):
                     raise OutputError("glob() pattern must not use .. uplevels")
                 kept = []
                 for rel in wcmatch_glob.iglob(alt, flags=0, root_dir=host_dir):

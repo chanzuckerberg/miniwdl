@@ -1840,6 +1840,23 @@ class TestStdLib(unittest.TestCase):
             with self.assertRaises(WDL.Error.RuntimeError, msg=pat):
                 glob_names(pat)
 
+    def test_glob_dotdot_components(self):
+        # only a .. that is an entire path component is an uplevel;
+        # filenames merely containing the characters are ordinary names
+        work = os.path.join(self._dir, "work")
+        os.makedirs(work)
+        for fn in ("..report", "data..txt", "ok.txt"):
+            with open(os.path.join(work, fn), "w") as outfile:
+                outfile.write(fn)
+
+        glob_names = self._stub_glob(work)
+        self.assertEqual(glob_names("..report"), ["..report"])
+        self.assertEqual(glob_names("data..txt"), ["data..txt"])
+        self.assertEqual(glob_names("*"), ["data..txt", "ok.txt"])
+        for pat in ("../x", "x/../y", "..", "x/..", "{..,x}"):
+            with self.assertRaises(WDL.Error.RuntimeError, msg=pat):
+                glob_names(pat)
+
     def test_glob_broken_symlink(self):
         # glob() returns broken symlinks, as in Bash; directories, links to
         # them, non-files, and symlink loops are excluded
