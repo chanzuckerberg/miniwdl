@@ -222,6 +222,16 @@ class TaskContainer(ABC):
         self.runtime_values with validated/postprocessed values that will be needed to configure
         the container properly.
 
+        The core normalizes values through their JSON representations, re-inferring
+        types with Type.Any so values with the same JSON representation have the
+        same delivered shape, regardless of source. A mapping arrives as a
+        Value.Struct of Type.Object with string member names, a Pair as a Struct
+        with left and right members, an array as a Value.Array with Type.Any item
+        type, and a File or Directory as its path String. If a value has no JSON
+        representation (e.g. a Map whose keys can't be written as JSON object
+        keys), the task fails before this hook is called. process_hints() receives
+        values normalized in the same way.
+
         Subclasses may override this to process custom runtime entries (before or after invoking
         this base version).
         """
@@ -328,8 +338,8 @@ class TaskContainer(ABC):
         Store evaluated task hints{} in self.hints_values for optional backend use.
 
         PROVISIONAL: this interface may change, together with process_runtime(), as
-        the handling of requirements and hints evolves; see miniwdl issues #959
-        (value shapes) and #960 (per-attempt evaluation for WDL 1.3).
+        the handling of requirements and hints evolves; see miniwdl issue #960
+        (per-attempt evaluation for WDL 1.3).
 
         The core task runner evaluates hints{} expressions and input JSON overrides
         using WDL.runtime.task._eval_task_hints() and calls this method on each task
@@ -343,12 +353,9 @@ class TaskContainer(ABC):
 
         * Keys use the spec's names: the camelCase aliases of reserved hints (e.g.
           maxMemory) are normalized to the snake_case names (max_memory).
-        * A value's shape can depend on where it came from, as with process_runtime():
-          a declared Map (e.g. disks) arrives as Value.Map, but a JSON override of it
-          as Value.Struct of Type.Object. Its .json gives plain JSON-like data either
-          way. (#959)
-        * Overrides arrive untyped (they aren't checked against the declared hints'
-          types), so coerce and validate values defensively.
+        * Values use the normalized shapes documented for process_runtime().
+        * Overrides aren't checked against the declared hints' types, so coerce and
+          validate values defensively.
         * This is called after runtime_values is populated by process_runtime() (so
           it may adjust them), but also after the task's input files are downloaded
           and mounted, so it can't affect their localization (e.g. for
