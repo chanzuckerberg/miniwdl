@@ -2252,6 +2252,78 @@ class TestHookValueShapes(unittest.TestCase):
             self.assertIs(type(delivered["custom_file"]), WDL.Value.String)
             self.assertTrue(delivered["custom_file"].value.endswith("input.txt"))
 
+    def test_resource_fallback_order_shape(self):
+        # an array of heterogeneous map literals: each element is delivered as
+        # a Struct of Object whose member types are re-derived from the values
+        # (cpu is Int in the first element, Float in the second), and the
+        # declared and JSON-override deliveries agree exactly
+        self.WDL = """version 1.2
+        task fallback {
+            command <<< echo hello >>>
+            output { String out = "done" }
+            requirements {
+                resourceFallbackOrder: [
+                    {
+                        "acceleratorType": "gpu", "acceleratorCount": 1, "cpu": 4,
+                        "memory": "16G", "resourceWaitTimeoutInMin": 30
+                    },
+                    {
+                        "acceleratorType": "gpu", "acceleratorCount": 2, "cpu": 8.0,
+                        "memory": "32G", "resourceWaitTimeoutInMin": 60
+                    }
+                ]
+            }
+        }
+        """
+        expected = [
+            {
+                "acceleratorType": "gpu",
+                "acceleratorCount": 1,
+                "cpu": 4,
+                "memory": "16G",
+                "resourceWaitTimeoutInMin": 30,
+            },
+            {
+                "acceleratorType": "gpu",
+                "acceleratorCount": 2,
+                "cpu": 8.0,
+                "memory": "32G",
+                "resourceWaitTimeoutInMin": 60,
+            },
+        ]
+        declared_runtime, _ = self._run_task()
+        override_runtime, _ = self._run_task(
+            {"fallback.requirements.resourceFallbackOrder": expected}
+        )
+        self.assertEqual(self._shapes(declared_runtime), self._shapes(override_runtime))
+        for delivered in (declared_runtime, override_runtime):
+            order = delivered["resourceFallbackOrder"]
+            self.assertIsInstance(order, WDL.Value.Array)
+            self.assertEqual(str(order.type), "Array[Any]+")
+            self.assertEqual(order.json, expected)
+            first, second = order.value
+            for element in (first, second):
+                self.assertIsInstance(element, WDL.Value.Struct)
+                self.assertIsInstance(element.type, WDL.Type.Object)
+                self.assertIs(type(element.value["acceleratorType"]), WDL.Value.String)
+                self.assertIs(type(element.value["acceleratorCount"]), WDL.Value.Int)
+                self.assertIs(type(element.value["memory"]), WDL.Value.String)
+                self.assertIs(type(element.value["resourceWaitTimeoutInMin"]), WDL.Value.Int)
+            # member types are re-derived from each element's own values:
+            # cpu arrives as Int in the first element, Float in the second
+            self.assertIs(type(first.value["cpu"]), WDL.Value.Int)
+            self.assertIs(type(second.value["cpu"]), WDL.Value.Float)
+            self.assertEqual(
+                str(first.type),
+                "object(acceleratorCount : Int, acceleratorType : String, cpu : Int, "
+                "memory : String, resourceWaitTimeoutInMin : Int)",
+            )
+            self.assertEqual(
+                str(second.type),
+                "object(acceleratorCount : Int, acceleratorType : String, cpu : Float, "
+                "memory : String, resourceWaitTimeoutInMin : Int)",
+            )
+
     def test_json_unrepresentable_value_fails_before_delivery(self):
         # a Map with Pair keys has no JSON representation; normalization rejects
         # it and the task fails before either hook is invoked
